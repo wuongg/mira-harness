@@ -67,6 +67,20 @@ def _check(root: Path, spec: dict, session: Session | None = None,
         if len(reads) < 2 or len(sizes) < 2:
             return False
         return reads[1] < reads[0] and sizes[1] < sizes[0]
+    if kind == "skill_shell":
+        if session is None:
+            return False
+        shells = [ev for ev in session.events if ev.name == "run_shell"]
+        if len(shells) < 2:
+            return False
+        if not shells[0].result.startswith("BỊ CHẶN"):
+            return False
+        if shells[1].result.startswith("BỊ CHẶN"):
+            return False
+        path = root / spec.get("path", "")
+        if not path.is_file():
+            return False
+        return spec.get("text", "") in path.read_text(encoding="utf-8")
     if kind == "skill_file":
         if session is None or session.skills_opened != list(spec.get("opened") or []):
             return False

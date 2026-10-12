@@ -40,8 +40,10 @@ def _consider_finish(session: Session, summary: str, task: str = "") -> tuple[bo
         session.log_event("finish_refused", reason=why, layer="verification")
         return False, why
     if session.lane_seen == 2:
-        from .skills import remember_fact, short_fact
-        remember_fact(session.root, task, short_fact(task))
+        from .skills import fact_from_audit, remember_fact
+        line = fact_from_audit(session.audit)
+        if line:
+            remember_fact(session.root, task, line)
     return True, summary
 
 

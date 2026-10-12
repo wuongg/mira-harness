@@ -1,0 +1,17 @@
+{
+  "title": "script skill chưa mở thì bị chặn",
+  "mode": "acceptEdits",
+  "prompt": "Chạy script của skill kem",
+  "files": {
+    "keep.txt": "con\n",
+    ".mira/skills/kem/SKILL.md": "---\nname: kem\ndescription: Khi cần chạy script đi kèm.\n---\nChạy scripts/run.py sau khi mở.\n",
+    ".mira/skills/kem/scripts/run.py": "print(1)\n"
+  },
+  "replies": [
+    "<tool>{\"name\":\"run_shell\",\"args\":{\"cmd\":\"python .mira/skills/kem/scripts/run.py\"}}</tool>",
+    "<tool>{\"name\":\"use_skill\",\"args\":{\"name\":\"kem\"}}</tool>",
+    "<tool>{\"name\":\"run_shell\",\"args\":{\"cmd\":\"python .mira/skills/kem/scripts/run.py\"}}</tool>",
+    "<tool>{\"name\":\"finish\",\"args\":{\"summary\":\"model bịa không được vào fact\"}}</tool>"
+  ],
+  "check": {"type": "skill_shell", "path": "keep.txt", "text": "con"}
+}

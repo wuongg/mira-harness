@@ -471,8 +471,8 @@ def execute_plan(plan: TeamPlan, *, provider_name: str | None = None,
             elif all(v == "PASS" for v in verdicts):
                 verifier_verdict = "PASS"
                 if root is not None:
-                    from .skills import remember_fact, short_fact
-                    remember_fact(root, plan.task_text, short_fact(plan.task_text))
+                    from .skills import fact_from_audit, remember_fact
+                    remember_fact(root, plan.task_text, fact_from_audit(None, "đã kiểm"))
             else:
                 verifier_verdict = next(v for v in verdicts if v != "PASS")
             if _over_cap():

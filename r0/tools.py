@@ -65,9 +65,22 @@ class _LaneSource:
         self.observable = observable
 
 
-def lane_for_tool(tool: str) -> int:
-    from .pipeline import t1a_policy
-    return int(t1a_policy(_LaneSource(observable_for_tool(tool)))["lane_base"])
+def lane_for_tool(tool: str, untrusted: bool = False) -> int:
+    """Làn của tool. Skill đã mở thì sàn nội dung không tin được cộng như build_plan."""
+    from .pipeline import dynamic_floor, t1a_policy
+    obs = observable_for_tool(tool)
+    lane = int(t1a_policy(_LaneSource(obs))["lane_base"])
+    if not untrusted:
+        return lane
+    richer = dict(obs)
+    richer["untrusted_content"] = True
+    richer["isolation_proven_by_code"] = False
+    richer["isolation_sound"] = False
+    richer["isolation_hash_logged"] = False
+    floor = dynamic_floor(_LaneSource(richer), {"probation_ok": False})
+    if floor["floor"] >= 2:
+        lane = max(lane, int(floor["floor"]) - 1)
+    return lane
 
 
 _MUTATIONS = ("write_file", "edit_file", "multi_edit", "delete_file", "run_shell")
@@ -340,7 +353,7 @@ class Session:
 
     def _permit(self, tool: str, args: dict, refusal: str) -> str | None:
         """None là được làm. plan chặn mọi việc không ở mức thấp, trước khi hỏi."""
-        lane = lane_for_tool(tool)
+        lane = lane_for_tool(tool, untrusted=bool(self.skills_opened))
         if self.mode == "plan" and risk_of(tool) != "low":
             self.stop_layer = "governance"
             return "BỊ CHẶN: đang ở chế độ plan — không được làm việc này."
@@ -393,6 +406,30 @@ class Session:
             return True
         return p != self.root and self.root not in p.parents
 
+    def _unopened_skill_arg(self, arg: str) -> str | None:
+        """Path trong .mira/skills/<tên> khi tên chưa mở. None nếu không chặn."""
+        if not arg or arg.startswith("-") or "://" in arg:
+            return None
+        looks_path = arg.startswith(".") or Path(arg).is_absolute() or "/" in arg or "\\" in arg
+        if not looks_path:
+            return None
+        try:
+            candidate = Path(arg)
+            p = candidate.resolve() if candidate.is_absolute() else (self.root / arg).resolve()
+        except OSError:
+            return None
+        skills_root = (self.root / ".mira" / "skills").resolve()
+        if p != skills_root and skills_root not in p.parents:
+            return None
+        try:
+            rel = p.relative_to(skills_root)
+        except ValueError:
+            return None
+        name = rel.parts[0] if rel.parts else ""
+        if not name or name not in self.skills_opened:
+            return f"BỊ CHẶN: script của skill {name or '(trống)'} chưa mở."
+        return None
+
     # ------------------------------------------------------------- công cụ
     def plan_skills(self, names) -> str:
         """Ghi thứ tự skill. Không nạp thân."""
@@ -426,10 +463,11 @@ class Session:
                 return f"LỖI: chưa tới skill {wanted}. Tiếp theo là {nxt or 'hết'}."
         self.skills_opened.append(wanted)
         self.log_event("skill_open", name=wanted, layer="tool")
-        from .skills import skill_file_names
+        self.log_event("skill_untrusted", name=wanted, layer="tool")
+        from .skills import UNTRUSTED_MARK, skill_file_names
         names = skill_file_names(self.root, wanted)
         listing = ", ".join(names) if names else "(không)"
-        return found["body"] + "\nfile kèm: " + listing
+        return UNTRUSTED_MARK + "\n" + found["body"] + "\nfile kèm: " + listing
 
     def read_skill_file(self, name: str, path: str) -> str:
         """Đọc một file trong scripts, references hoặc assets của skill đã mở."""
@@ -788,15 +826,19 @@ class Session:
 
     def run_shell(self, cmd: str, timeout: int = 60) -> str:
         """Chạy đối số trong bản sao. Không ghi ngược vào cây nguồn."""
-        denied = self._permit("run_shell", {"cmd": cmd}, f"NGƯỜI DÙNG TỪ CHỐI chạy: {cmd}")
-        if denied:
-            return denied
         try:
             argv = shlex.split(cmd, posix=True)
         except ValueError as e:
             return f"LỖI: lệnh không tách được đối số: {e}"
         if not argv:
             return "LỖI: thiếu lệnh"
+        for arg in argv[1:]:
+            blocked = self._unopened_skill_arg(arg)
+            if blocked:
+                return blocked
+        denied = self._permit("run_shell", {"cmd": cmd}, f"NGƯỜI DÙNG TỪ CHỐI chạy: {cmd}")
+        if denied:
+            return denied
         for arg in argv[1:]:
             if self._arg_outside(arg):
                 return f"BỊ CHẶN: lệnh trỏ ra ngoài thư mục gốc: {arg}"

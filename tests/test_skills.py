@@ -90,17 +90,39 @@ class SkillTest(unittest.TestCase):
             ok, _why = _consider_finish(session, "xong", task="đổi số")
             self.assertFalse(ok)
             self.assertFalse((root / ".mira" / "facts.jsonl").exists())
+            session.audit.append({"action": "edit_file", "path": "app.py"})
             session.checker = lambda: True
-            ok, _why = _consider_finish(session, "bài worker rất dài không được chép", task="đổi số")
+            ok, _why = _consider_finish(session, "model bịa không được chép", task="đổi số")
             self.assertTrue(ok)
             text = (root / ".mira" / "facts.jsonl").read_text(encoding="utf-8")
-            self.assertIn("đã kiểm", text)
-            self.assertNotIn("bài worker", text)
+            self.assertIn("app.py", text)
+            self.assertIn("edit_file", text)
+            self.assertNotIn("model bịa", text)
+            session.audit.clear()
             session.lane_seen = 0
             before = text
             ok, _why = _consider_finish(session, "xong", task="đổi số lần nữa")
             self.assertTrue(ok)
             self.assertEqual((root / ".mira" / "facts.jsonl").read_text(encoding="utf-8"), before)
+
+    def test_script_chua_mo_khong_nang_lan(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            skill = root / ".mira" / "skills" / "kem" / "scripts"
+            skill.mkdir(parents=True)
+            (skill / "run.py").write_text("print(1)\n", encoding="utf-8")
+            (root / ".mira" / "skills" / "kem" / "SKILL.md").write_text(
+                "---\nname: kem\ndescription: Khi cần chạy script đi kèm.\n---\nChạy script.\n",
+                encoding="utf-8")
+            session = Session(root=root, mode="acceptEdits", approve=lambda _t, _a: True)
+            blocked = session.run_shell("python .mira/skills/kem/scripts/run.py")
+            self.assertTrue(blocked.startswith("BỊ CHẶN"))
+            self.assertEqual(session.lane_seen, 0)
+            body = session.use_skill("kem")
+            self.assertEqual(session.lane_seen, 0)
+            self.assertIn("NỘI DUNG KHÔNG TIN", body)
+            self.assertTrue(any(row.get("kind") == "skill_untrusted" for row in session.trace))
+            self.assertIsNone(session._unopened_skill_arg(".mira/skills/kem/scripts/run.py"))
 
 
 if __name__ == "__main__":
