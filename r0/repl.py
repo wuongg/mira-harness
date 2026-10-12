@@ -66,16 +66,46 @@ def _new_session_id() -> str:
     return time.strftime("%Y%m%d-%H%M%S") + "-" + uuid.uuid4().hex[:4]
 
 
-def save_session(sid: str, history: list[dict], events: list[dict], meta: dict) -> Path:
+def save_session(sid: str, history: list[dict], events: list[dict], meta: dict,
+                 trace: list[dict] | None = None) -> Path:
     SESS_DIR.mkdir(parents=True, exist_ok=True)
     p = _sess_path(sid)
     with p.open("w", encoding="utf-8") as f:
         f.write(json.dumps({"type": "meta", **meta}, ensure_ascii=False) + "\n")
-        for m in history:
-            f.write(json.dumps({"type": "message", **m}, ensure_ascii=False) + "\n")
-        for e in events:
-            f.write(json.dumps({"type": "event", **e}, ensure_ascii=False) + "\n")
+        if trace is not None:
+            for row in trace:
+                if row.get("kind") == "message":
+                    line = {"type": "message", "role": row.get("role"), "content": row.get("content")}
+                else:
+                    line = {"type": "event", **row}
+                f.write(json.dumps(line, ensure_ascii=False) + "\n")
+        else:
+            for m in history:
+                f.write(json.dumps({"type": "message", **m}, ensure_ascii=False) + "\n")
+            for e in events:
+                f.write(json.dumps({"type": "event", **e}, ensure_ascii=False) + "\n")
     return p
+
+
+def load_trace(sid: str) -> tuple[list[dict], dict]:
+    """Đọc jsonl thành đúng một sổ, giữ thứ tự."""
+    p = _sess_path(sid)
+    if not p.exists():
+        return [], {}
+    trace: list[dict] = []
+    meta: dict = {}
+    for line in p.read_text(encoding="utf-8").splitlines():
+        if not line.strip():
+            continue
+        o = json.loads(line)
+        t = o.pop("type", None)
+        if t == "message":
+            trace.append({"kind": "message", "role": o.get("role"), "content": o.get("content")})
+        elif t == "event":
+            trace.append(o)
+        elif t == "meta":
+            meta = o
+    return trace, meta
 
 
 def load_session(sid: str) -> tuple[list[dict], list[dict], dict]:
@@ -416,23 +446,45 @@ def _center_art(line: str, width: int) -> str:
     return " " * (gap // 2) + line + " " * (gap - gap // 2)
 
 
-def compact_history(history: list[dict]) -> tuple[list[dict], str, dict | None]:
-    """Giữ 6 tin gần. Tin bị gộp nằm trong một sự kiện, không gọi model."""
-    if len(history) <= 6:
-        return history, "Hội thoại còn ngắn, chưa cần rút gọn.", None
-    old, recent = history[:-6], history[-6:]
+def _message_text(content) -> str:
+    if isinstance(content, list):
+        return " ".join(str(x.get("text") or x.get("content") or "") for x in content if isinstance(x, dict))
+    return str(content or "")
+
+
+def view_for_model(trace: list[dict]) -> list[dict]:
+    """Dựng hội thoại gửi model từ sổ. Không xoá sự kiện gốc."""
+    messages = [e for e in trace if e.get("kind") == "message"]
+    rows = [{"role": e.get("role") or "user", "content": e.get("content") or ""} for e in messages]
+    condensed = [e for e in trace if e.get("kind") == "condensed"]
+    if not condensed:
+        return rows
+    last = condensed[-1]
+    count_at = int(last.get("message_count") or 0)
+    kept = int(last["kept"]) if last.get("kept") is not None else 6
+    start = max(0, count_at - kept)
+    summary = last.get("summary") or ""
+    return [{"role": "user", "content": summary}, *rows[start:]]
+
+
+def condense_trace(trace: list[dict]) -> tuple[str, dict | None]:
+    """Tóm tắt local. Trả sự kiện để gắn thêm, không sửa sổ."""
+    view = view_for_model(trace)
+    if len(view) <= 6:
+        return "Hội thoại còn ngắn, chưa cần rút gọn.", None
+    old = view[:-6]
     lines = []
     for msg in old:
-        content = msg.get("content")
-        if isinstance(content, list):
-            content = " ".join(str(x.get("text") or x.get("content") or "") for x in content if isinstance(x, dict))
-        text = str(content or "").strip().splitlines()
+        text = _message_text(msg.get("content")).strip().splitlines()
         if not text or not text[0].strip():
             continue
         lines.append(f"- {msg.get('role', '?')}: {text[0][:120]}")
     summary = "TÓM TẮT CÁC LƯỢT TRƯỚC:\n" + ("\n".join(lines[:40]) or "(không có nội dung)")
-    event = {"kind": "condensed", "dropped": len(old), "kept": 6, "summary": summary}
-    return [{"role": "user", "content": summary}, *recent], f"Đã rút gọn: gộp {len(old)} tin cũ, giữ 6 tin gần nhất.", event
+    dropped = len(old)
+    count = sum(1 for e in trace if e.get("kind") == "message")
+    event = {"kind": "condensed", "dropped": dropped, "kept": 6,
+             "summary": summary, "message_count": count}
+    return f"Đã rút gọn: gộp {dropped} tin cũ, giữ 6 tin gần nhất.", event
 
 
 def _ask_approval(tool: str, args: dict) -> bool:
@@ -461,11 +513,14 @@ def repl(args) -> int:
     history: list[dict] = []
     events: list[dict] = []
     meta = {"session": sid}
+    loaded: list[dict] = []
     if args.resume:
-        history, events, meta = load_session(args.resume)
+        loaded, meta = load_trace(args.resume)
+        history = view_for_model(loaded)
         ui.note(f"Mở lại phiên {args.resume}, {len(history)} lượt.", "ok")
 
     session = Session(root=root, mode=args.mode, approve=_ask_approval)
+    session.trace.extend(loaded)
     model = args.model or C.ROLE_MODEL["worker"]
     team_mode = bool(args.team)
     cost_total = 0.0
@@ -536,9 +591,11 @@ def repl(args) -> int:
                     m = session.load_memory()
                     ui.note(m or "Chưa có ghi nhớ. Gõ /memory rồi đến nội dung cần nhớ.", "info")
             elif cmd == "compact":
-                history[:], note, condensed = compact_history(history)
+                note, condensed = condense_trace(session.trace)
                 if condensed:
-                    events.append(condensed)
+                    session.log_event("condensed", layer="context",
+                                      **{k: v for k, v in condensed.items() if k != "kind"})
+                history[:] = view_for_model(session.trace)
                 ui.note(note, "ok" if note.startswith("Đã") else "info")
             elif cmd == "menu":
                 ui.section("Bốn việc, chạy ở terminal sau khi gõ /exit")
@@ -553,14 +610,18 @@ def repl(args) -> int:
                 from .keys import prompt_setup
                 prompt_setup()
             elif cmd == "clear":
-                history = []
+                count = sum(1 for e in session.trace if e.get("kind") == "message")
+                session.log_event("condensed", dropped=count, kept=0, layer="context",
+                                  summary="(đã xoá hội thoại)", message_count=count)
+                history[:] = view_for_model(session.trace)
                 ui.note("Đã xoá hội thoại. Sổ tiền vẫn giữ.", "ok")
             elif cmd == "save":
                 p = save_session(sid, history, events,
                                  {**meta, "model": model, "turns": turns,
                                   "mode": session.mode, "cost_usd": cost_total,
                                   "tokens": dict(tok_total),
-                                  "first_task": meta.get("first_task", "")})
+                                  "first_task": meta.get("first_task", "")},
+                                 trace=session.trace)
                 ui.note(f"Đã lưu: {p}", "ok")
             elif cmd == "sessions":
                 rows = list_sessions()
@@ -574,12 +635,14 @@ def repl(args) -> int:
                 if not arg:
                     ui.note("Gõ /resume rồi đến mã phiên.", "warn")
                 else:
-                    h, e, m = load_session(arg)
-                    if not h:
+                    loaded_now, m = load_trace(arg)
+                    if not loaded_now:
                         ui.note(f"Không có phiên {arg}.", "bad")
                     else:
-                        history, events, meta, sid = h, e, m, arg
-                        ui.note(f"Đã mở {arg}, {len(h)} lượt.", "ok")
+                        session.trace[:] = loaded_now
+                        history[:] = view_for_model(session.trace)
+                        meta, sid = m, arg
+                        ui.note(f"Đã mở {arg}, {len(history)} lượt.", "ok")
             else:
                 ui.note(f"Không có lệnh /{cmd}. Gõ /help.", "warn")
             continue
@@ -612,11 +675,12 @@ def repl(args) -> int:
             else:
                 print(ui.c(f"  {time.time() - t0:.1f}s", "dim"))
 
-    if history:
+    if session.trace or history:
         p = save_session(sid, history, events,
                          {**meta, "model": model, "turns": turns,
                           "mode": session.mode, "cost_usd": cost_total,
-                          "tokens": dict(tok_total)})
+                          "tokens": dict(tok_total)},
+                         trace=session.trace)
         print()
         ui.note(f"Phiên đã lưu: {p}", "info")
     return 0
@@ -627,9 +691,10 @@ def _one_turn(task: str, session: Session, model: str, args, history, events, te
         brief = a.get("cmd") or a.get("path") or a.get("pattern") or ""
         print()
         print("  " + ui.c(name, "accent") + ui.c(f"  {str(brief)[:90]}", "dim"))
+    view = view_for_model(session.trace)
     res = run_turn(task=task, session=session, model=model,
                    provider_name=args.provider, base_url=args.base_url,
-                   max_tokens=args.max_tokens, history=history,
+                   max_tokens=args.max_tokens, history=view,
                    protocol=getattr(args, "protocol", "auto"),
                    no_stream=getattr(args, "no_stream", False),
                    max_turns=getattr(args, "max_turns", 0) or None,
@@ -638,10 +703,11 @@ def _one_turn(task: str, session: Session, model: str, args, history, events, te
                    on_tool=show_tool,
                    on_note=lambda m: print(ui.c(f"  · {m}", "grey")))
     print()
-    for ev in session.events:
-        d = ev.as_dict()
-        if d not in events:
-            events.append(d)
+    if res.get("convo"):
+        for msg in res["convo"][len(view):]:
+            session.log_event("message", role=msg.get("role") or "user",
+                              content=_message_text(msg.get("content")))
+        history[:] = view_for_model(session.trace)
     for row in session.trace:
         if row not in events:
             events.append(row)

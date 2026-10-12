@@ -5,7 +5,7 @@ import unittest
 from pathlib import Path
 
 from r0.agent import _price
-from r0.repl import compact_history
+from r0.repl import condense_trace, view_for_model
 from r0.tools import Session
 
 
@@ -48,6 +48,15 @@ class DiskGuardTest(unittest.TestCase):
         out = self._sess().run_shell("python ../ngoai.txt")
         self.assertTrue(out.startswith("BỊ CHẶN"))
 
+    def test_shell_ghi_trong_ban_sao(self):
+        import shlex
+        import sys
+        cmd = shlex.join([sys.executable, "-c",
+                          "open('created.txt','w',encoding='utf-8').write('x'); print('xin-chao')"])
+        out = self._sess().run_shell(cmd)
+        self.assertIn("xin-chao", out)
+        self.assertFalse((self.root / "created.txt").exists())
+
     def test_undo_sau_khi_xoa(self):
         s = self._sess()
         s.delete_file("a.txt")
@@ -76,11 +85,46 @@ class DiskGuardTest(unittest.TestCase):
         self.assertGreater(_price("khong-co-model", {"in": 1_000_000, "out": 0}), 0)
 
     def test_compact_gop_tin_cu(self):
-        history = [{"role": "user", "content": f"viec {i}"} for i in range(8)]
-        out, note, event = compact_history(history)
+        trace = [{"kind": "message", "role": "user", "content": f"viec {i}"} for i in range(8)]
+        note, event = condense_trace(trace)
         self.assertTrue(note.startswith("Đã rút gọn"))
-        self.assertIn("TÓM TẮT", out[0]["content"])
-        self.assertEqual(len(out), 7)
-        self.assertEqual(event["kind"], "condensed")
-        self.assertEqual(event["dropped"], 2)
+        self.assertIsNotNone(event)
+        trace.append(event)
+        view = view_for_model(trace)
+        self.assertEqual(len(view), 7)
+        self.assertIn("TÓM TẮT", view[0]["content"])
         self.assertIn("viec 0", event["summary"])
+        self.assertEqual(trace[0]["content"], "viec 0")
+
+    def test_plan_khong_nang_lan(self):
+        s = self._sess(mode="plan")
+        out = s.write_file("moi.txt", "a")
+        self.assertTrue(out.startswith("BỊ CHẶN"))
+        self.assertEqual(s.lane_seen, 0)
+        ok, _why = s.accept_finish()
+        self.assertTrue(ok)
+
+    def test_sua_hop_le_thi_finish_duoc(self):
+        s = self._sess(mode="acceptEdits")
+        s.edit_file("a.txt", "xin chao", "xin")
+        self.assertEqual(s.lane_seen, 1)
+        ok, _why = s.accept_finish()
+        self.assertTrue(ok)
+
+    def test_lan_2_khong_co_checker_thi_khong_dung(self):
+        import shlex
+        import sys
+        from r0.agent import run_turn
+        from r0.bench import _Scripted
+        s = self._sess()
+        cmd = shlex.join([sys.executable, "-c", "pass"])
+        s.run_shell(cmd)
+        self.assertEqual(s.lane_seen, 2)
+        ok, why = s.accept_finish()
+        self.assertFalse(ok)
+        self.assertIn("kiểm chứng", why)
+        replies = ['<tool>{"name":"finish","args":{"summary":"xong"}}</tool>'] * 3
+        res = run_turn(task="xong chua", session=s, model="sonnet-5.5",
+                       protocol="text", no_stream=True, max_turns=3,
+                       provider=_Scripted(replies), on_text=lambda _t: None)
+        self.assertEqual(res["status"], "stopped_verification")

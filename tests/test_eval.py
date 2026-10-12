@@ -15,6 +15,7 @@ class EvalTest(unittest.TestCase):
         self.assertEqual([r["name"] for r in rows], ["doi_gia_tri", "plan_khong_ghi"])
         self.assertTrue(all(r["ok"] for r in rows))
         self.assertGreater(rows[0]["costUsd"], 0)
+        self.assertTrue(all(r["layer"] in ("governance", "verification", "context", "tool") for r in rows))
         self.assertEqual(run_eval(root), 0)
 
     def test_so_su_kien_vao_jsonl(self):

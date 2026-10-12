@@ -11,8 +11,10 @@ import os
 import py_compile
 import re
 import shlex
+import shutil
 import socket
 import subprocess
+import sys
 import tempfile
 import urllib.error
 import urllib.parse
@@ -22,6 +24,77 @@ from pathlib import Path
 from typing import Any, Callable
 
 MODES = ("plan", "default", "acceptEdits", "bypass")
+
+_MEDIUM = {"write_file", "edit_file", "multi_edit"}
+_HIGH = {"delete_file", "run_shell", "fetch_url", "web_search", "task"}
+
+
+def risk_of(tool: str) -> str:
+    """Mức rủi ro của một công cụ. Không quyết định có hỏi người dùng hay không."""
+    if tool in _HIGH:
+        return "high"
+    if tool in _MEDIUM:
+        return "medium"
+    return "low"
+
+
+def needs_confirm(mode: str, risk: str) -> bool:
+    """Chính sách duyệt. plan từ chối trước khi tới đây."""
+    if mode in ("bypass", "plan") or risk == "low":
+        return False
+    if mode == "acceptEdits" and risk == "medium":
+        return False
+    return True
+
+
+def observable_for_tool(tool: str) -> dict:
+    """Nguồn cho t1a_policy. Không lấy từ lời model."""
+    obs = {"tool_surface": "read_only", "reversibility": "C1",
+           "records": 0, "dollars": 0, "data_labels": [], "output_type": "enum"}
+    if tool in ("write_file", "edit_file", "multi_edit"):
+        obs["tool_surface"] = "write_sandbox"
+        obs["reversibility"] = "C2"
+    elif tool in ("delete_file", "run_shell", "fetch_url", "web_search", "task"):
+        obs["tool_surface"] = "egress_new"
+        obs["reversibility"] = "C3"
+    return obs
+
+
+class _LaneSource:
+    def __init__(self, observable: dict):
+        self.observable = observable
+
+
+def lane_for_tool(tool: str) -> int:
+    from .pipeline import t1a_policy
+    return int(t1a_policy(_LaneSource(observable_for_tool(tool)))["lane_base"])
+
+
+_MUTATIONS = ("write_file", "edit_file", "multi_edit", "delete_file", "run_shell")
+_WRITES = ("write_file", "edit_file", "multi_edit")
+
+
+def _ignore_workspace(_dir: str, names: list[str]) -> list[str]:
+    skip = []
+    for name in names:
+        if name in (".git", "__pycache__", ".venv") or name == ".env" or name.startswith(".env."):
+            skip.append(name)
+    return skip
+
+
+def _shell_argv(work: Path, argv: list[str]) -> list[str]:
+    """Linux có bwrap thì cắt mạng và chỉ cho ghi trong bản sao."""
+    bwrap = shutil.which("bwrap") if sys.platform.startswith("linux") else None
+    if not bwrap:
+        return argv
+    return [
+        bwrap, "--unshare-net", "--die-with-parent",
+        "--ro-bind", "/", "/",
+        "--bind", str(work), str(work),
+        "--chdir", str(work),
+        "--",
+        *argv,
+    ]
 
 TOOL_SPECS = {
     "read_file": "đọc một cửa sổ dòng trong tệp (mặc định 100 dòng, có số dòng)",
@@ -198,6 +271,9 @@ class Session:
     allow_always: set[str] = field(default_factory=set)
     budget_left: float | None = None
     trace: list[dict] = field(default_factory=list)
+    lane_seen: int = 0
+    checker: Callable[[], bool] | None = None
+    stop_layer: str = "governance"
 
     def __post_init__(self):
         self.root = Path(self.root).resolve()
@@ -206,7 +282,7 @@ class Session:
         """Sổ sự kiện gắn thêm. Không sửa dòng đã ghi."""
         row: dict[str, Any] = {"kind": kind}
         for key, value in fields.items():
-            if isinstance(value, str) and len(value) > 400:
+            if isinstance(value, str) and key not in ("content", "summary") and len(value) > 400:
                 value = value[:400] + "…"
             row[key] = value
         self.trace.append(row)
@@ -243,24 +319,61 @@ class Session:
         return tool + ":" + str(args.get("path") or "")
 
     def _allow(self, tool: str, args: dict) -> bool:
-        """Cổng xin phép. Trả True/False — không phán đoán bằng LLM."""
-        if self.mode == "bypass":
+        """Hỏi người dùng khi chính sách bảo hỏi. Không tự chọn tool nào phải hỏi."""
+        if not needs_confirm(self.mode, risk_of(tool)):
             return True
         key = self._grant_key(tool, args)
         if key in self.allow_always:
             return True
-        if tool in ("write_file", "edit_file", "multi_edit") and self.mode == "acceptEdits":
+        if not self.approve:
+            return False
+        verdict = self.approve(tool, args)
+        if verdict == "always":
+            self.allow_always.add(key)
             return True
-        if tool in ("write_file", "edit_file", "multi_edit",
-                    "run_shell", "delete_file", "fetch_url", "web_search"):
-            if not self.approve:
-                return False
-            verdict = self.approve(tool, args)
-            if verdict == "always":
-                self.allow_always.add(key)
-                return True
-            return bool(verdict)
-        return True
+        return bool(verdict)
+
+    def _permit(self, tool: str, args: dict, refusal: str) -> str | None:
+        """None là được làm. plan chặn mọi việc không ở mức thấp, trước khi hỏi."""
+        lane = lane_for_tool(tool)
+        if self.mode == "plan" and risk_of(tool) != "low":
+            self.stop_layer = "governance"
+            return "BỊ CHẶN: đang ở chế độ plan — không được làm việc này."
+        if not self._allow(tool, args):
+            self.stop_layer = "governance"
+            return refusal
+        self.lane_seen = max(self.lane_seen, lane)
+        return None
+
+    def accept_finish(self) -> tuple[bool, str]:
+        """finish là lời xin. Làn quyết định sổ phải có tác dụng gì."""
+        mutated = any(a.get("action") in _MUTATIONS for a in self.audit)
+        if self.lane_seen <= 0:
+            if mutated:
+                self.stop_layer = "verification"
+                return False, "làn 0 nhưng sổ đã có thay đổi"
+            self.stop_layer = "governance"
+            return True, "xong"
+        if self.lane_seen == 1:
+            wrote = any(a.get("action") in _WRITES for a in self.audit)
+            if not wrote:
+                self.stop_layer = "verification"
+                return False, "làn 1 chưa có lần ghi hoặc sửa"
+            self.stop_layer = "governance"
+            return True, "xong"
+        if self.checker is None:
+            self.stop_layer = "verification"
+            return False, "làn 2 thiếu kiểm chứng"
+        try:
+            ok = bool(self.checker())
+        except Exception as e:
+            self.stop_layer = "verification"
+            return False, f"kiểm chứng lỗi: {type(e).__name__}"
+        if not ok:
+            self.stop_layer = "verification"
+            return False, "kiểm chứng chưa đúng"
+        self.stop_layer = "verification"
+        return True, "xong"
 
     def _arg_outside(self, arg: str) -> bool:
         if not arg or arg.startswith("-") or "://" in arg:
@@ -356,11 +469,10 @@ class Session:
     def write_file(self, path: str, content: str) -> str:
         """CỬA GHI DUY NHẤT (I1). Không có đường nào khác chạm đĩa."""
         p = self._resolve(path)
-        if self.mode == "plan":
-            return ("BỊ CHẶN: đang ở chế độ plan — không được ghi. "
-                    "Hãy trình bày đề xuất và để người dùng tự đổi chế độ.")
-        if not self._allow("write_file", {"path": path, "bytes": len(content)}):
-            return f"NGƯỜI DÙNG TỪ CHỐI ghi {path}."
+        denied = self._permit("write_file", {"path": path, "bytes": len(content)},
+                              f"NGƯỜI DÙNG TỪ CHỐI ghi {path}.")
+        if denied:
+            return denied
         self._snapshot(p, "write_file")
         p.parent.mkdir(parents=True, exist_ok=True)
         existed = p.exists()
@@ -386,8 +498,6 @@ class Session:
     def edit_file(self, path: str, old: str, new: str, count: int = 0) -> str:
         """Sửa tại chỗ: thay `old` bằng `new`. count=0 -> thay TẤT CẢ chỗ khớp."""
         p = self._resolve(path)
-        if self.mode == "plan":
-            return "BỊ CHẶN: đang ở chế độ plan — không được sửa."
         if not p.is_file():
             return f"LỖI: không có tệp {path}"
         if not old:
@@ -401,8 +511,10 @@ class Session:
             err = _python_syntax(updated)
             if err:
                 return f"LỖI: cú pháp Python trong {path}: {err}"
-        if not self._allow("edit_file", {"path": path, "n": n_rep}):
-            return f"NGƯỜI DÙNG TỪ CHỐI sửa {path}."
+        denied = self._permit("edit_file", {"path": path, "n": n_rep},
+                              f"NGƯỜI DÙNG TỪ CHỐI sửa {path}.")
+        if denied:
+            return denied
         self._snapshot(p, "edit_file")
         p.write_text(updated, encoding="utf-8")
         self.audit.append({"action": "edit_file", "path": str(p.relative_to(self.root)),
@@ -411,14 +523,13 @@ class Session:
 
     def delete_file(self, path: str) -> str:
         p = self._resolve(path)
-        if self.mode == "plan":
-            return "BỊ CHẶN: đang ở chế độ plan — không xoá."
         if not p.exists():
             return f"LỖI: không có {path}"
         if p.is_dir():
             return f"LỖI: {path} là thư mục — không xoá thư mục"
-        if not self._allow("delete_file", {"path": path}):
-            return f"NGƯỜI DÙNG TỪ CHỐI xoá {path}."
+        denied = self._permit("delete_file", {"path": path}, f"NGƯỜI DÙNG TỪ CHỐI xoá {path}.")
+        if denied:
+            return denied
         self._snapshot(p, "delete_file")
         p.unlink()
         self.audit.append({"action": "delete_file", "path": str(p.relative_to(self.root)),
@@ -426,13 +537,12 @@ class Session:
         return f"đã xoá {path}"
 
     def fetch_url(self, url: str, max_bytes: int = 200_000) -> str:
-        if self.mode == "plan":
-            return "BỊ CHẶN: đang ở chế độ plan — không gọi mạng."
         blocked = _https_block_reason(url)
         if blocked:
             return blocked
-        if not self._allow("fetch_url", {"url": url}):
-            return f"NGƯỜI DÙNG TỪ CHỐI tải {url}."
+        denied = self._permit("fetch_url", {"url": url}, f"NGƯỜI DÙNG TỪ CHỐI tải {url}.")
+        if denied:
+            return denied
         self.audit.append({"action": "fetch_url", "url": url, "mode": self.mode})
         req = urllib.request.Request(url, headers={"user-agent": "r0-shadow/1.0"})
         opener = urllib.request.build_opener(_GuardRedirect)
@@ -451,8 +561,6 @@ class Session:
 
     def multi_edit(self, edits) -> str:
         """Sửa nhiều chỗ trong một/nhiều tệp, MỘT lượt. Kiểm HẾT trước, rồi mới ghi."""
-        if self.mode == "plan":
-            return "BỊ CHẶN: đang ở chế độ plan — không được sửa."
         if not isinstance(edits, list) or not edits:
             return "LỖI: cần danh sách `edits`"
         problems: list[str] = []
@@ -485,9 +593,11 @@ class Session:
                 if err:
                     return f"LỖI: cú pháp Python trong {path}: {err}"
             prepared.append((p, path, updated, n))
-        if not self._allow("multi_edit", {"files": len({str(p) for p, *_ in prepared}),
-                                          "edits": len(prepared)}):
-            return "NGƯỜI DÙNG TỪ CHỐI sửa nhiều chỗ."
+        denied = self._permit("multi_edit", {"files": len({str(p) for p, *_ in prepared}),
+                                             "edits": len(prepared)},
+                              "NGƯỜI DÙNG TỪ CHỐI sửa nhiều chỗ.")
+        if denied:
+            return denied
         done = []
         for p, path, updated, n in prepared:
             self._snapshot(p, "multi_edit")
@@ -498,12 +608,11 @@ class Session:
         return "đã sửa:\n" + "\n".join(done)
 
     def web_search(self, query: str, n: int = 5, provider: str | None = None) -> str:
-        if self.mode == "plan":
-            return "BỊ CHẶN: đang ở chế độ plan — không gọi mạng."
         if not query:
             return "LỖI: thiếu `query`"
-        if not self._allow("web_search", {"query": query}):
-            return f"NGƯỜI DÙNG TỪ CHỐI tìm: {query}"
+        denied = self._permit("web_search", {"query": query}, f"NGƯỜI DÙNG TỪ CHỐI tìm: {query}")
+        if denied:
+            return denied
         prov = provider or os.environ.get("R0_SEARCH_PROVIDER") or "tavily"
         if prov not in SEARCH_ENV:
             return f"LỖI: không biết bộ tìm {prov!r}; có: {', '.join(SEARCH_ENV)}"
@@ -525,14 +634,15 @@ class Session:
 
     def task(self, task: str, max_turns: int = 12, max_budget_usd=None) -> str:
         """Giao một việc cho agent CON rồi nhận tóm tắt. Có trần độ sâu."""
-        if self.mode == "plan":
-            return "BỊ CHẶN: đang ở chế độ plan — không giao việc."
         if self.spawn is None:
             return "LỖI: phiên này không giao được việc cho agent con."
         if self.depth >= self.max_depth:
             return f"LỖI: chạm trần độ sâu đội con ({self.max_depth})."
         if not task:
             return "LỖI: thiếu `task`"
+        denied = self._permit("task", {"task": task}, "NGƯỜI DÙNG TỪ CHỐI giao việc.")
+        if denied:
+            return denied
         res = self.spawn(task, self.depth + 1, int(max_turns or 12), max_budget_usd)
         if isinstance(res, str):
             return res
@@ -617,11 +727,10 @@ class Session:
         return str(self.memory_path())
 
     def run_shell(self, cmd: str, timeout: int = 60) -> str:
-        """Chạy đối số, không qua shell. Đối số là đường dẫn thì phải nằm trong gốc."""
-        if self.mode == "plan":
-            return "BỊ CHẶN: đang ở chế độ plan — không chạy lệnh."
-        if not self._allow("run_shell", {"cmd": cmd}):
-            return f"NGƯỜI DÙNG TỪ CHỐI chạy: {cmd}"
+        """Chạy đối số trong bản sao. Không ghi ngược vào cây nguồn."""
+        denied = self._permit("run_shell", {"cmd": cmd}, f"NGƯỜI DÙNG TỪ CHỐI chạy: {cmd}")
+        if denied:
+            return denied
         try:
             argv = shlex.split(cmd, posix=True)
         except ValueError as e:
@@ -632,9 +741,11 @@ class Session:
             if self._arg_outside(arg):
                 return f"BỊ CHẶN: lệnh trỏ ra ngoài thư mục gốc: {arg}"
         self.audit.append({"action": "run_shell", "cmd": cmd, "mode": self.mode})
+        work = Path(tempfile.mkdtemp(prefix="mira-sh-"))
         try:
-            r = subprocess.run(argv, shell=False, cwd=str(self.root), timeout=timeout,
-                               capture_output=True, text=True)
+            shutil.copytree(self.root, work, dirs_exist_ok=True, ignore=_ignore_workspace)
+            r = subprocess.run(_shell_argv(work, argv), shell=False, cwd=str(work),
+                               timeout=timeout, capture_output=True, text=True)
             if not (r.stdout or "").strip() and not (r.stderr or "").strip():
                 body = "lệnh chạy xong, không có đầu ra."
             else:
@@ -645,6 +756,8 @@ class Session:
             return f"LỖI: quá {timeout}s"
         except Exception as e:
             return f"LỖI: {type(e).__name__}: {e}"
+        finally:
+            shutil.rmtree(work, ignore_errors=True)
 
     def call(self, name: str, args: dict) -> tuple[str, ToolEvent]:
         import time
@@ -700,10 +813,13 @@ class Session:
                 safe[k] = f"({len(str(v))} ký tự)"
             else:
                 safe[k] = str(v)[:120]
-        self.log_event("tool_call", tool=name, args=safe)
+        self.log_event("tool_call", tool=name, args=safe, layer="tool")
+        layer = "tool"
+        if res.startswith(("BỊ CHẶN", "NGƯỜI DÙNG TỪ CHỐI")):
+            layer = "governance"
         if approved is not None:
-            self.log_event("gate", tool=name, allowed=bool(approved))
-        self.log_event("tool_result", tool=name, ok=ev.ok, text=clip_result(res))
+            self.log_event("gate", tool=name, allowed=bool(approved), layer=layer)
+        self.log_event("tool_result", tool=name, ok=ev.ok, text=clip_result(res), layer=layer)
         return res, ev
 
 

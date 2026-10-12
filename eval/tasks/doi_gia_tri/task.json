@@ -1,11 +1,13 @@
 {
   "title": "đổi một giá trị trong tệp",
   "mode": "acceptEdits",
+  "prompt": "Đổi x = 1 thành x = 2 trong app.py",
   "files": {
     "app.py": "x = 1\n"
   },
-  "steps": [
-    {"name": "edit_file", "args": {"path": "app.py", "old": "x = 1", "new": "x = 2"}}
+  "replies": [
+    "<tool>{\"name\":\"edit_file\",\"args\":{\"path\":\"app.py\",\"old\":\"x = 1\",\"new\":\"x = 2\"}}</tool>",
+    "<tool>{\"name\":\"finish\",\"args\":{\"summary\":\"đã đổi x\"}}</tool>"
   ],
   "check": {"type": "contains", "path": "app.py", "text": "x = 2"}
 }

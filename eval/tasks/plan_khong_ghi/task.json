@@ -1,9 +1,11 @@
 {
   "title": "chế độ plan không được ghi",
   "mode": "plan",
+  "prompt": "Ghi nội dung vào moi.txt",
   "files": {},
-  "steps": [
-    {"name": "write_file", "args": {"path": "moi.txt", "content": "khong duoc"}}
+  "replies": [
+    "<tool>{\"name\":\"write_file\",\"args\":{\"path\":\"moi.txt\",\"content\":\"khong duoc\"}}</tool>",
+    "<tool>{\"name\":\"finish\",\"args\":{\"summary\":\"không ghi được\"}}</tool>"
   ],
   "check": {"type": "absent", "path": "moi.txt"}
 }

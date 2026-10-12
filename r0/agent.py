@@ -33,6 +33,15 @@ def _price(model: str, u: dict) -> float:
     return (u.get("in", 0) * p["in"] + u.get("out", 0) * p["out"]) / 1e6
 
 
+def _consider_finish(session: Session, summary: str) -> tuple[bool, str]:
+    """True khi làn chấp nhận kết thúc. Từ chối thì trả lý do cho model."""
+    ok, why = session.accept_finish()
+    if not ok:
+        session.log_event("finish_refused", reason=why, layer="verification")
+        return False, why
+    return True, summary
+
+
 def _note_budget(session: Session, max_budget_usd: float | None, spent: float) -> None:
     if max_budget_usd is not None:
         session.budget_left = max(0.0, max_budget_usd - spent)
@@ -47,7 +56,8 @@ def run_turn(*, task: str, session: Session, model: str,
              on_note: Callable[[str], None] | None = None,
              no_stream: bool = False, protocol: str = "auto",
              max_turns: int | None = None,
-             max_budget_usd: float | None = None) -> dict:
+             max_budget_usd: float | None = None,
+             provider=None) -> dict:
     """Điểm vào duy nhất. `protocol` = auto | native | text.
 
     Hai van an toàn, đếm bằng CODE chứ không hỏi model (I8):
@@ -80,7 +90,8 @@ def run_turn(*, task: str, session: Session, model: str,
                           api_key=api_key, max_tokens=max_tokens, history=history,
                           on_text=on_text, on_tool=on_tool, on_note=on_note,
                           no_stream=no_stream,
-                          max_turns=max_turns, max_budget_usd=max_budget_usd)
+                          max_turns=max_turns, max_budget_usd=max_budget_usd,
+                          provider=provider)
 
 
 def _spawn(parent: Session, task: str, depth: int, max_turns: int, max_budget,
@@ -94,7 +105,7 @@ def _spawn(parent: Session, task: str, depth: int, max_turns: int, max_budget,
     child = Session(root=parent.root, mode=parent.mode, approve=parent.approve,
                     depth=depth, max_depth=getattr(parent, "max_depth", 3),
                     allow_always=set(parent.allow_always),
-                    budget_left=max_budget)
+                    budget_left=max_budget, checker=parent.checker)
     child.spawn = (lambda t, d, mt=12, mb=None: _spawn(
         child, t, d, mt, mb, model=model, provider_name=provider_name,
         base_url=base_url, api_key=api_key, max_tokens=max_tokens,
@@ -170,18 +181,29 @@ def _run_native_loop(*, task: str, session: Session, model: str,
 
         calls = native.tool_calls(blocks)
         if not calls:
-            final_text = native.text_of(blocks)
-            break
+            summary = native.text_of(blocks)
+            ok, why = _consider_finish(session, summary)
+            if ok:
+                final_text = summary
+                break
+            msgs.append({"role": "user", "content": [{"type": "text", "text": why}]})
+            continue
 
         results: list[dict] = []
         stop = False
         for c in calls:
             name, args = c["name"], c.get("input") or {}
             if name == "finish":
-                final_text = str(args.get("summary") or native.text_of(blocks))
-                note("finish")
-                stop = True
-                break
+                summary = str(args.get("summary") or native.text_of(blocks))
+                ok, why = _consider_finish(session, summary)
+                if ok:
+                    final_text = summary
+                    note("finish")
+                    stop = True
+                    break
+                results.append({"type": "tool_result", "tool_use_id": c["id"],
+                                "content": why, "is_error": True})
+                continue
             if name not in native.SCHEMAS:
                 results.append({"type": "tool_result", "tool_use_id": c["id"],
                                 "content": f"LỖI: không có công cụ {name}", "is_error": True})
@@ -195,12 +217,16 @@ def _run_native_loop(*, task: str, session: Session, model: str,
             break
         msgs.append({"role": "user", "content": results})
     else:
-        status = "stopped_turns"
-        stop_reason = f"chạm trần {rounds} vòng gọi công cụ"
+        if session.stop_layer == "verification":
+            status = "stopped_verification"
+            stop_reason = "thiếu kiểm chứng"
+        else:
+            status = "stopped_turns"
+            stop_reason = f"chạm trần {rounds} vòng gọi công cụ"
         final_text = final_text or "(dừng: quá nhiều vòng gọi công cụ)"
         note(stop_reason)
 
-    session.log_event("stop", reason=stop_reason or "xong")
+    session.log_event("stop", reason=stop_reason or "xong", layer=session.stop_layer)
     return {"status": status, "error": None, "final": final_text,
             "usage": usage_total, "turns": turns,
             "toolSummary": {"calls": len(tools_used), "tools": sorted(set(tools_used))},
@@ -220,13 +246,17 @@ def _run_text_loop(*, task: str, session: Session, model: str,
              on_note: Callable[[str], None] | None = None,
              no_stream: bool = False,
              max_turns: int | None = None,
-             max_budget_usd: float | None = None) -> dict:
+             max_budget_usd: float | None = None,
+             provider=None) -> dict:
     """Một lượt hỏi–đáp đầy đủ, có thể gọi nhiều công cụ."""
     emit = on_text or (lambda _s: None)
     seen = on_tool or (lambda _n, _a: None)
     note = on_note or (lambda _m: None)
-    prov = provider_for(model, provider_name, base_url=base_url,
-                        api_key=api_key, max_tokens=max_tokens)
+    if provider is not None:
+        prov = provider
+    else:
+        prov = provider_for(model, provider_name, base_url=base_url,
+                            api_key=api_key, max_tokens=max_tokens)
     if not prov.available():
         return {"status": "blocked",
                 "error": f"thiếu key cho {prov.name} — đặt biến môi trường",
@@ -278,13 +308,23 @@ def _run_text_loop(*, task: str, session: Session, model: str,
 
         call = parse_tool(text)
         if not call:
-            final_text = _strip_tool(text)
-            break
+            summary = _strip_tool(text)
+            ok, why = _consider_finish(session, summary)
+            if ok:
+                final_text = summary
+                break
+            convo.append({"role": "user", "content": f"<result>\n{why}\n</result>"})
+            continue
         name, args = call
         if name == "finish":
-            final_text = str(args.get("summary") or _strip_tool(text))
-            note("finish")
-            break
+            summary = str(args.get("summary") or _strip_tool(text))
+            ok, why = _consider_finish(session, summary)
+            if ok:
+                final_text = summary
+                note("finish")
+                break
+            convo.append({"role": "user", "content": f"<result>\n{why}\n</result>"})
+            continue
         if name not in TOOL_NAMES:
             convo.append({"role": "user", "content":
                           f"<result>LỖI: không có công cụ {name}. Có: {tool_catalog()}</result>"})
@@ -294,12 +334,16 @@ def _run_text_loop(*, task: str, session: Session, model: str,
         tools_used.append(name)
         convo.append({"role": "user", "content": f"<result>\n{clip_result(res)}\n</result>"})
     else:
-        status = "stopped_turns"
-        stop_reason = f"chạm trần {rounds} vòng gọi công cụ"
+        if session.stop_layer == "verification":
+            status = "stopped_verification"
+            stop_reason = "thiếu kiểm chứng"
+        else:
+            status = "stopped_turns"
+            stop_reason = f"chạm trần {rounds} vòng gọi công cụ"
         final_text = final_text or "(dừng: quá nhiều vòng gọi công cụ)"
         note(stop_reason)
 
-    session.log_event("stop", reason=stop_reason or "xong")
+    session.log_event("stop", reason=stop_reason or "xong", layer=session.stop_layer)
     return {"status": status, "error": None, "final": final_text,
             "usage": usage_total, "turns": turns,
             "toolSummary": {"calls": len(tools_used), "tools": sorted(set(tools_used))},
