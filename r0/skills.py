@@ -258,15 +258,20 @@ def repo_map(root: Path, task: str = "") -> str:
     return "\n".join(lines)
 
 
-def remember_fact(root: Path, task: str, text: str) -> None:
-    """Ghi một dòng việc đã kiểm. Chỉ verifier PASS hoặc checker làn 2 được gọi."""
+def remember_fact(root: Path, task: str, text: str, path: str | None = None) -> None:
+    """Ghi một dòng việc đã kiểm. Kèm path và mtime của file lúc đó."""
     bit = (text or "").strip()
     if not bit:
         return
-    path = Path(root) / ".mira" / "facts.jsonl"
-    path.parent.mkdir(parents=True, exist_ok=True)
-    row = {"task": (task or "")[:200], "text": bit[:400]}
-    with path.open("a", encoding="utf-8") as fh:
+    dest = Path(root) / ".mira" / "facts.jsonl"
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    row: dict = {"task": (task or "")[:200], "text": bit[:400]}
+    if path:
+        row["path"] = path.replace("\\", "/")
+        src = Path(root) / path
+        if src.is_file():
+            row["mtime"] = int(src.stat().st_mtime)
+    with dest.open("a", encoding="utf-8") as fh:
         fh.write(json.dumps(row, ensure_ascii=False) + "\n")
 
 
@@ -285,6 +290,12 @@ def recall_facts(root: Path, task: str, cap: int = FACT_CHAR_CAP) -> str:
         except json.JSONDecodeError:
             continue
         blob = f"{rec.get('task', '')} {rec.get('text', '')}"
+        file_path = rec.get("path")
+        if file_path:
+            src = Path(root) / str(file_path)
+            stored = rec.get("mtime")
+            if not src.is_file() or stored is None or int(src.stat().st_mtime) > int(stored):
+                continue
         score = len(want & {w.lower() for w in re.findall(r"\w{3,}", blob)})
         if score:
             scored.append((score, str(rec.get("text") or "").strip()))

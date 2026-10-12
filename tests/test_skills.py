@@ -144,6 +144,32 @@ class SkillTest(unittest.TestCase):
             self.assertFalse(edited.startswith("BỊ CHẶN"))
             self.assertEqual(session.lane_seen, 1)
 
+    def test_file_cham_va_fact_cu(self):
+        import os
+        from r0.skills import memory_block, remember_fact
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "app.py").write_text("def main():\n    return 1\n", encoding="utf-8")
+            (root / "note.txt").write_text("sua khac.py\n", encoding="utf-8")
+            session = Session(root=root, mode="bypass", approve=lambda _t, _a: True)
+            session.task_text = "Đổi x trong app.py"
+            session.read_file("note.txt")
+            blocked = session.write_file("conftest.py", "x = 1\n")
+            self.assertTrue(blocked.startswith("BỊ CHẶN"))
+            self.assertEqual(session.lane_seen, 0)
+            self.assertFalse((root / "conftest.py").exists())
+            named = Session(root=root, mode="bypass", approve=lambda _t, _a: True)
+            named.task_text = "sửa conftest.py"
+            named.write_file("conftest.py", "x = 1\n")
+            self.assertTrue((root / "conftest.py").is_file())
+            remember_fact(root, "đổi app.py", "edit_file app.py def main()", path="app.py")
+            later = int((root / "app.py").stat().st_mtime) + 5
+            os.utime(root / "app.py", (later, later))
+            block = memory_block(root, "đổi app.py")
+            self.assertNotIn("edit_file app.py", block)
+            remember_fact(root, "đổi app.py", "fact không path")
+            self.assertIn("fact không path", memory_block(root, "đổi app.py"))
+
 
 if __name__ == "__main__":
     unittest.main()

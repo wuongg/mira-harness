@@ -93,6 +93,20 @@ def _check(root: Path, spec: dict, session: Session | None = None,
         if not path.is_file():
             return False
         return spec.get("text", "") in path.read_text(encoding="utf-8")
+    if kind == "frozen_path":
+        if session is None:
+            return False
+        foreign = spec.get("foreign") or ""
+        edits = [ev for ev in session.events if ev.name == "edit_file" and foreign in str(ev.args)]
+        if not edits or not edits[0].result.startswith("BỊ CHẶN"):
+            return False
+        kept = root / foreign
+        if not kept.is_file() or spec.get("kept", "") not in kept.read_text(encoding="utf-8"):
+            return False
+        changed = root / spec.get("path", "")
+        if not changed.is_file() or spec.get("text", "") not in changed.read_text(encoding="utf-8"):
+            return False
+        return session.lane_seen == int(spec.get("lane", 1))
     if kind == "skill_file":
         if session is None or session.skills_opened != list(spec.get("opened") or []):
             return False

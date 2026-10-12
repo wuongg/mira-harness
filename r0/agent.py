@@ -41,9 +41,15 @@ def _consider_finish(session: Session, summary: str, task: str = "") -> tuple[bo
         return False, why
     if session.lane_seen == 2:
         from .skills import fact_from_audit, remember_fact
-        line = fact_from_audit(session.audit, root=session.root)
-        if line:
-            remember_fact(session.root, task, line)
+        for row in session.audit:
+            if row.get("action") not in ("write_file", "edit_file", "multi_edit"):
+                continue
+            rel = row.get("path")
+            if not rel:
+                continue
+            line = fact_from_audit([row], root=session.root)
+            if line:
+                remember_fact(session.root, task, line, path=str(rel))
     return True, summary
 
 
@@ -69,6 +75,8 @@ def run_turn(*, task: str, session: Session, model: str,
       `max_turns`       — trần số vòng gọi công cụ (mặc định 25)
       `max_budget_usd`  — dừng ngay khi chi phí lượt vượt mức này
     """
+    session.task_text = task or ""
+    session.saw_untrusted = False
     if getattr(session, "spawn", None) is None:
         session.spawn = (lambda t, d, mt=12, mb=None: _spawn(
             session, t, d, mt, mb, model=model, provider_name=provider_name,

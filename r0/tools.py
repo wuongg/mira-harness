@@ -293,6 +293,8 @@ class Session:
     skill_plan: list[str] = field(default_factory=list)
     skills_opened: list[str] = field(default_factory=list)
     skill_caps: dict = field(default_factory=dict)
+    task_text: str = ""
+    saw_untrusted: bool = False
 
     def __post_init__(self):
         self.root = Path(self.root).resolve()
@@ -354,6 +356,10 @@ class Session:
 
     def _permit(self, tool: str, args: dict, refusal: str) -> str | None:
         """None là được làm. plan chặn mọi việc không ở mức thấp, trước khi hỏi."""
+        frozen = self._freeze_block(tool, args)
+        if frozen:
+            self.stop_layer = "governance"
+            return frozen
         lane = lane_for_tool(tool, untrusted=bool(self.skills_opened))
         if self.mode == "plan" and risk_of(tool) != "low":
             self.stop_layer = "governance"
@@ -362,6 +368,38 @@ class Session:
             self.stop_layer = "governance"
             return refusal
         self.lane_seen = max(self.lane_seen, lane)
+        return None
+
+    def _grader_path(self, path: str) -> bool:
+        name = Path(str(path).replace("\\", "/")).name
+        return name in {"conftest.py", "pytest.ini", "tox.ini", "sitecustomize.py"} or (
+            name.startswith("test_") and name.endswith(".py"))
+
+    def _targets_of(self, tool: str, args: dict) -> list[str]:
+        if tool == "fetch_url":
+            url = str(args.get("url") or "")
+            return [url] if url else []
+        if tool in ("run_shell", "multi_edit"):
+            return [str(p) for p in (args.get("paths") or []) if p]
+        path = str(args.get("path") or "")
+        return [path] if path else []
+
+    def _freeze_block(self, tool: str, args: dict) -> str | None:
+        """Dữ liệu vừa đọc không được mở path lạ. File người chấm không bị sửa."""
+        targets = self._targets_of(tool, args)
+        task = self.task_text or ""
+        for target in targets:
+            if self._grader_path(target) and target not in task:
+                return f"BỊ CHẶN: không sửa file người chấm {target}."
+        if not self.saw_untrusted:
+            return None
+        if tool not in ("write_file", "edit_file", "multi_edit", "delete_file", "run_shell", "fetch_url"):
+            return None
+        if tool == "run_shell" and not targets:
+            return "BỊ CHẶN: sau dữ liệu không tin, lệnh không có path trong câu việc."
+        for target in targets:
+            if target not in task:
+                return f"BỊ CHẶN: sau dữ liệu không tin, {target} không có trong câu việc."
         return None
 
     def _skill_ceiling(self, tool: str) -> str | None:
@@ -516,9 +554,11 @@ class Session:
         try:
             text = raw.decode("utf-8")
         except UnicodeDecodeError:
+            self.saw_untrusted = True
             return f"(tệp nhị phân, {p.stat().st_size} byte, không hiển thị)"
         lines = text.splitlines()
         total = len(lines)
+        self.saw_untrusted = True
         if total == 0:
             return f"{path}  dòng 0 / 0\n(trống)"
         begin = max(1, int(start or 1))
@@ -663,9 +703,11 @@ class Session:
         opener = urllib.request.build_opener(_GuardRedirect)
         try:
             with opener.open(req, timeout=30) as r:
-                return r.read(max_bytes).decode("utf-8", "replace")
+                body = r.read(max_bytes).decode("utf-8", "replace")
         except Exception as e:                          # noqa: BLE001
             return f"LỖI: {type(e).__name__}: {e}"
+        self.saw_untrusted = True
+        return body
 
     def todo_write(self, items) -> str:
         if isinstance(items, str):
@@ -708,8 +750,7 @@ class Session:
                 if err:
                     return f"LỖI: cú pháp Python trong {path}: {err}"
             prepared.append((p, path, updated, n))
-        denied = self._permit("multi_edit", {"files": len({str(p) for p, *_ in prepared}),
-                                             "edits": len(prepared)},
+        denied = self._permit("multi_edit", {"paths": [path for _p, path, _u, _n in prepared]},
                               "NGƯỜI DÙNG TỪ CHỐI sửa nhiều chỗ.")
         if denied:
             return denied
@@ -853,7 +894,10 @@ class Session:
             blocked = self._unopened_skill_arg(arg)
             if blocked:
                 return blocked
-        denied = self._permit("run_shell", {"cmd": cmd}, f"NGƯỜI DÙNG TỪ CHỐI chạy: {cmd}")
+        paths = [arg for arg in argv[1:] if arg and not arg.startswith("-")
+                 and ("/" in arg or "\\" in arg or "." in arg)]
+        denied = self._permit("run_shell", {"cmd": cmd, "paths": paths},
+                              f"NGƯỜI DÙNG TỪ CHỐI chạy: {cmd}")
         if denied:
             return denied
         for arg in argv[1:]:
