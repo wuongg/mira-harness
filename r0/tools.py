@@ -784,6 +784,7 @@ class Session:
             return f"LỖI: {type(e).__name__}: {e}"
         if not rows:
             return "(không có kết quả)"
+        self.saw_untrusted = True
         return "\n".join(
             f"{i}. {r.get('title', '')}\n   {r.get('url', '')}\n   {r.get('snippet', '')}"
             for i, r in enumerate(rows, 1))
@@ -914,6 +915,7 @@ class Session:
             else:
                 body = (r.stdout or "") + (("\n[stderr]\n" + r.stderr) if r.stderr else "")
                 body = body[:8000]
+            self.saw_untrusted = True
             return f"[mã thoát {r.returncode}]\n{body}"
         except subprocess.TimeoutExpired:
             return f"LỖI: quá {timeout}s"

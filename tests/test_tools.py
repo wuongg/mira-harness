@@ -149,7 +149,13 @@ class ExtraToolsTest(unittest.TestCase):
         orig = T._do_search
         T._do_search = lambda prov, key, q, n: [{"title": "T", "url": "u", "snippet": "s"}]
         try:
-            r = self._sess().web_search("hello")
+            session = self._sess()
+            session.task_text = "tìm hello"
+            r = session.web_search("hello")
+            self.assertTrue(session.saw_untrusted)
+            blocked = session.write_file("khac.py", "y = 9\n")
+            self.assertTrue(blocked.startswith("BỊ CHẶN"))
+            self.assertEqual(session.lane_seen, 2)
         finally:
             T._do_search = orig
             os.environ.pop("TAVILY_API_KEY", None)

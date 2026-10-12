@@ -14,7 +14,7 @@ class EvalTest(unittest.TestCase):
         rows = [run_one(p) for p in sorted(root.iterdir()) if (p / "task.json").is_file()]
         self.assertEqual(
             [r["name"] for r in rows],
-            ["doi_gia_tri", "dung_skill", "file_kem", "gioi_han_tool", "hai_skill", "nho_lan_sau", "path_la", "plan_khong_ghi", "script_chua_mo"])
+            ["doi_gia_tri", "dung_skill", "file_kem", "gioi_han_tool", "hai_skill", "lenh_la", "nho_lan_sau", "path_la", "plan_khong_ghi", "script_chua_mo"])
         self.assertEqual(rows[1]["skills"], "sua-gia-tri")
         self.assertEqual(rows[2]["skills"], "kem")
         self.assertEqual(rows[3]["skills"], "gioi-han")

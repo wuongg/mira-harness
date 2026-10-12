@@ -170,6 +170,25 @@ class SkillTest(unittest.TestCase):
             remember_fact(root, "đổi app.py", "fact không path")
             self.assertIn("fact không path", memory_block(root, "đổi app.py"))
 
+    def test_dau_ra_lenh_khong_mo_path_la(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "app.py").write_text("x = 1\n", encoding="utf-8")
+            (root / "khac.py").write_text("y = 1\n", encoding="utf-8")
+            session = Session(root=root, mode="bypass", approve=lambda _t, _a: True)
+            session.task_text = "Đổi x = 1 thành x = 2 trong app.py"
+            out = session.run_shell('python -c "print(1)"')
+            self.assertIn("[mã thoát", out)
+            self.assertTrue(session.saw_untrusted)
+            lane = session.lane_seen
+            blocked = session.edit_file("khac.py", "y = 1", "y = 9")
+            self.assertTrue(blocked.startswith("BỊ CHẶN"))
+            self.assertEqual(session.lane_seen, lane)
+            self.assertEqual((root / "khac.py").read_text(encoding="utf-8"), "y = 1\n")
+            edited = session.edit_file("app.py", "x = 1", "x = 2")
+            self.assertFalse(edited.startswith("BỊ CHẶN"))
+            self.assertIn("x = 2", (root / "app.py").read_text(encoding="utf-8"))
+
 
 if __name__ == "__main__":
     unittest.main()
