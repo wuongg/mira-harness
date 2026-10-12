@@ -1,0 +1,216 @@
+"""Kiểm chứng vòng lặp đội agent bằng SERVER GIẢ — không cần key, không ra mạng.
+
+Đây là điểm quan trọng: toàn bộ đường ống gọi model được kiểm tra thật
+(dựng prompt, gửi HTTP, đọc kết quả, đếm token, fail-closed, Executor ghi)
+mà không cần API key. Nhờ vậy người dùng không phải là người chạy thử đầu tiên.
+"""
+from __future__ import annotations
+
+import json
+import sys
+import tempfile
+import threading
+import unittest
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from r0 import team                       # noqa: E402
+from r0.providers import AnthropicProvider, OpenAICompatProvider, provider_for  # noqa: E402
+
+SEEN: list[dict] = []
+
+
+class _Stub(BaseHTTPRequestHandler):
+    """Giả lập cả /v1/messages và /v1/chat/completions."""
+
+    def log_message(self, *a):        # im lặng
+        pass
+
+    def do_POST(self):
+        n = int(self.headers.get("content-length", 0))
+        req = json.loads(self.rfile.read(n) or b"{}")
+        SEEN.append({"path": self.path, "req": req,
+                     "auth": self.headers.get("x-api-key") or self.headers.get("authorization")})
+        # trả lời khác nhau theo vai để kiểm được cả nhánh PASS lẫn FAIL
+        blob = json.dumps(req, ensure_ascii=False)
+        if "FAIL_MODE" in blob:
+            text = "FAIL\nThiếu bằng chứng cho tiêu chí 2."
+        elif "VERIFIER" in blob:
+            text = "PASS\nBằng chứng: số liệu khớp, không thấy thiếu sót."
+        elif "ORACLE" in blob:
+            text = "SCORE: 0.85\nTiêu chí 1 đạt; tiêu chí 2 đạt."
+        elif "CRITIC" in blob:
+            text = "Rủi ro: giả định về nguồn dữ liệu chưa được kiểm."
+        elif "PLANNER" in blob:
+            text = "1. Bước một — tiêu chí: kiểm được\n2. Bước hai — tiêu chí: kiểm được"
+        elif "COORDINATOR" in blob:
+            text = "Thứ tự: bước 1 → bước 2. Không có bước song song."
+        else:
+            text = "KẾT QUẢ: đã soạn nội dung theo yêu cầu.\nGiả định: dữ liệu đầu vào đã sạch."
+        if self.path.endswith("/v1/messages"):
+            body = {"content": [{"type": "text", "text": text}],
+                    "usage": {"input_tokens": 120, "output_tokens": 40}}
+        else:
+            body = {"choices": [{"message": {"content": text}}],
+                    "usage": {"prompt_tokens": 120, "completion_tokens": 40}}
+        raw = json.dumps(body).encode()
+        self.send_response(200)
+        self.send_header("content-type", "application/json")
+        self.send_header("content-length", str(len(raw)))
+        self.end_headers()
+        self.wfile.write(raw)
+
+
+def _serve():
+    srv = ThreadingHTTPServer(("127.0.0.1", 0), _Stub)
+    t = threading.Thread(target=srv.serve_forever, daemon=True)
+    t.start()
+    return srv, f"http://127.0.0.1:{srv.server_address[1]}"
+
+
+class TestProviders(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.srv, cls.base = _serve()
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.srv.shutdown()
+        cls.srv.server_close()
+
+    def test_anthropic_doc_dung_duong_dan_va_header(self):
+        SEEN.clear()
+        p = AnthropicProvider(model="claude-x", api_key="k", base_url=self.base)
+        text, u = p.call("SYS", "USER")
+        self.assertIn("KẾT QUẢ", text)
+        self.assertEqual(u, {"in": 120, "out": 40})
+        self.assertTrue(SEEN[-1]["path"].endswith("/v1/messages"))
+        self.assertEqual(SEEN[-1]["auth"], "k")
+        self.assertEqual(SEEN[-1]["req"]["system"], "SYS")
+
+    def test_openai_doc_dung_duong_dan_va_bearer(self):
+        SEEN.clear()
+        p = OpenAICompatProvider(model="gpt-x", api_key="k", base_url=self.base)
+        p.call("SYS", "USER")
+        self.assertTrue(SEEN[-1]["path"].endswith("/v1/chat/completions"))
+        self.assertEqual(SEEN[-1]["auth"], "Bearer k")
+
+    def test_tu_chon_provider_theo_ten_model(self):
+        self.assertIsInstance(provider_for("claude-sonnet-5.5"), AnthropicProvider)
+        self.assertIsInstance(provider_for("grok-4.7"), OpenAICompatProvider)
+        self.assertEqual(provider_for("grok-4.7").name, "xai")
+
+    def test_thieu_key_thi_bao_khong_san_sang(self):
+        self.assertFalse(AnthropicProvider(model="x", api_key="").available())
+
+
+class TestPhanVai(unittest.TestCase):
+    def test_doc_only_di_lan_0_mot_vai(self):
+        p = team.build_plan("tóm tắt tài liệu công khai", surface="read_only",
+                            labels=["public"], records=10, dollars=0)
+        self.assertEqual(p.lane, 0)
+        self.assertEqual(p.roles, ["worker"])
+
+    def test_ghi_ngoai_di_lan_co_verifier(self):
+        p = team.build_plan("cập nhật CRM", surface="write_external",
+                            labels=["confidential"], records=100, dollars=50)
+        self.assertGreaterEqual(p.lane, 1)
+        self.assertIn("verifier", p.roles)
+
+    def test_egress_moi_bat_hai_nguoi_duyet(self):
+        p = team.build_plan("mở endpoint mới đẩy dữ liệu ra ngoài",
+                            surface="egress_new", labels=["restricted"],
+                            records=500, dollars=2000, reversibility="C3")
+        self.assertEqual(p.lane, 2)
+        self.assertTrue(p.dual_approval)
+        self.assertEqual(p.gate_tier, 3)
+
+    def test_quy_mo_lon_len_lan_2_du_la_doc_only(self):
+        p = team.build_plan("đối soát", surface="read_only", labels=["internal"],
+                            records=5000, dollars=3000)
+        self.assertEqual(p.lane, 2)
+        self.assertIn("oracle", p.roles)
+        self.assertIn("critic", p.roles)
+
+
+class TestVongLapDayDu(unittest.TestCase):
+    """Chạy trọn vòng lặp qua server giả — chứng minh cả nhánh PASS lẫn fail-closed."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.srv, cls.base = _serve()
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.srv.shutdown()
+        cls.srv.server_close()
+
+    def _run(self, **hints):
+        plan = team.build_plan("soạn báo cáo nội bộ", **hints)
+        res = team.execute_plan(plan, provider_name="anthropic", base_url=self.base,
+                                api_key="k", on_step=lambda m: None)
+        return plan, res
+
+    def test_lan_2_chay_du_sau_vai_va_pass(self):
+        plan, res = self._run(surface="read_only", labels=["internal"],
+                              records=5000, dollars=3000)
+        self.assertEqual(plan.lane, 2)
+        roles = [s["role"] for s in res["steps"]]
+        self.assertEqual(roles, plan.roles)
+        self.assertEqual(res["status"], "ok")
+        self.assertEqual(res["verifier_verdict"], "PASS")
+        self.assertAlmostEqual(res["oracle_score"], 0.85, places=2)
+
+    def test_dem_token_va_tinh_tien(self):
+        _, res = self._run(surface="read_only", labels=["internal"], records=5000)
+        led = res["ledger"]
+        self.assertEqual(led["tokens_in"], 120 * 6)
+        self.assertEqual(led["tokens_out"], 40 * 6)
+        self.assertGreater(led["total_usd"], 0)
+        self.assertTrue(led["all_priced"])
+
+    def test_verifier_fail_thi_giu_lai_khong_giao(self):
+        plan = team.build_plan("soạn báo cáo", surface="write_external",
+                               labels=["confidential"], records=100, dollars=50)
+        orig = team.ROLE_SYSTEM["verifier"]
+        team.ROLE_SYSTEM["verifier"] = "You are VERIFIER. FAIL_MODE"
+        try:
+            res = team.execute_plan(plan, provider_name="anthropic",
+                                    base_url=self.base, api_key="k",
+                                    on_step=lambda m: None)
+        finally:
+            team.ROLE_SYSTEM["verifier"] = orig
+        self.assertEqual(res["status"], "withheld")
+        self.assertIn("FAIL", res["fail_reason"])
+
+    def test_thieu_key_thi_dung_ngay_khong_goi(self):
+        plan = team.build_plan("việc gì đó")
+        res = team.execute_plan(plan, provider_name="anthropic", base_url=self.base,
+                                api_key="", on_step=lambda m: None)
+        self.assertEqual(res["status"], "blocked")
+        # KHÔNG lượt gọi model nào chạy: bước ghi lại vai bị chặn, nhưng không
+        # có khoá 'usage' (dấu hiệu duy nhất cho biết model đã được gọi).
+        self.assertTrue(all("usage" not in s for s in res["steps"]))
+        self.assertTrue(res["steps"][0]["blocked"])
+
+    def test_executor_chi_ghi_khi_da_qua_cong(self):
+        plan, res = self._run(surface="read_only", labels=["public"], records=10, dollars=0)
+        self.assertEqual(plan.lane, 0)
+        with tempfile.TemporaryDirectory() as d:
+            out = team._executor_write(Path(d), plan, res)
+            self.assertTrue((out / "result.md").exists())
+            self.assertTrue((out / "trace.json").exists())
+            self.assertIn("KẾT QUẢ", (out / "result.md").read_text(encoding="utf-8"))
+
+    def test_dry_run_khong_goi_model(self):
+        SEEN.clear()
+        plan = team.build_plan("việc gì đó", surface="read_only", labels=["public"])
+        res = team.execute_plan(plan, dry_run=True, on_step=lambda m: None)
+        self.assertEqual(SEEN, [])
+        self.assertEqual(res["ledger"]["tokens_in"], 0)
+
+
+if __name__ == "__main__":
+    unittest.main(verbosity=2)

@@ -1,0 +1,154 @@
+import tempfile
+import unittest
+from pathlib import Path
+
+from r0.tools import TOOL_SPECS, Session
+
+
+class ToolsTest(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+        (self.root / "a.py").write_text("x = 1\ny = 2\nx = 3\n", encoding="utf-8")
+        (self.root / "sub").mkdir()
+        (self.root / "sub" / "b.txt").write_text("hi", encoding="utf-8")
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _sess(self, mode="default", approve=True):
+        return Session(root=self.root, mode=mode,
+                       approve=(lambda t, a: True) if approve else (lambda t, a: False))
+
+    def test_catalog_has_new_tools(self):
+        for t in ("glob", "edit_file", "delete_file", "fetch_url", "todo_write"):
+            self.assertIn(t, TOOL_SPECS)
+
+    def test_glob(self):
+        self.assertIn("a.py", self._sess().glob("**/*.py"))
+
+    def test_edit_replaces_all(self):
+        r = self._sess().edit_file("a.py", "x = ", "z = ")
+        self.assertIn("2 chỗ", r)
+        self.assertEqual((self.root / "a.py").read_text(), "z = 1\ny = 2\nz = 3\n")
+
+    def test_edit_count(self):
+        self._sess().edit_file("a.py", "x = ", "z = ", count=1)
+        self.assertEqual((self.root / "a.py").read_text(), "z = 1\ny = 2\nx = 3\n")
+
+    def test_edit_missing_old(self):
+        self.assertTrue(self._sess().edit_file("a.py", "KHONGCO", "y").startswith("LỖI"))
+
+    def test_edit_gated(self):
+        self.assertIn("TỪ CHỐI", self._sess(approve=False).edit_file("a.py", "x", "z"))
+
+    def test_plan_blocks_edit(self):
+        self.assertTrue(self._sess(mode="plan").edit_file("a.py", "x", "z").startswith("BỊ CHẶN"))
+
+    def test_delete_works_and_gated(self):
+        s = self._sess()
+        self.assertIn("đã xoá", s.delete_file("sub/b.txt"))
+        self.assertFalse((self.root / "sub" / "b.txt").exists())
+        self.assertIn("TỪ CHỐI", self._sess(approve=False).delete_file("a.py"))
+
+    def test_delete_dir_refused(self):
+        self.assertTrue(self._sess().delete_file("sub").startswith("LỖI"))
+
+    def test_fetch_gated_and_scheme(self):
+        self.assertIn("TỪ CHỐI", self._sess(approve=False).fetch_url("https://example.com"))
+        self.assertTrue(self._sess().fetch_url("ftp://x").startswith("LỖI"))
+
+    def test_todo_write(self):
+        s = self._sess()
+        self.assertIn("đọc", s.todo_write(["đọc", "sửa"]))
+        self.assertEqual(len(s.todos), 2)
+
+    def test_call_dispatch(self):
+        res, ev = self._sess().call("glob", {"pattern": "*.py"})
+        self.assertIn("a.py", res)
+        self.assertTrue(ev.ok)
+
+
+class ExtraToolsTest(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+        (self.root / "a.py").write_text("x = 1\ny = 2\n", encoding="utf-8")
+        (self.root / "b.py").write_text("z = 9\n", encoding="utf-8")
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _sess(self, **kw):
+        kw.setdefault("mode", "default")
+        kw.setdefault("approve", lambda t, a: True)
+        return Session(root=self.root, **kw)
+
+    def test_multi_edit_two_files(self):
+        s = self._sess()
+        r = s.multi_edit([{"path": "a.py", "old": "x = 1", "new": "x = 10"},
+                          {"path": "b.py", "old": "z = 9", "new": "z = 0"}])
+        self.assertIn("đã sửa", r)
+        self.assertIn("x = 10", (self.root / "a.py").read_text())
+        self.assertIn("z = 0", (self.root / "b.py").read_text())
+
+    def test_multi_edit_aborts_all_on_one_bad(self):
+        s = self._sess()
+        r = s.multi_edit([{"path": "a.py", "old": "x = 1", "new": "x = 10"},
+                          {"path": "a.py", "old": "KHONGCO", "new": "y"}])
+        self.assertTrue(r.startswith("LỖI"))
+        self.assertIn("x = 1", (self.root / "a.py").read_text())
+
+    def test_multi_edit_gated_and_plan(self):
+        self.assertIn("TỪ CHỐI", self._sess(approve=lambda t, a: False)
+                      .multi_edit([{"path": "a.py", "old": "x", "new": "y"}]))
+        self.assertTrue(self._sess(mode="plan")
+                        .multi_edit([{"path": "a.py", "old": "x", "new": "y"}]).startswith("BỊ CHẶN"))
+
+    def test_web_search_no_key(self):
+        import os
+        for v in ("TAVILY_API_KEY", "BRAVE_API_KEY", "SERPER_API_KEY"):
+            os.environ.pop(v, None)
+        self.assertTrue(self._sess().web_search("hello", provider="tavily").startswith("LỖI"))
+
+    def test_web_search_with_stub(self):
+        import os
+        os.environ["TAVILY_API_KEY"] = "x"
+        import r0.tools as T
+        orig = T._do_search
+        T._do_search = lambda prov, key, q, n: [{"title": "T", "url": "u", "snippet": "s"}]
+        try:
+            r = self._sess().web_search("hello")
+        finally:
+            T._do_search = orig
+            os.environ.pop("TAVILY_API_KEY", None)
+        self.assertIn("1. T", r)
+
+    def test_web_search_gated_and_plan(self):
+        self.assertIn("TỪ CHỐI", self._sess(approve=lambda t, a: False).web_search("q"))
+        self.assertTrue(self._sess(mode="plan").web_search("q").startswith("BỊ CHẶN"))
+
+    def test_task_formats(self):
+        s = self._sess()
+        s.spawn = lambda t, d, mt, mb: {"status": "ok", "turns": 2, "costUsd": 0.01,
+                                        "final": "xong"}
+        r = s.task("việc nhỏ")
+        self.assertIn("ok", r)
+        self.assertIn("xong", r)
+
+    def test_task_depth_limit(self):
+        s = self._sess()
+        s.spawn = lambda *a: {"status": "ok", "final": "x"}
+        s.depth = s.max_depth
+        self.assertTrue(s.task("x").startswith("LỖI"))
+
+    def test_task_no_spawn(self):
+        self.assertTrue(self._sess().task("x").startswith("LỖI"))
+
+    def test_catalog_and_schemas_synced(self):
+        from r0.native import SCHEMAS
+        self.assertEqual(set(TOOL_SPECS), set(SCHEMAS))
+
+
+if __name__ == "__main__":
+    unittest.main()

@@ -1,0 +1,19 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mira"
+version = "2.5.0"
+description = "Mira - harness doi nhom agent (nen R0 shadow): giao viec, xem log, do luong"
+readme = "README.md"
+requires-python = ">=3.9"
+dependencies = []
+license = { text = "MIT" }
+
+[project.scripts]
+mira = "r0.cli:main"
+r0-shadow = "r0.cli:main"
+
+[tool.setuptools]
+packages = ["r0"]
