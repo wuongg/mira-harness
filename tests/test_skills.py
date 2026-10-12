@@ -90,13 +90,14 @@ class SkillTest(unittest.TestCase):
             ok, _why = _consider_finish(session, "xong", task="đổi số")
             self.assertFalse(ok)
             self.assertFalse((root / ".mira" / "facts.jsonl").exists())
+            (root / "app.py").write_text("def main():\n    return 2\n", encoding="utf-8")
             session.audit.append({"action": "edit_file", "path": "app.py"})
             session.checker = lambda: True
             ok, _why = _consider_finish(session, "model bịa không được chép", task="đổi số")
             self.assertTrue(ok)
             text = (root / ".mira" / "facts.jsonl").read_text(encoding="utf-8")
             self.assertIn("app.py", text)
-            self.assertIn("edit_file", text)
+            self.assertIn("def main()", text)
             self.assertNotIn("model bịa", text)
             session.audit.clear()
             session.lane_seen = 0
@@ -123,6 +124,25 @@ class SkillTest(unittest.TestCase):
             self.assertIn("NỘI DUNG KHÔNG TIN", body)
             self.assertTrue(any(row.get("kind") == "skill_untrusted" for row in session.trace))
             self.assertIsNone(session._unopened_skill_arg(".mira/skills/kem/scripts/run.py"))
+
+    def test_tran_tool_chan_shell_truoc_lan(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            skill = root / ".mira" / "skills" / "gioi-han"
+            skill.mkdir(parents=True)
+            (skill / "SKILL.md").write_text(
+                "---\nname: gioi-han\ndescription: Khi cần sửa file.\nallowed-tools: edit_file\n---\nSửa file.\n",
+                encoding="utf-8")
+            (root / "app.py").write_text("x = 1\n", encoding="utf-8")
+            session = Session(root=root, mode="bypass", approve=lambda _t, _a: True)
+            session.use_skill("gioi-han")
+            blocked, _ev = session.call("run_shell", {"cmd": "python -c print(1)"})
+            self.assertTrue(blocked.startswith("BỊ CHẶN"))
+            self.assertEqual(session.lane_seen, 0)
+            edited, _ev = session.call("edit_file", {"path": "app.py", "old": "x = 1", "new": "x = 2"})
+            self.assertIn("x = 2", (root / "app.py").read_text(encoding="utf-8"))
+            self.assertFalse(edited.startswith("BỊ CHẶN"))
+            self.assertEqual(session.lane_seen, 1)
 
 
 if __name__ == "__main__":

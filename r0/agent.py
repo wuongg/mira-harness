@@ -41,7 +41,7 @@ def _consider_finish(session: Session, summary: str, task: str = "") -> tuple[bo
         return False, why
     if session.lane_seen == 2:
         from .skills import fact_from_audit, remember_fact
-        line = fact_from_audit(session.audit)
+        line = fact_from_audit(session.audit, root=session.root)
         if line:
             remember_fact(session.root, task, line)
     return True, summary

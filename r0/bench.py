@@ -81,6 +81,18 @@ def _check(root: Path, spec: dict, session: Session | None = None,
         if not path.is_file():
             return False
         return spec.get("text", "") in path.read_text(encoding="utf-8")
+    if kind == "skill_ceiling":
+        if session is None:
+            return False
+        shells = [ev for ev in session.events if ev.name == "run_shell"]
+        if not shells or not shells[0].result.startswith("BỊ CHẶN"):
+            return False
+        if session.lane_seen > 1:
+            return False
+        path = root / spec.get("path", "")
+        if not path.is_file():
+            return False
+        return spec.get("text", "") in path.read_text(encoding="utf-8")
     if kind == "skill_file":
         if session is None or session.skills_opened != list(spec.get("opened") or []):
             return False

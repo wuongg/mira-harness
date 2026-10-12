@@ -43,6 +43,27 @@ def _frontmatter(text: str) -> tuple[dict[str, str], str]:
     return meta, body
 
 
+_TOOL_ALIAS = {
+    "bash": "run_shell", "read": "read_file", "write": "write_file",
+    "edit": "edit_file", "grep": "grep", "glob": "glob",
+}
+_HARNESS_TOOLS = {"finish", "use_skill", "read_skill_file", "plan_skills", "todo_write"}
+
+
+def allowed_tools(meta: dict[str, str]) -> set[str] | None:
+    """Trần tool của skill. Không có field thì không siết. Field này không phải giấy phép bỏ hỏi."""
+    raw = (meta.get("allowed-tools") or "").strip()
+    if not raw:
+        return None
+    names: set[str] = set()
+    for part in re.split(r"[\s,]+", raw):
+        part = part.split("(", 1)[0].strip()
+        if not part:
+            continue
+        names.add(_TOOL_ALIAS.get(part.lower(), part))
+    return names
+
+
 def load_skills(root: Path) -> list[dict]:
     """Đọc catalog. Mỗi phần tử có name, description, body. Body không đưa vào prompt."""
     base = Path(root) / ".mira" / "skills"
@@ -57,7 +78,8 @@ def load_skills(root: Path) -> list[dict]:
         desc = meta.get("description") or ""
         if not desc:
             continue
-        out.append({"name": name, "description": desc, "body": body.strip()})
+        out.append({"name": name, "description": desc, "body": body.strip(),
+                    "allowed": allowed_tools(meta)})
     return out
 
 
@@ -135,14 +157,23 @@ def worker_skill_block(root: Path, name: str) -> str:
     return f"{UNTRUSTED_MARK}\nTHÂN SKILL ĐANG MỞ ({name}):\n{body}"
 
 
-def fact_from_audit(audit: list[dict] | None, fallback: str = "") -> str:
-    """Một dòng từ sổ ghi hoặc sửa. Không lấy lời model."""
+def fact_from_audit(audit: list[dict] | None, fallback: str = "",
+                    root: Path | None = None) -> str:
+    """Một dòng từ sổ ghi hoặc sửa, kèm chữ ký ast nếu là file Python. Không lấy lời model."""
     bits: list[str] = []
     for row in audit or []:
         action = str(row.get("action") or "")
         path = str(row.get("path") or "")
-        if action in ("write_file", "edit_file", "multi_edit") and path:
-            bits.append(f"{action} {path}")
+        if action not in ("write_file", "edit_file", "multi_edit") or not path:
+            continue
+        bit = f"{action} {path}"
+        if root is not None and path.endswith(".py"):
+            src = Path(root) / path
+            if src.is_file():
+                syms = _py_symbols(src.read_text(encoding="utf-8", errors="replace"))
+                if syms:
+                    bit += " " + ", ".join(syms[:4])
+        bits.append(bit)
     if bits:
         return "; ".join(bits)[:200]
     return fallback

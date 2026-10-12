@@ -292,6 +292,7 @@ class Session:
     stop_layer: str = "governance"
     skill_plan: list[str] = field(default_factory=list)
     skills_opened: list[str] = field(default_factory=list)
+    skill_caps: dict = field(default_factory=dict)
 
     def __post_init__(self):
         self.root = Path(self.root).resolve()
@@ -362,6 +363,20 @@ class Session:
             return refusal
         self.lane_seen = max(self.lane_seen, lane)
         return None
+
+    def _skill_ceiling(self, tool: str) -> str | None:
+        """Skill đã khai trần thì tool ngoài trần bị chặn trước khi hỏi và trước khi nâng làn."""
+        from .skills import _HARNESS_TOOLS
+        if tool in _HARNESS_TOOLS:
+            return None
+        caps = [self.skill_caps[name] for name in self.skills_opened
+                if isinstance(self.skill_caps.get(name), set)]
+        if not caps:
+            return None
+        allowed: set[str] = set.intersection(*caps)
+        if tool in allowed:
+            return None
+        return f"BỊ CHẶN: skill đang mở không cho phép {tool}."
 
     def accept_finish(self) -> tuple[bool, str]:
         """finish là lời xin. Làn quyết định sổ phải có tác dụng gì."""
@@ -447,6 +462,7 @@ class Session:
             return "LỖI: chưa có tên skill"
         self.skill_plan = clean
         self.skills_opened = []
+        self.skill_caps = {}
         return "thứ tự skill: " + ", ".join(clean)
 
     def use_skill(self, name: str) -> str:
@@ -462,6 +478,7 @@ class Session:
             if wanted != nxt:
                 return f"LỖI: chưa tới skill {wanted}. Tiếp theo là {nxt or 'hết'}."
         self.skills_opened.append(wanted)
+        self.skill_caps[wanted] = found.get("allowed")
         self.log_event("skill_open", name=wanted, layer="tool")
         self.log_event("skill_untrusted", name=wanted, layer="tool")
         from .skills import UNTRUSTED_MARK, skill_file_names
@@ -865,7 +882,11 @@ class Session:
         import time
         t0 = time.time()
         approved = None
-        if name == "read_file":
+        ceiling = self._skill_ceiling(name)
+        if ceiling:
+            res = ceiling
+            approved = False
+        elif name == "read_file":
             res = self.read_file(args.get("path", ""),
                                  start=int(args.get("start") or 1),
                                  n=int(args.get("n") or 100))

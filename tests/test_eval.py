@@ -14,10 +14,11 @@ class EvalTest(unittest.TestCase):
         rows = [run_one(p) for p in sorted(root.iterdir()) if (p / "task.json").is_file()]
         self.assertEqual(
             [r["name"] for r in rows],
-            ["doi_gia_tri", "dung_skill", "file_kem", "hai_skill", "nho_lan_sau", "plan_khong_ghi", "script_chua_mo"])
+            ["doi_gia_tri", "dung_skill", "file_kem", "gioi_han_tool", "hai_skill", "nho_lan_sau", "plan_khong_ghi", "script_chua_mo"])
         self.assertEqual(rows[1]["skills"], "sua-gia-tri")
         self.assertEqual(rows[2]["skills"], "kem")
-        self.assertEqual(rows[3]["skills"], "mot,hai")
+        self.assertEqual(rows[3]["skills"], "gioi-han")
+        self.assertEqual(rows[4]["skills"], "mot,hai")
         self.assertTrue(all(r["ok"] for r in rows))
         self.assertGreater(rows[0]["costUsd"], 0)
         self.assertTrue(all(r["layer"] in ("governance", "verification", "context", "tool") for r in rows))

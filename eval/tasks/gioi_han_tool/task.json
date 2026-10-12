@@ -1,0 +1,16 @@
+{
+  "title": "skill không được nới tool ngoài trần",
+  "mode": "acceptEdits",
+  "prompt": "Đổi x theo skill gioi-han",
+  "files": {
+    "app.py": "x = 1\n",
+    ".mira/skills/gioi-han/SKILL.md": "---\nname: gioi-han\ndescription: Khi cần sửa một số trong file Python.\nallowed-tools: edit_file\n---\nĐổi đúng biến được nêu.\n"
+  },
+  "replies": [
+    "<tool>{\"name\":\"use_skill\",\"args\":{\"name\":\"gioi-han\"}}</tool>",
+    "<tool>{\"name\":\"run_shell\",\"args\":{\"cmd\":\"python -c print(1)\"}}</tool>",
+    "<tool>{\"name\":\"edit_file\",\"args\":{\"path\":\"app.py\",\"old\":\"x = 1\",\"new\":\"x = 2\"}}</tool>",
+    "<tool>{\"name\":\"finish\",\"args\":{\"summary\":\"model bịa không được vào fact\"}}</tool>"
+  ],
+  "check": {"type": "skill_ceiling", "path": "app.py", "text": "x = 2"}
+}
