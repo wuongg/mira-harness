@@ -1,0 +1,19 @@
+{
+  "title": "mở đúng skill sửa số",
+  "mode": "acceptEdits",
+  "prompt": "Đổi x = 1 thành x = 2 trong app.py",
+  "files": {
+    "app.py": "x = 1\n",
+    ".mira/skills/sua-gia-tri/SKILL.md": "---\nname: sua-gia-tri\ndescription: Khi cần đổi một số trong file Python.\n---\nĐổi đúng biến được nêu.\nTHAN-SUA\n",
+    ".mira/skills/khac/SKILL.md": "---\nname: khac\ndescription: Khi cần viết tài liệu, không đụng code.\n---\nViết ghi chú.\nTHAN-KHAC\n"
+  },
+  "replies": [
+    "<tool>{\"name\":\"use_skill\",\"args\":{\"name\":\"sua-gia-tri\"}}</tool>",
+    "<tool>{\"name\":\"edit_file\",\"args\":{\"path\":\"app.py\",\"old\":\"x = 1\",\"new\":\"x = 2\"}}</tool>",
+    "<tool>{\"name\":\"finish\",\"args\":{\"summary\":\"đã đổi x\"}}</tool>"
+  ],
+  "checks": [
+    {"type": "contains", "path": "app.py", "text": "x = 2"},
+    {"type": "skills", "opened": ["sua-gia-tri"], "never": ["THAN-KHAC"]}
+  ]
+}

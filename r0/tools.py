@@ -110,6 +110,8 @@ TOOL_SPECS = {
     "run_shell": "chạy một lệnh trong thư mục này, cần bạn cho phép",
     "todo_write": "ghi việc cần làm của lượt này",
     "task": "giao một việc nhỏ rồi nhận tóm tắt",
+    "plan_skills": "ghi thứ tự skill sẽ mở, không đọc thân",
+    "use_skill": "mở đúng một thân skill đã có trong catalog",
     "finish": "kết thúc và trả lời",
 }
 
@@ -274,6 +276,8 @@ class Session:
     lane_seen: int = 0
     checker: Callable[[], bool] | None = None
     stop_layer: str = "governance"
+    skill_plan: list[str] = field(default_factory=list)
+    skills_opened: list[str] = field(default_factory=list)
 
     def __post_init__(self):
         self.root = Path(self.root).resolve()
@@ -389,12 +393,48 @@ class Session:
         return p != self.root and self.root not in p.parents
 
     # ------------------------------------------------------------- công cụ
+    def plan_skills(self, names) -> str:
+        """Ghi thứ tự skill. Không nạp thân."""
+        from .skills import load_skills
+        catalog = {s["name"] for s in load_skills(self.root)}
+        if isinstance(names, str):
+            names = [part.strip() for part in names.split(",") if part.strip()]
+        clean = []
+        for name in names or []:
+            name = str(name).strip()
+            if name not in catalog:
+                return f"LỖI: không có skill {name}"
+            clean.append(name)
+        if not clean:
+            return "LỖI: chưa có tên skill"
+        self.skill_plan = clean
+        self.skills_opened = []
+        return "thứ tự skill: " + ", ".join(clean)
+
+    def use_skill(self, name: str) -> str:
+        """Trả đúng một thân. Tên lạ bị từ chối. Có kế hoạch thì chỉ mở skill kế tiếp."""
+        from .skills import load_skills
+        wanted = (name or "").strip()
+        found = next((s for s in load_skills(self.root) if s["name"] == wanted), None)
+        if found is None:
+            return f"LỖI: không có skill {wanted}"
+        if self.skill_plan:
+            idx = len(self.skills_opened)
+            nxt = self.skill_plan[idx] if idx < len(self.skill_plan) else ""
+            if wanted != nxt:
+                return f"LỖI: chưa tới skill {wanted}. Tiếp theo là {nxt or 'hết'}."
+        self.skills_opened.append(wanted)
+        self.log_event("skill_open", name=wanted, layer="tool")
+        return found["body"]
+
     def read_file(self, path: str, start: int = 1, n: int = 100,
                   max_bytes: int = 200_000) -> str:
         """Cửa sổ dòng, có số dòng. Muốn phần sau thì gọi lại với start tiếp theo."""
         p = self._resolve(path)
         if _denied_path(self.root, p):
             return f"BỊ CHẶN: không đọc {path}."
+        if p.name == "SKILL.md" and ".mira" in p.parts and "skills" in p.parts:
+            return "BỊ CHẶN: thân skill chỉ mở bằng use_skill."
         if not p.is_file():
             return f"LỖI: không có tệp {path}"
         raw = p.read_bytes()[:max_bytes]
@@ -801,6 +841,10 @@ class Session:
         elif name == "run_shell":
             res = self.run_shell(args.get("cmd", ""))
             approved = not res.startswith(("NGƯỜI DÙNG TỪ CHỐI", "BỊ CHẶN"))
+        elif name == "plan_skills":
+            res = self.plan_skills(args.get("names") or [])
+        elif name == "use_skill":
+            res = self.use_skill(args.get("name", ""))
         else:
             res = f"LỖI: không có công cụ {name}"
         ev = ToolEvent(name=name, args=args, result=res,
@@ -867,6 +911,8 @@ Danh sách:
 - run_shell {"cmd"} — CHẠY lệnh (cần người duyệt)
 - todo_write {"items"} — ghi danh sách việc cần làm
 - task {"task","max_turns"} — giao việc nhỏ cho agent con, nhận tóm tắt
+- plan_skills {"names"} — ghi thứ tự skill, chưa đọc thân
+- use_skill {"name"} — mở đúng một thân skill trong catalog
 - finish {"summary"} — kết thúc
 
 QUY TẮC

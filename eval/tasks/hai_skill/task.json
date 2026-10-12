@@ -1,0 +1,20 @@
+{
+  "title": "hai skill đúng thứ tự",
+  "mode": "acceptEdits",
+  "prompt": "Làm hai bước theo skill mot rồi hai",
+  "files": {
+    ".mira/skills/mot/SKILL.md": "---\nname: mot\ndescription: Khi việc cần bước mở đầu.\n---\nTHAN-MOT\n",
+    ".mira/skills/hai/SKILL.md": "---\nname: hai\ndescription: Khi bước mở đầu đã xong.\n---\nTHAN-HAI\n"
+  },
+  "replies": [
+    "<tool>{\"name\":\"plan_skills\",\"args\":{\"names\":[\"mot\",\"hai\"]}}</tool>",
+    "<tool>{\"name\":\"use_skill\",\"args\":{\"name\":\"mot\"}}</tool>",
+    "<tool>{\"name\":\"use_skill\",\"args\":{\"name\":\"hai\"}}</tool>",
+    "<tool>{\"name\":\"finish\",\"args\":{\"summary\":\"xong hai bước\"}}</tool>"
+  ],
+  "check": {
+    "type": "skills",
+    "opened": ["mot", "hai"],
+    "hidden_in_request": {"hai": "THAN-HAI"}
+  }
+}

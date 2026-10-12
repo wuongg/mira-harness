@@ -1,0 +1,24 @@
+{
+  "title": "lượt sau đọc ít hơn",
+  "mode": "acceptEdits",
+  "files": {
+    "app.py": "def main():\n    return 1\n\nx = 1\nx = 1\nx = 1\nx = 1\nx = 1\nx = 1\nx = 1\nx = 1\nx = 1\nx = 1\nx = 1\nx = 1\nx = 1\nx = 1\nx = 1\nx = 1\nx = 1\nx = 1\nx = 1\nx = 1\nx = 1\nx = 1\nx = 1\nx = 1\nx = 1\nx = 1\nx = 1\nx = 1\nx = 1\nx = 1\nx = 1\nx = 1\nx = 1\nx = 1\nx = 1\nx = 1\nx = 1\nx = 1\nx = 1\nx = 1\n"
+  },
+  "phases": [
+    {
+      "prompt": "đọc app.py",
+      "replies": [
+        "<tool>{\"name\":\"read_file\",\"args\":{\"path\":\"app.py\"}}</tool>",
+        "<tool>{\"name\":\"finish\",\"args\":{\"summary\":\"đã đọc\"}}</tool>"
+      ],
+      "remember": "hàm main nằm trong app.py"
+    },
+    {
+      "prompt": "hàm main ở đâu",
+      "replies": [
+        "<tool>{\"name\":\"finish\",\"args\":{\"summary\":\"main ở app.py\"}}</tool>"
+      ]
+    }
+  ],
+  "check": {"type": "reread"}
+}

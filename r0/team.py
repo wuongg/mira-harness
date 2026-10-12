@@ -23,6 +23,7 @@ import threading
 import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable
@@ -215,7 +216,8 @@ def execute_plan(plan: TeamPlan, *, provider_name: str | None = None,
                  depth: int = 0,
                  ledger: "Ledger | None" = None,
                  on_step: Callable[[str], None] | None = None,
-                 dry_run: bool = False) -> dict:
+                 dry_run: bool = False,
+                 root: Path | None = None) -> dict:
     """Chạy kế hoạch. Trả về bản ghi đầy đủ. KHÔNG tự ghi ra đĩa.
 
     `workers > 1` + làn 2: N worker chạy SONG SONG, rồi N verifier chạy song song.
@@ -227,6 +229,7 @@ def execute_plan(plan: TeamPlan, *, provider_name: str | None = None,
     """
     log = on_step or (lambda _m: None)
     ledger = ledger if ledger is not None else Ledger()
+    skill_names: list[str] = []
     steps: list[dict] = []
     prev = ""
     status = "ok"
@@ -249,6 +252,21 @@ def execute_plan(plan: TeamPlan, *, provider_name: str | None = None,
         if shard:
             u += (f"\n\n[PHẦN {shard[0]}/{shard[1]} — chỉ làm phần này, "
                   f"không lặp lại phần của phần khác]")
+        if root is not None and role in ("planner", "worker"):
+            from .skills import catalog_text, estimate_tokens, load_skills, skill_body
+            skills = load_skills(root)
+            if skills:
+                cat = catalog_text(skills)
+                u += f"\n\n{cat}\n(catalog: {len(skills)} skill, {estimate_tokens(cat)} token)"
+            if role == "planner":
+                u += "\nNếu cần skill, dòng cuối đúng dạng: SKILLS: ten, ten"
+            elif skill_names:
+                body = skill_body(root, skill_names[0])
+                if body:
+                    u += f"\n\nTHÂN SKILL ĐANG MỞ ({skill_names[0]}):\n{body}"
+                rest = skill_names[1:]
+                if rest:
+                    u += "\nSkill chưa mở: " + ", ".join(rest)
         return u
 
     def _call(role: str, pv: str = "", shard: tuple[int, int] | None = None) -> dict:
@@ -338,7 +356,8 @@ def execute_plan(plan: TeamPlan, *, provider_name: str | None = None,
             f" (sâu {depth}" + (f", trần ${sub_cap:.4f}" if plan.cap_usd else "") + ")")
         sub_res = execute_plan(sub, provider_name=provider_name, model_override=model_override,
                                base_url=base_url, api_key=api_key, max_tokens=max_tokens,
-                               workers=1, depth=depth - 1, ledger=ledger, on_step=log)
+                               workers=1, depth=depth - 1, ledger=ledger, on_step=log,
+                               root=root)
         text = _aggregate(sub_res)
         st = {"role": "worker", "shard": shard, "model": _model_of("worker"),
               "provider": "nested", "text": text, "usage": {"in": 0, "out": 0},
@@ -385,6 +404,14 @@ def execute_plan(plan: TeamPlan, *, provider_name: str | None = None,
             break
         if role == "planner":
             prev = st["text"]
+            if root is not None:
+                from .skills import load_skills, parse_skill_line
+                known = {s["name"] for s in load_skills(root)}
+                asked = parse_skill_line(prev)
+                skill_names[:] = [name for name in asked if name in known]
+                unknown = [name for name in asked if name not in known]
+                if unknown:
+                    prev += "\nTỪ CHỐI skill: " + ", ".join(unknown)
         if _over_cap():
             _stop_budget()
             break
@@ -425,6 +452,9 @@ def execute_plan(plan: TeamPlan, *, provider_name: str | None = None,
                 verifier_verdict = None
             elif all(v == "PASS" for v in verdicts):
                 verifier_verdict = "PASS"
+                if root is not None:
+                    from .skills import remember_fact
+                    remember_fact(root, plan.task_text, prev)
             else:
                 verifier_verdict = next(v for v in verdicts if v != "PASS")
             if _over_cap():
@@ -527,7 +557,7 @@ def cmd_team(args) -> int:
     ui.title("THỰC THI")
     res = execute_plan(plan, provider_name=args.provider, model_override=args.model,
                        base_url=args.base_url, max_tokens=args.max_tokens,
-                       workers=workers, depth=sub_depth,
+                       workers=workers, depth=sub_depth, root=Path.cwd(),
                        on_step=lambda m: print("  " + m))
 
     ui.title("KẾT LUẬN")

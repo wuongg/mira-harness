@@ -94,6 +94,17 @@ def run_turn(*, task: str, session: Session, model: str,
                           provider=provider)
 
 
+def _project_context(session: Session, task: str) -> str:
+    """Catalog, bản đồ, fact. Ghi số skill và token catalog vào sổ."""
+    from .skills import catalog_text, context_block, estimate_tokens, load_skills
+    skills = load_skills(session.root)
+    if skills:
+        session.log_event("skill_catalog", skills=len(skills),
+                          tokens=estimate_tokens(catalog_text(skills)), layer="context")
+    block = context_block(session.root, task)
+    return ("\n\n" + block) if block else ""
+
+
 def _spawn(parent: Session, task: str, depth: int, max_turns: int, max_budget,
            *, model: str, provider_name, base_url, api_key, max_tokens: int,
            no_stream: bool, protocol: str, note) -> dict:
@@ -137,6 +148,7 @@ def _run_native_loop(*, task: str, session: Session, model: str,
                 "toolSummary": {"calls": 0, "tools": []}, "protocol": "native"}
 
     sys_prompt = AGENT_SYSTEM + "\n\nThư mục gốc: " + str(session.root)
+    sys_prompt += _project_context(session, task)
     _mem = session.memory_for_prompt()
     if _mem:
         sys_prompt += "\n\nGHI NHỚ DỰ ÁN (MIRA.md):\n" + _mem
@@ -264,6 +276,7 @@ def _run_text_loop(*, task: str, session: Session, model: str,
                 "toolSummary": {"calls": 0, "tools": []}}
 
     sys_prompt = AGENT_SYSTEM + "\n\nThư mục gốc: " + str(session.root)
+    sys_prompt += _project_context(session, task)
     _mem = session.memory_for_prompt()
     if _mem:
         sys_prompt += "\n\nGHI NHỚ DỰ ÁN (MIRA.md):\n" + _mem

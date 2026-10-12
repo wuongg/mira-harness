@@ -13,17 +13,19 @@ from .tools import Session
 
 
 class _Scripted:
-    """Trả lần lượt các câu trả lời, kèm usage cố định."""
+    """Trả lần lượt các câu trả lời, kèm usage cố định. Giữ prompt đã gửi."""
 
     name = "script"
 
     def __init__(self, replies: list[str]):
         self.replies = list(replies)
+        self.prompts: list[str] = []
 
     def available(self) -> bool:
         return True
 
-    def call(self, _system: str, _user: str) -> tuple[str, dict]:
+    def call(self, system: str, user: str) -> tuple[str, dict]:
+        self.prompts.append(system + "\n" + user)
         text = self.replies.pop(0) if self.replies else "xong"
         return text, {"in": 150, "out": 30}
 
@@ -35,7 +37,8 @@ def task_root() -> Path:
     return Path.cwd() / "eval" / "tasks"
 
 
-def _check(root: Path, spec: dict) -> bool:
+def _check(root: Path, spec: dict, session: Session | None = None,
+           prompts: list[str] | None = None, replies: list[str] | None = None) -> bool:
     kind = spec.get("type")
     path = root / spec.get("path", "")
     if kind == "contains":
@@ -44,35 +47,110 @@ def _check(root: Path, spec: dict) -> bool:
         return spec.get("text", "") in path.read_text(encoding="utf-8")
     if kind == "absent":
         return not path.exists()
+    if kind == "skills":
+        if session is None or session.skills_opened != list(spec.get("opened") or []):
+            return False
+        for marker in spec.get("never") or []:
+            if any(marker in prompt for prompt in (prompts or [])):
+                return False
+        hidden = spec.get("hidden_in_request") or {}
+        for index, reply in enumerate(replies or []):
+            for name, marker in hidden.items():
+                if "use_skill" in reply and name in reply and index < len(prompts or []):
+                    if marker in prompts[index]:
+                        return False
+        return True
+    if kind == "reread":
+        stats = getattr(session, "phase_stats", None) or {}
+        reads = stats.get("reads") or []
+        sizes = stats.get("prompt_chars") or []
+        if len(reads) < 2 or len(sizes) < 2:
+            return False
+        return reads[1] < reads[0] and sizes[1] < sizes[0]
     raise ValueError(f"không có kiểu kiểm tra {kind}")
+
+
+def _checks(root: Path, spec: dict, session: Session, prompts: list[str],
+            replies: list[str]) -> bool:
+    items = spec.get("checks")
+    if not items and spec.get("check"):
+        items = [spec["check"]]
+    return all(_check(root, item, session, prompts, replies) for item in (items or []))
+
+
+def _seed(root: Path, spec: dict) -> None:
+    for name, content in (spec.get("files") or {}).items():
+        dest = root / name
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_text(content, encoding="utf-8")
+
+
+def _stop_layer(session: Session) -> str:
+    layer = "governance"
+    for row in reversed(session.trace):
+        if row.get("kind") == "stop":
+            return row.get("layer") or layer
+    return layer
+
+
+def _read_calls(session: Session) -> int:
+    return sum(1 for row in session.trace
+               if row.get("kind") == "tool_call" and row.get("tool") == "read_file")
 
 
 def run_one(folder: Path) -> dict:
     spec = json.loads((folder / "task.json").read_text(encoding="utf-8"))
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
-        for name, content in (spec.get("files") or {}).items():
-            dest = root / name
-            dest.parent.mkdir(parents=True, exist_ok=True)
-            dest.write_text(content, encoding="utf-8")
+        _seed(root, spec)
         session = Session(root=root, mode=spec.get("mode") or "acceptEdits",
                           approve=lambda _t, _a: True)
-        session.checker = lambda: _check(root, spec["check"])
-        res = run_turn(task=spec.get("prompt") or folder.name, session=session,
-                       model="sonnet-5.5", protocol="text", no_stream=True,
-                       provider=_Scripted(spec.get("replies") or []),
-                       on_text=lambda _s: None)
-        layer = "governance"
-        for row in reversed(session.trace):
-            if row.get("kind") == "stop":
-                layer = row.get("layer") or layer
-                break
+        script = _Scripted([])
+        replies: list[str] = []
+        turns = 0
+        cost = 0.0
+        status_ok = True
+        phases = spec.get("phases")
+        if phases:
+            from .skills import remember_fact
+            stats = {"reads": [], "prompt_chars": []}
+            session.phase_stats = stats
+            for phase in phases:
+                before_reads = _read_calls(session)
+                before_prompts = len(script.prompts)
+                script.replies = list(phase.get("replies") or [])
+                replies.extend(script.replies)
+                session.checker = lambda: True
+                res = run_turn(task=phase.get("prompt") or folder.name, session=session,
+                               model="sonnet-5.5", protocol="text", no_stream=True,
+                               provider=script, on_text=lambda _s: None)
+                turns += res.get("turns") or 0
+                cost += res.get("costUsd") or 0.0
+                status_ok = status_ok and res.get("status") == "ok"
+                chunk = script.prompts[before_prompts:]
+                stats["reads"].append(_read_calls(session) - before_reads)
+                stats["prompt_chars"].append(max((len(p) for p in chunk), default=0))
+                if phase.get("remember") and res.get("status") == "ok":
+                    remember_fact(root, phase.get("prompt") or "", phase["remember"])
+        else:
+            batch = list(spec.get("replies") or [])
+            replies = list(batch)
+            script.replies = batch
+            session.checker = lambda: _checks(root, spec, session, script.prompts, replies)
+            res = run_turn(task=spec.get("prompt") or folder.name, session=session,
+                           model="sonnet-5.5", protocol="text", no_stream=True,
+                           provider=script, on_text=lambda _s: None)
+            turns = res.get("turns") or 0
+            cost = res.get("costUsd") or 0.0
+            status_ok = res.get("status") == "ok"
+        opened = ",".join(session.skills_opened) or "-"
         return {
             "name": folder.name,
-            "ok": bool(res.get("status") == "ok" and _check(root, spec["check"])),
-            "turns": res.get("turns") or 0,
-            "costUsd": res.get("costUsd") or 0.0,
-            "layer": layer,
+            "ok": bool(status_ok and _checks(root, spec, session, script.prompts, replies)),
+            "turns": turns,
+            "costUsd": cost,
+            "layer": _stop_layer(session),
+            "skills": opened,
         }
 
 
@@ -88,6 +166,6 @@ def run_eval(root: Path | None = None) -> int:
     cost = sum(row["costUsd"] for row in rows)
     for row in rows:
         mark = "qua" if row["ok"] else "fail"
-        print(f"{row['name']}\t{mark}\t{row['turns']} vòng\t${row['costUsd']:.4f}\t{row['layer']}")
+        print(f"{row['name']}\t{mark}\t{row['turns']} vòng\t${row['costUsd']:.4f}\t{row['layer']}\t{row['skills']}")
     print(f"{passed}/{len(rows)} qua\t{turns} vòng\t${cost:.4f}")
     return 0 if passed == len(rows) else 1

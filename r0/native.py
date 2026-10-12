@@ -69,6 +69,11 @@ SCHEMAS: dict[str, dict] = {
     "task": {"description": "Giao một việc nhỏ cho agent con rồi nhận tóm tắt",
              "properties": {"task": {"type": "string"}, "max_turns": {"type": "integer"},
                             "max_budget_usd": {"type": "number"}}, "required": ["task"]},
+    "plan_skills": {"description": "Ghi thứ tự skill sẽ mở, không đọc thân",
+                    "properties": {"names": {"type": "array", "items": {"type": "string"}}},
+                    "required": ["names"]},
+    "use_skill": {"description": "Mở đúng một thân skill đã có trong catalog",
+                  "properties": {"name": {"type": "string"}}, "required": ["name"]},
 }
 
 
