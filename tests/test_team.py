@@ -44,7 +44,12 @@ class _Stub(BaseHTTPRequestHandler):
         elif "CRITIC" in blob:
             text = "Rủi ro: giả định về nguồn dữ liệu chưa được kiểm."
         elif "PLANNER" in blob:
-            text = "1. Bước một — tiêu chí: kiểm được\n2. Bước hai — tiêu chí: kiểm được"
+            if "TỪ CHỐI skill" in blob:
+                text = "SKILLS: mot"
+            elif "BAT_SKILL_SAI" in blob:
+                text = "SKILLS: khong-co, mot"
+            else:
+                text = "1. Bước một — tiêu chí: kiểm được\n2. Bước hai — tiêu chí: kiểm được"
         elif "COORDINATOR" in blob:
             text = "Thứ tự: bước 1 → bước 2. Không có bước song song."
         else:
@@ -210,6 +215,38 @@ class TestVongLapDayDu(unittest.TestCase):
         res = team.execute_plan(plan, dry_run=True, on_step=lambda m: None)
         self.assertEqual(SEEN, [])
         self.assertEqual(res["ledger"]["tokens_in"], 0)
+
+    def test_planner_sua_ten_skill_va_thay_ban_do(self):
+        SEEN.clear()
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            skill = root / ".mira" / "skills" / "mot"
+            skill.mkdir(parents=True)
+            (skill / "SKILL.md").write_text(
+                "---\nname: mot\ndescription: Khi cần bước mở đầu.\n---\nTHAN-MOT\n",
+                encoding="utf-8")
+            (root / "app.py").write_text("def main():\n    return 1\n", encoding="utf-8")
+            from r0.skills import remember_fact
+            remember_fact(root, "hàm main app", "edit_file app.py")
+            plan = team.build_plan("BAT_SKILL_SAI hàm main app", surface="read_only",
+                                   labels=["internal"], records=5000, dollars=3000)
+            res = team.execute_plan(plan, provider_name="anthropic", base_url=self.base,
+                                    api_key="k", root=root, on_step=lambda m: None)
+        self.assertEqual(res["status"], "ok")
+        planners = [row for row in SEEN if str(row["req"].get("system", "")).startswith("Bạn là PLANNER")]
+        self.assertEqual(len(planners), 2)
+        first = json.dumps(planners[0]["req"], ensure_ascii=False)
+        second = json.dumps(planners[1]["req"], ensure_ascii=False)
+        self.assertIn("def main()", first)
+        self.assertIn("edit_file app.py", first)
+        self.assertNotIn("THAN-MOT", first)
+        self.assertIn("TỪ CHỐI skill", second)
+        self.assertNotIn("THAN-MOT", second)
+        workers = [row for row in SEEN if str(row["req"].get("system", "")).startswith("Bạn là WORKER")]
+        self.assertEqual(len(workers), 1)
+        blob = json.dumps(workers[0]["req"], ensure_ascii=False)
+        self.assertIn("THAN-MOT", blob)
+        self.assertEqual(blob.count("THAN-MOT"), 1)
 
 
 if __name__ == "__main__":

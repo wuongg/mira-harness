@@ -231,6 +231,7 @@ def execute_plan(plan: TeamPlan, *, provider_name: str | None = None,
     ledger = ledger if ledger is not None else Ledger()
     skill_names: list[str] = []
     skill_at = [-1]
+    skill_retried = [False]
     steps: list[dict] = []
     prev = ""
     status = "ok"
@@ -254,16 +255,21 @@ def execute_plan(plan: TeamPlan, *, provider_name: str | None = None,
             u += (f"\n\n[PHẦN {shard[0]}/{shard[1]} — chỉ làm phần này, "
                   f"không lặp lại phần của phần khác]")
         if root is not None and role in ("planner", "worker"):
-            from .skills import catalog_for_prompt, load_skills, worker_skill_block
+            from .skills import catalog_for_prompt, load_skills, memory_block, worker_skill_block
             skills = load_skills(root)
             if skills:
                 cat, stats = catalog_for_prompt(skills, plan.task_text)
                 u += (f"\n\n{cat}\n(catalog: {stats['skills']} skill, "
                       f"{stats['tokens']} token, giữ {stats['kept']})")
+            mem = memory_block(root, plan.task_text)
+            if mem:
+                u += "\n\n" + mem
             if role == "planner":
                 u += "\nNếu cần skill, dòng cuối đúng dạng: SKILLS: ten, ten"
             elif 0 <= skill_at[0] < len(skill_names):
                 u += "\n\n" + worker_skill_block(root, skill_names[skill_at[0]])
+        if role == "planner" and pv:
+            u += "\n\nKẾ HOẠCH TRƯỚC:\n" + (pv or "")[:4000]
         return u
 
     def _call(role: str, pv: str = "", shard: tuple[int, int] | None = None) -> dict:
@@ -402,13 +408,22 @@ def execute_plan(plan: TeamPlan, *, provider_name: str | None = None,
         if role == "planner":
             prev = st["text"]
             if root is not None:
-                from .skills import SKILL_CALL_CAP, load_skills, parse_skill_line
+                from .skills import choose_skills, load_skills, parse_skill_line
                 known = {s["name"] for s in load_skills(root)}
-                asked = parse_skill_line(prev)
-                accepted = [name for name in asked if name in known]
-                skill_names[:] = accepted[:SKILL_CALL_CAP]
-                refused = [name for name in asked if name not in known]
-                refused += accepted[SKILL_CALL_CAP:]
+                kept, refused = choose_skills(parse_skill_line(prev), known)
+                if refused and not skill_retried[0] and not st.get("error"):
+                    skill_retried[0] = True
+                    prev += "\nTỪ CHỐI skill: " + ", ".join(refused)
+                    st2 = _call("planner", pv=prev)
+                    _log_step(st2)
+                    steps.append(st2)
+                    if st2.get("error") or st2.get("blocked"):
+                        status = "blocked" if st2.get("blocked") else "error"
+                        fail_reason = st2["error"]
+                        break
+                    prev = st2.get("text") or ""
+                    kept, refused = choose_skills(parse_skill_line(prev), known)
+                skill_names[:] = kept
                 if refused:
                     prev += "\nTỪ CHỐI skill: " + ", ".join(refused)
         if _over_cap():

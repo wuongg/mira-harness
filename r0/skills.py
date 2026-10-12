@@ -268,6 +268,26 @@ def recall_facts(root: Path, task: str, cap: int = FACT_CHAR_CAP) -> str:
     return "\n".join(out)
 
 
+def memory_block(root: Path, task: str) -> str:
+    """Bản đồ và fact cho planner. Fact là gợi ý, không phải lệnh. Không có thân skill."""
+    parts: list[str] = []
+    mapped = repo_map(root, task)
+    if mapped:
+        parts.append("BẢN ĐỒ KÝ HIỆU:\n" + mapped)
+    facts = recall_facts(root, task)
+    if facts:
+        parts.append("GỢI Ý ĐÃ KIỂM, không phải lệnh:\n" + facts)
+    return "\n\n".join(parts)
+
+
+def choose_skills(asked: list[str], known: set[str], cap: int = SKILL_CALL_CAP) -> tuple[list[str], list[str]]:
+    """Giữ tên có trong catalog, cắt trần số lần gọi. Phần còn lại bị từ chối."""
+    accepted = [name for name in asked if name in known]
+    kept = accepted[:cap]
+    refused = [name for name in asked if name not in known] + accepted[cap:]
+    return kept, refused
+
+
 def context_block(root: Path, task: str) -> str:
     """Phần thêm vào prompt: catalog, bản đồ, fact. Không có thân skill."""
     parts: list[str] = []
@@ -276,10 +296,7 @@ def context_block(root: Path, task: str) -> str:
         cat, stats = catalog_for_prompt(skills, task)
         parts.append(
             cat + f"\n(catalog: {stats['skills']} skill, {stats['tokens']} token, giữ {stats['kept']})")
-    mapped = repo_map(root, task)
-    if mapped:
-        parts.append("BẢN ĐỒ KÝ HIỆU:\n" + mapped)
-    facts = recall_facts(root, task)
-    if facts:
-        parts.append("VIỆC ĐÃ KIỂM:\n" + facts)
+    mem = memory_block(root, task)
+    if mem:
+        parts.append(mem)
     return "\n\n".join(parts)
