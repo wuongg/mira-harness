@@ -32,8 +32,8 @@ class GhostTest(unittest.TestCase):
     def test_accept_extends_common_prefix(self):
         # /s -> /save, /sessions : tiền tố chung "/s" đã bằng phần gõ -> điền khả năng đầu
         self.assertEqual(L.accept("/s")[0], "/save ")
-        # /mo -> /mode, /model : tiền tố chung "/mod"
-        self.assertEqual(L.accept("/mo")[0], "/mod")
+        # /mode là tiền tố của /model, nên tiền tố chung của "/mo" là "/mode".
+        self.assertEqual(L.accept("/mo")[0], "/mode")
 
     def test_accept_no_match(self):
         self.assertEqual(L.accept("xyz"), ("xyz", 0))

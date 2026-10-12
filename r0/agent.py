@@ -151,6 +151,7 @@ def _run_native_loop(*, task: str, session: Session, model: str,
                     "toolSummary": {"calls": len(tools_used), "tools": sorted(set(tools_used))},
                     "protocol": "native"}
         turns += 1
+        session.log_event("model_turn", turn=turns, protocol="native")
         usage_total["in"] += u.get("in", 0)
         usage_total["out"] += u.get("out", 0)
         if not blocks:
@@ -199,6 +200,7 @@ def _run_native_loop(*, task: str, session: Session, model: str,
         final_text = final_text or "(dừng: quá nhiều vòng gọi công cụ)"
         note(stop_reason)
 
+    session.log_event("stop", reason=stop_reason or "xong")
     return {"status": status, "error": None, "final": final_text,
             "usage": usage_total, "turns": turns,
             "toolSummary": {"calls": len(tools_used), "tools": sorted(set(tools_used))},
@@ -259,6 +261,7 @@ def _run_text_loop(*, task: str, session: Session, model: str,
                     "usage": usage_total, "turns": turns,
                     "toolSummary": {"calls": len(tools_used), "tools": tools_used}}
         turns += 1
+        session.log_event("model_turn", turn=turns, protocol="text")
         usage_total["in"] += u.get("in", 0)
         usage_total["out"] += u.get("out", 0)
         convo.append({"role": "assistant", "content": text})
@@ -296,6 +299,7 @@ def _run_text_loop(*, task: str, session: Session, model: str,
         final_text = final_text or "(dừng: quá nhiều vòng gọi công cụ)"
         note(stop_reason)
 
+    session.log_event("stop", reason=stop_reason or "xong")
     return {"status": status, "error": None, "final": final_text,
             "usage": usage_total, "turns": turns,
             "toolSummary": {"calls": len(tools_used), "tools": sorted(set(tools_used))},

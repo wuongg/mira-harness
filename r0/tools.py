@@ -8,10 +8,12 @@ from __future__ import annotations
 import ipaddress
 import json
 import os
+import py_compile
 import re
 import shlex
 import socket
 import subprocess
+import tempfile
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -22,10 +24,10 @@ from typing import Any, Callable
 MODES = ("plan", "default", "acceptEdits", "bypass")
 
 TOOL_SPECS = {
-    "read_file": "đọc một tệp trong thư mục này",
+    "read_file": "đọc một cửa sổ dòng trong tệp (mặc định 100 dòng, có số dòng)",
     "list_dir": "liệt kê thư mục",
     "glob": "tìm tệp theo mẫu, ví dụ **/*.py",
-    "grep": "tìm một chuỗi trong các tệp",
+    "grep": "liệt kê tệp khớp và số lần, không đổ nội dung dòng",
     "write_file": "ghi một tệp, cần bạn cho phép",
     "edit_file": "sửa một đoạn trong tệp, cần bạn cho phép",
     "multi_edit": "sửa nhiều chỗ một lượt, cần bạn cho phép",
@@ -108,6 +110,28 @@ class _GuardRedirect(urllib.request.HTTPRedirectHandler):
         return super().redirect_request(req, fp, code, msg, headers, newurl)
 
 
+def _python_syntax(source: str) -> str | None:
+    """Kiểm cú pháp trong bộ nhớ tạm. Lỗi thì không cho ghi."""
+    fd, name = tempfile.mkstemp(suffix=".py")
+    cfile = name + "c"
+    try:
+        os.write(fd, source.encode("utf-8"))
+        os.close(fd)
+        fd = -1
+        py_compile.compile(name, cfile=cfile, doraise=True)
+        return None
+    except py_compile.PyCompileError as e:
+        return str(e)
+    finally:
+        if fd >= 0:
+            os.close(fd)
+        for leftover in (name, cfile):
+            try:
+                os.unlink(leftover)
+            except OSError:
+                pass
+
+
 def _open(req, timeout: int = 30) -> str:
     with urllib.request.urlopen(req, timeout=timeout) as r:
         return r.read(400_000).decode("utf-8", "replace")
@@ -178,6 +202,15 @@ class Session:
     def __post_init__(self):
         self.root = Path(self.root).resolve()
 
+    def log_event(self, kind: str, **fields) -> None:
+        """Sổ sự kiện gắn thêm. Không sửa dòng đã ghi."""
+        row: dict[str, Any] = {"kind": kind}
+        for key, value in fields.items():
+            if isinstance(value, str) and len(value) > 400:
+                value = value[:400] + "…"
+            row[key] = value
+        self.trace.append(row)
+
     # ------------------------------------------------------------ tiện ích
     def _resolve(self, rel: str) -> Path:
         """Khóa trong thư mục gốc, kể cả khi một symlink trỏ ra ngoài."""
@@ -243,17 +276,36 @@ class Session:
         return p != self.root and self.root not in p.parents
 
     # ------------------------------------------------------------- công cụ
-    def read_file(self, path: str, max_bytes: int = 200_000) -> str:
+    def read_file(self, path: str, start: int = 1, n: int = 100,
+                  max_bytes: int = 200_000) -> str:
+        """Cửa sổ dòng, có số dòng. Muốn phần sau thì gọi lại với start tiếp theo."""
         p = self._resolve(path)
         if _denied_path(self.root, p):
             return f"BỊ CHẶN: không đọc {path}."
         if not p.is_file():
             return f"LỖI: không có tệp {path}"
-        b = p.read_bytes()[:max_bytes]
+        raw = p.read_bytes()[:max_bytes]
         try:
-            return b.decode("utf-8")
+            text = raw.decode("utf-8")
         except UnicodeDecodeError:
             return f"(tệp nhị phân, {p.stat().st_size} byte, không hiển thị)"
+        lines = text.splitlines()
+        total = len(lines)
+        if total == 0:
+            return f"{path}  dòng 0 / 0\n(trống)"
+        begin = max(1, int(start or 1))
+        width = int(n or 100)
+        if width <= 0:
+            width = 100
+        if begin > total:
+            return f"LỖI: {path} chỉ có {total} dòng, không có dòng {begin}"
+        chunk = lines[begin - 1:begin - 1 + width]
+        end = begin + len(chunk) - 1
+        head = f"{path}  dòng {begin}-{end} / {total}"
+        if end < total:
+            head += f"  (còn {total - end} dòng, đọc tiếp từ {end + 1})"
+        body = "\n".join(f"{begin + i}|{line}" for i, line in enumerate(chunk))
+        return head + "\n" + body
 
     def list_dir(self, path: str = ".") -> str:
         p = self._resolve(path)
@@ -268,12 +320,14 @@ class Session:
         return "\n".join(out) or "(trống)"
 
     def grep(self, pattern: str, path: str = ".", max_hits: int = 60) -> str:
+        """Mặc định chỉ tên tệp và số lần khớp. Đoạn chữ thì đọc bằng read_file."""
         p = self._resolve(path)
         try:
             rx = re.compile(pattern)
         except re.error as e:
             return f"LỖI pattern: {e}"
-        hits: list[str] = []
+        counts: dict[str, int] = {}
+        seen = 0
         files = [p] if p.is_file() else [f for f in p.rglob("*") if f.is_file()]
         for f in files:
             if any(s in f.parts for s in (".git", "__pycache__", ".venv")):
@@ -281,14 +335,23 @@ class Session:
             if _denied_path(self.root, f):
                 continue
             try:
-                for i, line in enumerate(f.read_text(encoding="utf-8", errors="ignore").splitlines(), 1):
+                for line in f.read_text(encoding="utf-8", errors="ignore").splitlines():
                     if rx.search(line):
-                        hits.append(f"{f.relative_to(self.root)}:{i}: {line.strip()[:160]}")
-                        if len(hits) >= max_hits:
-                            return "\n".join(hits) + f"\n... (cắt ở {max_hits} kết quả)"
+                        rel = str(f.relative_to(self.root))
+                        counts[rel] = counts.get(rel, 0) + 1
+                        seen += 1
+                        if seen >= max_hits:
+                            break
             except Exception:
                 continue
-        return "\n".join(hits) or "(không thấy)"
+            if seen >= max_hits:
+                break
+        if not counts:
+            return "(không thấy)"
+        rows = [f"{name}  {n} chỗ" for name, n in counts.items()]
+        if seen >= max_hits:
+            rows.append(f"... (cắt ở {max_hits} kết quả)")
+        return "\n".join(rows)
 
     def write_file(self, path: str, content: str) -> str:
         """CỬA GHI DUY NHẤT (I1). Không có đường nào khác chạm đĩa."""
@@ -333,11 +396,15 @@ class Session:
         if old not in text:
             return f"LỖI: không thấy đoạn cần thay trong {path}"
         n_rep = min(count, text.count(old)) if count and count > 0 else text.count(old)
+        updated = text.replace(old, new, n_rep if (count and count > 0) else -1)
+        if p.suffix == ".py":
+            err = _python_syntax(updated)
+            if err:
+                return f"LỖI: cú pháp Python trong {path}: {err}"
         if not self._allow("edit_file", {"path": path, "n": n_rep}):
             return f"NGƯỜI DÙNG TỪ CHỐI sửa {path}."
         self._snapshot(p, "edit_file")
-        p.write_text(text.replace(old, new, n_rep if (count and count > 0) else -1),
-                     encoding="utf-8")
+        p.write_text(updated, encoding="utf-8")
         self.audit.append({"action": "edit_file", "path": str(p.relative_to(self.root)),
                            "replaced": n_rep, "mode": self.mode})
         return f"đã sửa {path}: thay {n_rep} chỗ"
@@ -408,15 +475,23 @@ class Session:
             plans.append((p, path, old, new, int(e.get("count", 0) or 0)))
         if problems:
             return "LỖI: chưa sửa gì (kiểm trước thất bại) —\n" + "\n".join(problems)
-        if not self._allow("multi_edit", {"files": len({str(p) for p, *_ in plans}),
-                                          "edits": len(plans)}):
-            return "NGƯỜI DÙNG TỪ CHỐI sửa nhiều chỗ."
-        done = []
+        prepared: list[tuple] = []
         for p, path, old, new, cnt in plans:
-            self._snapshot(p, "multi_edit")
             text = p.read_text(encoding="utf-8")
             n = min(cnt, text.count(old)) if cnt > 0 else text.count(old)
-            p.write_text(text.replace(old, new, n if cnt > 0 else -1), encoding="utf-8")
+            updated = text.replace(old, new, n if cnt > 0 else -1)
+            if p.suffix == ".py":
+                err = _python_syntax(updated)
+                if err:
+                    return f"LỖI: cú pháp Python trong {path}: {err}"
+            prepared.append((p, path, updated, n))
+        if not self._allow("multi_edit", {"files": len({str(p) for p, *_ in prepared}),
+                                          "edits": len(prepared)}):
+            return "NGƯỜI DÙNG TỪ CHỐI sửa nhiều chỗ."
+        done = []
+        for p, path, updated, n in prepared:
+            self._snapshot(p, "multi_edit")
+            p.write_text(updated, encoding="utf-8")
             self.audit.append({"action": "multi_edit", "path": str(p.relative_to(self.root)),
                                "replaced": n, "mode": self.mode})
             done.append(f"{path}: {n} chỗ")
@@ -560,8 +635,12 @@ class Session:
         try:
             r = subprocess.run(argv, shell=False, cwd=str(self.root), timeout=timeout,
                                capture_output=True, text=True)
-            out = (r.stdout or "") + (("\n[stderr]\n" + r.stderr) if r.stderr else "")
-            return f"[mã thoát {r.returncode}]\n{out[:8000] or '(không có đầu ra)'}"
+            if not (r.stdout or "").strip() and not (r.stderr or "").strip():
+                body = "lệnh chạy xong, không có đầu ra."
+            else:
+                body = (r.stdout or "") + (("\n[stderr]\n" + r.stderr) if r.stderr else "")
+                body = body[:8000]
+            return f"[mã thoát {r.returncode}]\n{body}"
         except subprocess.TimeoutExpired:
             return f"LỖI: quá {timeout}s"
         except Exception as e:
@@ -572,7 +651,9 @@ class Session:
         t0 = time.time()
         approved = None
         if name == "read_file":
-            res = self.read_file(args.get("path", ""))
+            res = self.read_file(args.get("path", ""),
+                                 start=int(args.get("start") or 1),
+                                 n=int(args.get("n") or 100))
         elif name == "list_dir":
             res = self.list_dir(args.get("path", "."))
         elif name == "grep":
@@ -619,7 +700,10 @@ class Session:
                 safe[k] = f"({len(str(v))} ký tự)"
             else:
                 safe[k] = str(v)[:120]
-        self.trace.append({"tool": name, "ok": ev.ok, "args": safe})
+        self.log_event("tool_call", tool=name, args=safe)
+        if approved is not None:
+            self.log_event("gate", tool=name, allowed=bool(approved))
+        self.log_event("tool_result", tool=name, ok=ev.ok, text=clip_result(res))
         return res, ev
 
 
@@ -654,10 +738,10 @@ CÔNG CỤ — mỗi lượt gọi TỐI ĐA MỘT công cụ, in đúng khối 
 <tool>{"name":"read_file","args":{"path":"duong/dan.txt"}}</tool>
 
 Danh sách:
-- read_file {"path"} — đọc tệp
+- read_file {"path","start","n"} — đọc cửa sổ dòng (mặc định 100 dòng, có số dòng). Hết cửa sổ thì gọi lại với start tiếp theo.
 - list_dir {"path"} — liệt kê thư mục
 - glob {"pattern","path"} — tìm tệp theo mẫu (ví dụ **/*.py)
-- grep {"pattern","path"} — tìm trong tệp
+- grep {"pattern","path"} — liệt kê tệp khớp và số lần. Muốn đọc đoạn thì gọi read_file.
 - write_file {"path","content"} — GHI tệp (cần người duyệt)
 - edit_file {"path","old","new","count"} — SỬA tại chỗ: thay đoạn old bằng new (cần người duyệt)
 - multi_edit {"edits":[{"path","old","new","count"}]} — sửa NHIỀU chỗ một lượt (cần người duyệt)

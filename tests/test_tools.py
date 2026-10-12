@@ -39,6 +39,37 @@ class ToolsTest(unittest.TestCase):
     def test_edit_missing_old(self):
         self.assertTrue(self._sess().edit_file("a.py", "KHONGCO", "y").startswith("LỖI"))
 
+    def test_read_window(self):
+        lines = "\n".join(f"dong {i}" for i in range(1, 121))
+        (self.root / "dai.txt").write_text(lines, encoding="utf-8")
+        s = self._sess()
+        first = s.read_file("dai.txt")
+        self.assertIn("dòng 1-100 / 120", first)
+        self.assertIn("1|dong 1", first)
+        self.assertNotIn("dong 101", first)
+        rest = s.read_file("dai.txt", start=101, n=100)
+        self.assertIn("101|dong 101", rest)
+        self.assertIn("120|dong 120", rest)
+
+    def test_grep_lists_files_not_lines(self):
+        hit = self._sess().grep("x = ", ".")
+        self.assertIn("a.py", hit)
+        self.assertIn("2 chỗ", hit)
+        self.assertNotIn("y = 2", hit)
+
+    def test_edit_rejects_bad_python(self):
+        before = (self.root / "a.py").read_text(encoding="utf-8")
+        out = self._sess().edit_file("a.py", "y = 2", "y = ")
+        self.assertTrue(out.startswith("LỖI"))
+        self.assertEqual((self.root / "a.py").read_text(encoding="utf-8"), before)
+
+    def test_shell_empty_output(self):
+        import shlex, sys
+        cmd = shlex.join([sys.executable, "-c", "pass"])
+        out = self._sess().run_shell(cmd)
+        self.assertIn("lệnh chạy xong, không có đầu ra", out)
+        self.assertIn("mã thoát 0", out)
+
     def test_edit_gated(self):
         self.assertIn("TỪ CHỐI", self._sess(approve=False).edit_file("a.py", "x", "z"))
 

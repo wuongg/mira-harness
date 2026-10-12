@@ -1,0 +1,11 @@
+{
+  "title": "đổi một giá trị trong tệp",
+  "mode": "acceptEdits",
+  "files": {
+    "app.py": "x = 1\n"
+  },
+  "steps": [
+    {"name": "edit_file", "args": {"path": "app.py", "old": "x = 1", "new": "x = 2"}}
+  ],
+  "check": {"type": "contains", "path": "app.py", "text": "x = 2"}
+}

@@ -416,10 +416,10 @@ def _center_art(line: str, width: int) -> str:
     return " " * (gap // 2) + line + " " * (gap - gap // 2)
 
 
-def compact_history(history: list[dict]) -> tuple[list[dict], str]:
-    """Giữ 6 tin gần. Các tin cũ thành một đoạn tóm tắt, không gọi model."""
+def compact_history(history: list[dict]) -> tuple[list[dict], str, dict | None]:
+    """Giữ 6 tin gần. Tin bị gộp nằm trong một sự kiện, không gọi model."""
     if len(history) <= 6:
-        return history, "Hội thoại còn ngắn, chưa cần rút gọn."
+        return history, "Hội thoại còn ngắn, chưa cần rút gọn.", None
     old, recent = history[:-6], history[-6:]
     lines = []
     for msg in old:
@@ -431,7 +431,8 @@ def compact_history(history: list[dict]) -> tuple[list[dict], str]:
             continue
         lines.append(f"- {msg.get('role', '?')}: {text[0][:120]}")
     summary = "TÓM TẮT CÁC LƯỢT TRƯỚC:\n" + ("\n".join(lines[:40]) or "(không có nội dung)")
-    return [{"role": "user", "content": summary}, *recent], f"Đã rút gọn: gộp {len(old)} tin cũ, giữ 6 tin gần nhất."
+    event = {"kind": "condensed", "dropped": len(old), "kept": 6, "summary": summary}
+    return [{"role": "user", "content": summary}, *recent], f"Đã rút gọn: gộp {len(old)} tin cũ, giữ 6 tin gần nhất.", event
 
 
 def _ask_approval(tool: str, args: dict) -> bool:
@@ -535,7 +536,9 @@ def repl(args) -> int:
                     m = session.load_memory()
                     ui.note(m or "Chưa có ghi nhớ. Gõ /memory rồi đến nội dung cần nhớ.", "info")
             elif cmd == "compact":
-                history[:], note = compact_history(history)
+                history[:], note, condensed = compact_history(history)
+                if condensed:
+                    events.append(condensed)
                 ui.note(note, "ok" if note.startswith("Đã") else "info")
             elif cmd == "menu":
                 ui.section("Bốn việc, chạy ở terminal sau khi gõ /exit")
@@ -639,6 +642,9 @@ def _one_turn(task: str, session: Session, model: str, args, history, events, te
         d = ev.as_dict()
         if d not in events:
             events.append(d)
+    for row in session.trace:
+        if row not in events:
+            events.append(row)
     if res["status"] == "blocked":
         ui.note(f"Bị chặn: {res['error']}", "bad")
         return None

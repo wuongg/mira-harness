@@ -25,12 +25,14 @@ from .providers import BaseProvider, ProviderError
 
 # ------------------------------------------------------------------ schema công cụ
 SCHEMAS: dict[str, dict] = {
-    "read_file": {"description": "Đọc một tệp văn bản",
-                  "properties": {"path": {"type": "string", "description": "đường dẫn tương đối"}},
+    "read_file": {"description": "Đọc một cửa sổ dòng (mặc định 100), có số dòng",
+                  "properties": {"path": {"type": "string", "description": "đường dẫn tương đối"},
+                                 "start": {"type": "integer", "description": "dòng bắt đầu, mặc định 1"},
+                                 "n": {"type": "integer", "description": "số dòng, mặc định 100"}},
                   "required": ["path"]},
     "list_dir": {"description": "Liệt kê nội dung thư mục",
                  "properties": {"path": {"type": "string"}}, "required": []},
-    "grep": {"description": "Tìm chuỗi/regex trong các tệp",
+    "grep": {"description": "Liệt kê tệp khớp và số lần, không đổ nội dung dòng",
              "properties": {"pattern": {"type": "string"}, "path": {"type": "string"}},
              "required": ["pattern"]},
     "write_file": {"description": "GHI một tệp (cần người dùng duyệt)",

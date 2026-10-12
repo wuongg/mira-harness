@@ -77,7 +77,10 @@ class DiskGuardTest(unittest.TestCase):
 
     def test_compact_gop_tin_cu(self):
         history = [{"role": "user", "content": f"viec {i}"} for i in range(8)]
-        out, note = compact_history(history)
+        out, note, event = compact_history(history)
         self.assertTrue(note.startswith("Đã rút gọn"))
         self.assertIn("TÓM TẮT", out[0]["content"])
         self.assertEqual(len(out), 7)
+        self.assertEqual(event["kind"], "condensed")
+        self.assertEqual(event["dropped"], 2)
+        self.assertIn("viec 0", event["summary"])

@@ -1,0 +1,9 @@
+{
+  "title": "chế độ plan không được ghi",
+  "mode": "plan",
+  "files": {},
+  "steps": [
+    {"name": "write_file", "args": {"path": "moi.txt", "content": "khong duoc"}}
+  ],
+  "check": {"type": "absent", "path": "moi.txt"}
+}

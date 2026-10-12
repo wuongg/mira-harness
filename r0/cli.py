@@ -638,6 +638,11 @@ def _cmd_dash(a) -> int:
     return cmd_dash(a)
 
 
+def _cmd_eval(_a) -> int:
+    from .bench import run_eval
+    return run_eval()
+
+
 def _cmd_keys(a) -> int:
     from .keys import cmd_keys
     return cmd_keys(a)
@@ -809,6 +814,9 @@ def build_parser() -> argparse.ArgumentParser:
 
     st = sub.add_parser("selftest", help="kiểm tra bất biến")
     st.set_defaults(func=cmd_selftest)
+
+    ev = sub.add_parser("eval", help="chấm vài việc local: qua/fail, vòng, tiền")
+    ev.set_defaults(func=_cmd_eval)
 
     lg = sub.add_parser("logs", help="xem log các phiên agent")
     lg.add_argument("session", nargs="?", default=None, help="id phiên để xem chi tiết")

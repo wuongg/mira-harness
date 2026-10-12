@@ -1,0 +1,26 @@
+name: test
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  unittest:
+    name: unittest (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        python-version: ["3.12"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Sinh số liệu shadow cho test thống kê
+        run: |
+          python -m r0 run --out out --quiet
+          python -m r0 run --out out-v112 --quiet
+      - name: Chạy toàn bộ unittest
+        run: python -m unittest discover -s tests -v

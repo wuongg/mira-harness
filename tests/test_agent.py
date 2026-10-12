@@ -214,7 +214,9 @@ class TestCongXinPhep(unittest.TestCase):
 
     def test_grep_va_list_dir(self):
         d, s = self._session("default", None, files={"a.txt": "dòng một\nkim cương\n"})
-        self.assertIn("kim cương", s.grep("kim", "."))
+        self.assertIn("a.txt", s.grep("kim", "."))
+        self.assertIn("1 chỗ", s.grep("kim", "."))
+        self.assertNotIn("kim cương", s.grep("kim", "."))
         self.assertIn("a.txt", s.list_dir("."))
         d.cleanup()
 
