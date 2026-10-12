@@ -53,6 +53,15 @@ class OpenTest(unittest.TestCase):
         self.assertIn("menu", self.calls)
 
     def test_pick_model_by_provider(self):
+        self._set_keys({"openrouter"})
+        self.assertEqual(cli._pick_model(), "anthropic/claude-sonnet-4.5")
+        self._set_keys({"openrouter", "anthropic"})
+        from r0.providers import agent_binding
+        model, prov = agent_binding("sonnet-5.5", None)
+        self.assertEqual(prov, "openrouter")
+        self.assertEqual(model, "anthropic/claude-sonnet-4.5")
+        from r0.providers import OpenRouterProvider
+        self.assertEqual(OpenRouterProvider("anthropic/claude-sonnet-4.5", api_key="k", max_tokens=4096).max_tokens, 512)
         self._set_keys({"openai"})
         self.assertEqual(cli._pick_model(), "gpt-5.6-sol")
         self._set_keys({"xai"})

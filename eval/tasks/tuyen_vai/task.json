@@ -1,0 +1,12 @@
+{
+  "title": "câu hỏi thì tuyển vai",
+  "mode": "acceptEdits",
+  "prompt": "Tìm hiểu vì sao trời mưa",
+  "files": {"note.txt": "mua\n"},
+  "replies": [
+    "VAI: tim | đọc ghi chú | read_file\nVAI: tom | tóm tắt | read_file\nBUOC: tim\nBUOC: tom\n",
+    "<tool>{\"name\":\"finish\",\"args\":{\"summary\":\"da tim\"}}</tool>",
+    "<tool>{\"name\":\"finish\",\"args\":{\"summary\":\"da tom\"}}</tool>"
+  ],
+  "check": {"type": "roster", "steps": "tim,tom"}
+}

@@ -1,7 +1,7 @@
 {
   "title": "script skill chưa mở thì bị chặn",
   "mode": "acceptEdits",
-  "prompt": "Chạy script của skill kem",
+  "prompt": "Chạy python .mira/skills/kem/scripts/run.py",
   "files": {
     "keep.txt": "con\n",
     ".mira/skills/kem/SKILL.md": "---\nname: kem\ndescription: Khi cần chạy script đi kèm.\n---\nChạy scripts/run.py sau khi mở.\n",

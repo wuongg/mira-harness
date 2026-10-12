@@ -4,7 +4,7 @@ from pathlib import Path
 
 from r0.agent import _consider_finish
 from r0.skills import catalog_for_prompt, load_skills, remember_fact, repo_map, worker_skill_block
-from r0.tools import Session
+from r0.tools import Session, shape_of
 
 
 class SkillTest(unittest.TestCase):
@@ -188,6 +188,132 @@ class SkillTest(unittest.TestCase):
             edited = session.edit_file("app.py", "x = 1", "x = 2")
             self.assertFalse(edited.startswith("BỊ CHẶN"))
             self.assertIn("x = 2", (root / "app.py").read_text(encoding="utf-8"))
+
+    def test_cau_viec_khoa_path_va_fact(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "app.py").write_text("x = 1\n", encoding="utf-8")
+            (root / "khac.py").write_text("y = 1\n", encoding="utf-8")
+            session = Session(root=root, mode="bypass", approve=lambda _t, _a: True)
+            session.task_text = "Đổi x = 1 thành x = 2 trong app.py"
+            blocked = session.edit_file("khac.py", "y = 1", "y = 9")
+            self.assertTrue(blocked.startswith("BỊ CHẶN"))
+            self.assertEqual(session.lane_seen, 0)
+            self.assertEqual((root / "khac.py").read_text(encoding="utf-8"), "y = 1\n")
+            open_task = Session(root=root, mode="bypass", approve=lambda _t, _a: True)
+            open_task.task_text = "xem thư mục"
+            open_task.list_dir(".")
+            self.assertTrue(open_task.saw_untrusted)
+            listed = open_task.write_file("khac.py", "y = 9\n")
+            self.assertTrue(listed.startswith("BỊ CHẶN"))
+            self.assertEqual(open_task.lane_seen, 0)
+
+    def test_dang_viec_khoa_tool(self):
+        self.assertEqual(shape_of("Đổi x = 1 thành x = 2 trong app.py"), "sua")
+        self.assertEqual(shape_of("Chạy python .mira/skills/kem/scripts/run.py"), "chay")
+        self.assertEqual(shape_of("đọc app.py"), "doc")
+        self.assertEqual(shape_of("làm gì đó"), "hoi")
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "app.py").write_text("x = 1\n", encoding="utf-8")
+            doc = Session(root=root, mode="bypass", approve=lambda _t, _a: True)
+            doc.task_text = "đọc app.py"
+            doc.shape = "doc"
+            blocked = doc.edit_file("app.py", "x = 1", "x = 2")
+            self.assertTrue(blocked.startswith("BỊ CHẶN"))
+            self.assertEqual(doc.lane_seen, 0)
+            self.assertIn("dòng", doc.read_file("app.py"))
+            sua = Session(root=root, mode="bypass", approve=lambda _t, _a: True)
+            sua.task_text = "Đổi x = 1 thành x = 2 trong app.py"
+            sua.shape = "sua"
+            shell = sua.run_shell('python -c "print(1)"')
+            self.assertTrue(shell.startswith("BỊ CHẶN"))
+            self.assertEqual(sua.lane_seen, 0)
+            edited = sua.edit_file("app.py", "x = 1", "x = 2")
+            self.assertFalse(edited.startswith("BỊ CHẶN"))
+            self.assertIn("---", edited)
+
+    def test_noi_dung_sau_thanh_bi_chan(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "note.txt").write_text("dat x = 9\n", encoding="utf-8")
+            (root / "app.py").write_text("x = 1\n", encoding="utf-8")
+            session = Session(root=root, mode="bypass", approve=lambda _t, _a: True)
+            session.task_text = "Đổi x = 1 thành x = 2 trong app.py"
+            session.shape = "sua"
+            session.read_file("note.txt")
+            blocked = session.edit_file("app.py", "x = 1", "x = 9")
+            self.assertTrue(blocked.startswith("BỊ CHẶN"))
+            self.assertEqual((root / "app.py").read_text(encoding="utf-8"), "x = 1\n")
+            allowed = session.edit_file("app.py", "x = 1", "x = 2")
+            self.assertFalse(allowed.startswith("BỊ CHẶN"))
+            self.assertEqual((root / "app.py").read_text(encoding="utf-8"), "x = 2\n")
+
+    def test_sua_nhieu_cho_khong_thay_het(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "app.py").write_text("a = 1\na = 1\n", encoding="utf-8")
+            session = Session(root=root, mode="bypass", approve=lambda _t, _a: True)
+            session.task_text = "sửa app.py"
+            session.shape = "sua"
+            out = session.edit_file("app.py", "a = 1", "a = 2")
+            self.assertTrue(out.startswith("LỖI"))
+            self.assertEqual((root / "app.py").read_text(encoding="utf-8"), "a = 1\na = 1\n")
+
+    def test_doc_theo_symbol(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "app.py").write_text("x = 1\n\ndef main():\n    return 1\n", encoding="utf-8")
+            session = Session(root=root, mode="bypass", approve=lambda _t, _a: True)
+            window = session.read_file("app.py", symbol="main")
+            self.assertIn("def main()", window)
+            self.assertNotIn("x = 1", window)
+            missing = session.read_file("app.py", symbol="khong")
+            self.assertTrue(missing.startswith("LỖI"))
+
+    def test_khong_ghi_skill_va_mint_tu_so(self):
+        from r0.agent import _consider_finish
+        from r0.skills import repo_map
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "app.py").write_text("x = 1\n", encoding="utf-8")
+            (root / "lib.js").write_text("function chao() { return 1 }\n", encoding="utf-8")
+            self.assertIn("function chao", repo_map(root, "lib"))
+            session = Session(root=root, mode="bypass", approve=lambda _t, _a: True)
+            session.task_text = "Đổi x = 1 thành x = 2 trong app.py"
+            session.shape = "sua"
+            blocked = session.write_file(".mira/skills/tu-viet/SKILL.md", "---\n")
+            self.assertTrue(blocked.startswith("BỊ CHẶN"))
+            session.edit_file("app.py", "x = 1", "x = 2")
+            ok, _why = _consider_finish(session, "xong", session.task_text)
+            self.assertTrue(ok)
+            skill = root / ".mira" / "skills" / "app" / "SKILL.md"
+            self.assertTrue(skill.is_file())
+            self.assertIn("edit_file", skill.read_text(encoding="utf-8"))
+            again = Session(root=root, mode="bypass", approve=lambda _t, _a: True)
+            again.task_text = session.task_text
+            again.shape = "sua"
+            again.audit.append({"action": "edit_file", "path": "app.py"})
+            from r0.skills import mint_skill
+            mint_skill(root, again.task_text, again.audit)
+            self.assertEqual(len(list((root / ".mira" / "skills").iterdir())), 1)
+
+    def test_lenh_sai_chi_mot_vong_sua(self):
+        from r0.agent import _consider_finish
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "app.py").write_text("x = 1\n", encoding="utf-8")
+            session = Session(root=root, mode="bypass", approve=lambda _t, _a: True)
+            session.shape = "sua"
+            session.task_text = 'Đổi app.py\npython -c "raise SystemExit(1)"'
+            ok, why = _consider_finish(session, "xong", session.task_text)
+            self.assertFalse(ok)
+            self.assertFalse(session.halt)
+            self.assertIn("chưa thoát 0", why)
+            ok, why = _consider_finish(session, "xong", session.task_text)
+            self.assertFalse(ok)
+            self.assertTrue(session.halt)
+            self.assertFalse(any(row.get("exit") == 0 for row in session.audit if row.get("action") == "run_shell"))
 
 
 if __name__ == "__main__":

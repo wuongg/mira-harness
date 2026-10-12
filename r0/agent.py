@@ -8,6 +8,8 @@ không ghi (I2); quyền do code quyết, không do model tự khai (I5).
 """
 from __future__ import annotations
 
+import json
+import re
 import time
 from pathlib import Path
 from typing import Callable
@@ -33,14 +35,36 @@ def _price(model: str, u: dict) -> float:
     return (u.get("in", 0) * p["in"] + u.get("out", 0) * p["out"]) / 1e6
 
 
+def _named_command(task: str) -> str:
+    found = re.search(r"\b((?:python|pytest)\b[^\n]*)", task or "")
+    return found.group(1).strip().rstrip(".") if found else ""
+
+
+def _shell_ok(session: Session, cmd: str) -> bool:
+    return any(row.get("action") == "run_shell" and row.get("cmd") == cmd and row.get("exit") == 0
+               for row in session.audit)
+
+
 def _consider_finish(session: Session, summary: str, task: str = "") -> tuple[bool, str]:
     """True khi làn chấp nhận kết thúc. Từ chối thì trả lý do cho model."""
+    if getattr(session, "shape", "") == "sua":
+        cmd = _named_command(task or session.task_text)
+        if cmd and not _shell_ok(session, cmd):
+            out = session.run_shell(cmd)
+            if "[mã thoát 0]" not in out:
+                session.log_event("finish_refused", reason="lệnh chưa thoát 0", layer="verification")
+                if getattr(session, "repair_used", False):
+                    session.halt = True
+                    session.stop_layer = "verification"
+                else:
+                    session.repair_used = True
+                return False, "lệnh trong câu việc chưa thoát 0"
     ok, why = session.accept_finish()
     if not ok:
         session.log_event("finish_refused", reason=why, layer="verification")
         return False, why
+    from .skills import fact_from_audit, mint_skill, remember_fact
     if session.lane_seen == 2:
-        from .skills import fact_from_audit, remember_fact
         for row in session.audit:
             if row.get("action") not in ("write_file", "edit_file", "multi_edit"):
                 continue
@@ -50,10 +74,121 @@ def _consider_finish(session: Session, summary: str, task: str = "") -> tuple[bo
             line = fact_from_audit([row], root=session.root)
             if line:
                 remember_fact(session.root, task, line, path=str(rel))
+    mint_skill(session.root, task or session.task_text, session.audit)
     return True, summary
 
 
+PROMPT_CAP = 24000
+
+
+def _spent(model: str, usage_total: dict, session: Session) -> float:
+    return _price(model, usage_total) + float(getattr(session, "child_spent", 0) or 0)
+
+
+def _shrink(convo: list[dict], audit: list[dict]) -> list[dict]:
+    """Khi prompt dài, gọi condense_trace: sổ sửa cộng sáu tin cuối."""
+    rendered = "\n".join(m.get("content") or "" for m in convo)
+    if len(rendered) <= PROMPT_CAP:
+        return convo
+    from .repl import condense_trace
+    trace = [{"kind": "message", "role": m.get("role") or "user",
+              "content": m.get("content") or ""} for m in convo]
+    _note, event = condense_trace(trace, audit=audit)
+    if not event:
+        return convo
+    kept = int(event.get("kept") or 6)
+    return [{"role": "user", "content": event["summary"]}, *convo[-kept:]]
+
+
+def _recruit(session: Session, task: str, prov, model: str, provider_name, base_url, api_key,
+             max_tokens, max_turns, max_budget_usd) -> tuple[dict | None, tuple | None]:
+    """Chỉ dạng hỏi mới tuyển. Không có dòng VAI thì trả lời đó đi tiếp vòng tool."""
+    from .skills import worker_skill_block
+    from .team import DIRECTOR_SYSTEM, ROLE_PROMPT, vet_roster
+    from .tools import Session as ToolSession
+    if session.shape != "hoi" or session.recruited:
+        return None, None
+    text, usage = prov.call(DIRECTOR_SYSTEM, task)
+    if "VAI:" not in text:
+        return None, (text, usage)
+    ok, why, roles, steps = vet_roster(text, session.root, allow_write=False)
+    if not ok:
+        text, usage2 = prov.call(DIRECTOR_SYSTEM, task + "\nTỪ CHỐI đội: " + why)
+        usage = {"in": usage.get("in", 0) + usage2.get("in", 0),
+                 "out": usage.get("out", 0) + usage2.get("out", 0)}
+        if "VAI:" not in text:
+            return None, (text, usage)
+        ok, why, roles, steps = vet_roster(text, session.root, allow_write=False)
+        if not ok:
+            session.stop_layer = "verification"
+            return {"status": "stopped_verification", "error": None,
+                    "final": "TỪ CHỐI đội: " + why, "usage": usage, "turns": 2,
+                    "toolSummary": {"calls": 0, "tools": []}, "protocol": "text",
+                    "stopReason": "TỪ CHỐI đội", "audit": session.audit,
+                    "trace": list(session.trace), "costUsd": _price(model, usage),
+                    "model": model, "provider": getattr(prov, "name", "")}, None
+    session.recruited = True
+    known = {role.name: role for role in roles}
+    ordered = [known[name] for name in steps]
+    session.log_event("roster", steps=",".join(steps))
+    last = ""
+    for role in ordered:
+        child = ToolSession(root=session.root, mode=session.mode, approve=session.approve,
+                            depth=session.depth + 1)
+        child.gate_task = session.task_text
+        child.recruited = True
+        child.role_tools = set(role.tools)
+        child.role_system = ROLE_PROMPT.format(name=role.name, job=role.job)
+        job = role.job
+        if role.skill:
+            block = worker_skill_block(session.root, role.skill)
+            if block:
+                job += "\n" + block
+        left = None if max_budget_usd is None else max(0.0, max_budget_usd - session.child_spent)
+        res = run_turn(task=job, session=child, model=model, provider_name=provider_name,
+                       base_url=base_url, api_key=api_key, max_tokens=max_tokens,
+                       no_stream=True, protocol="text", max_turns=max_turns,
+                       max_budget_usd=left, provider=prov)
+        session.child_spent += float(res.get("costUsd") or 0)
+        last = str(res.get("final") or "")
+    from .team import _worker_for_disk
+    final = _worker_for_disk(session.task_text, last)
+    return {"status": "ok", "error": None, "final": final, "usage": usage, "turns": len(ordered),
+            "toolSummary": {"calls": 0, "tools": []}, "protocol": "text",
+            "stopReason": None, "audit": session.audit, "trace": list(session.trace),
+            "costUsd": _price(model, usage) + session.child_spent,
+            "model": model, "provider": getattr(prov, "name", "")}, None
+
+
 def _note_budget(session: Session, max_budget_usd: float | None, spent: float) -> None:
+    if max_budget_usd is not None:
+        session.budget_left = max(0.0, max_budget_usd - spent)
+
+
+def _system_prompt(session: Session, task: str) -> str:
+    lead = session.role_system.strip()
+    base = AGENT_SYSTEM if not lead else lead + "\n\n" + AGENT_SYSTEM
+    text = base + "\n\nThư mục gốc: " + str(session.root)
+    text += _project_context(session, task)
+    memory = session.memory_for_prompt()
+    if memory:
+        text += "\n\nGHI NHỚ DỰ ÁN (MIRA.md):\n" + memory
+    return text
+
+
+def _stop_if_halt(session: Session, why: str) -> tuple[str, str] | None:
+    if not session.halt:
+        return None
+    return "stopped_verification", why
+
+
+def _over_budget(session: Session, model: str, usage_total: dict,
+                 max_budget_usd: float | None) -> str | None:
+    spent = _spent(model, usage_total, session)
+    _note_budget(session, max_budget_usd, spent)
+    if max_budget_usd is not None and spent >= max_budget_usd:
+        return f"đã tiêu ${spent:.4f} ≥ trần ${max_budget_usd:.4f}"
+    return None
     if max_budget_usd is not None:
         session.budget_left = max(0.0, max_budget_usd - spent)
 
@@ -75,20 +210,30 @@ def run_turn(*, task: str, session: Session, model: str,
       `max_turns`       — trần số vòng gọi công cụ (mặc định 25)
       `max_budget_usd`  — dừng ngay khi chi phí lượt vượt mức này
     """
-    session.task_text = task or ""
+    inherited = getattr(session, "gate_task", "") or ""
+    if inherited:
+        session.task_text = inherited
+        session.gate_task = ""
+    else:
+        session.task_text = task or ""
+    from .tools import shape_of
+    session.shape = shape_of(session.task_text)
     session.saw_untrusted = False
+    from .skills import recall_facts
+    if recall_facts(session.root, session.task_text).strip():
+        session.saw_untrusted = True
     if getattr(session, "spawn", None) is None:
         session.spawn = (lambda t, d, mt=12, mb=None: _spawn(
             session, t, d, mt, mb, model=model, provider_name=provider_name,
             base_url=base_url, api_key=api_key, max_tokens=max_tokens,
             no_stream=no_stream, protocol=protocol, note=on_note))
-    use_native = protocol == "native" or (protocol == "auto" and provider_name in ("anthropic", "openai", "xai"))
+    use_native = protocol == "native" or (protocol == "auto" and provider_name in ("anthropic", "openai", "xai", "openrouter"))
     if protocol == "auto":
         # tự suy từ tên model khi không khai provider
         if provider_name is None:
             from .providers import provider_for as _pf
             try:
-                use_native = _pf(model).name in ("anthropic", "openai", "xai")
+                use_native = _pf(model).name in ("anthropic", "openai", "xai", "openrouter")
             except Exception:
                 use_native = False
     if use_native:
@@ -131,6 +276,7 @@ def _spawn(parent: Session, task: str, depth: int, max_turns: int, max_budget,
                     depth=depth, max_depth=getattr(parent, "max_depth", 3),
                     allow_always=set(parent.allow_always),
                     budget_left=max_budget, checker=parent.checker)
+    child.gate_task = parent.task_text or parent.gate_task
     child.spawn = (lambda t, d, mt=12, mb=None: _spawn(
         child, t, d, mt, mb, model=model, provider_name=provider_name,
         base_url=base_url, api_key=api_key, max_tokens=max_tokens,
@@ -161,11 +307,7 @@ def _run_native_loop(*, task: str, session: Session, model: str,
                 "final": "", "usage": {"in": 0, "out": 0}, "turns": 0,
                 "toolSummary": {"calls": 0, "tools": []}, "protocol": "native"}
 
-    sys_prompt = AGENT_SYSTEM + "\n\nThư mục gốc: " + str(session.root)
-    sys_prompt += _project_context(session, task)
-    _mem = session.memory_for_prompt()
-    if _mem:
-        sys_prompt += "\n\nGHI NHỚ DỰ ÁN (MIRA.md):\n" + _mem
+    sys_prompt = _system_prompt(session, task)
     tools = native.neutral_tools()
     msgs: list[dict] = list(history or []) + [
         {"role": "user", "content": [{"type": "text", "text": task}]}]
@@ -177,6 +319,7 @@ def _run_native_loop(*, task: str, session: Session, model: str,
     stop_reason = None
     t0 = time.time()
     rounds = max_turns if (max_turns and max_turns > 0) else MAX_TOOL_ROUNDS
+    recent: list[tuple] = []
 
     for _ in range(rounds):
         try:
@@ -184,6 +327,11 @@ def _run_native_loop(*, task: str, session: Session, model: str,
                                         on_text=emit, stream_it=not no_stream)
         except ProviderError as e:
             return {"status": "error", "error": str(e), "final": final_text,
+                    "usage": usage_total, "turns": turns,
+                    "toolSummary": {"calls": len(tools_used), "tools": sorted(set(tools_used))},
+                    "protocol": "native"}
+        except Exception as e:                          # noqa: BLE001
+            return {"status": "error", "error": f"{type(e).__name__}: {e}", "final": final_text,
                     "usage": usage_total, "turns": turns,
                     "toolSummary": {"calls": len(tools_used), "tools": sorted(set(tools_used))},
                     "protocol": "native"}
@@ -196,7 +344,7 @@ def _run_native_loop(*, task: str, session: Session, model: str,
         msgs.append({"role": "assistant", "content": blocks})
 
         # ---- van NGÂN SÁCH: đếm từ token đã tiêu, KHÔNG hỏi model (I8) ----
-        spent = _price(model, usage_total)
+        spent = _spent(model, usage_total, session)
         _note_budget(session, max_budget_usd, spent)
         if max_budget_usd is not None and spent >= max_budget_usd:
             status = "stopped_budget"
@@ -211,6 +359,12 @@ def _run_native_loop(*, task: str, session: Session, model: str,
             ok, why = _consider_finish(session, summary, task)
             if ok:
                 final_text = summary
+                break
+            halted = _stop_if_halt(session, why)
+            if halted:
+                status, stop_reason = halted
+                final_text = final_text or why
+                note(why)
                 break
             msgs.append({"role": "user", "content": [{"type": "text", "text": why}]})
             continue
@@ -227,6 +381,13 @@ def _run_native_loop(*, task: str, session: Session, model: str,
                     note("finish")
                     stop = True
                     break
+                halted = _stop_if_halt(session, why)
+                if halted:
+                    status, stop_reason = halted
+                    final_text = final_text or why
+                    note(why)
+                    stop = True
+                    break
                 results.append({"type": "tool_result", "tool_use_id": c["id"],
                                 "content": why, "is_error": True})
                 continue
@@ -237,11 +398,28 @@ def _run_native_loop(*, task: str, session: Session, model: str,
             seen(name, args)
             res, ev = session.call(name, args)
             tools_used.append(name)
+            mark = (name, json.dumps(args, sort_keys=True, ensure_ascii=False), res[:80])
+            recent.append(mark)
+            if len(recent) >= 3 and recent[-1] == recent[-2] == recent[-3]:
+                status = "stopped_turns"
+                session.stop_layer = "tool"
+                stop_reason = "cùng tool cùng kết quả ba lần"
+                final_text = final_text or stop_reason
+                note(stop_reason)
+                stop = True
+                break
             results.append({"type": "tool_result", "tool_use_id": c["id"],
                             "content": clip_result(res), "is_error": not ev.ok})
         if stop:
             break
         msgs.append({"role": "user", "content": results})
+        reason = _over_budget(session, model, usage_total, max_budget_usd)
+        if reason:
+            status = "stopped_budget"
+            stop_reason = reason
+            final_text = final_text or reason
+            note(reason)
+            break
     else:
         if session.stop_layer == "verification":
             status = "stopped_verification"
@@ -258,7 +436,7 @@ def _run_native_loop(*, task: str, session: Session, model: str,
             "toolSummary": {"calls": len(tools_used), "tools": sorted(set(tools_used))},
             "seconds": round(time.time() - t0, 2),
             "model": model, "provider": prov.name, "protocol": "native",
-            "costUsd": _price(model, usage_total),
+            "costUsd": _spent(model, usage_total, session),
             "stopReason": stop_reason,
             "audit": session.audit, "trace": list(session.trace), "convo": msgs}
 
@@ -289,11 +467,7 @@ def _run_text_loop(*, task: str, session: Session, model: str,
                 "final": "", "usage": {"in": 0, "out": 0}, "turns": 0,
                 "toolSummary": {"calls": 0, "tools": []}}
 
-    sys_prompt = AGENT_SYSTEM + "\n\nThư mục gốc: " + str(session.root)
-    sys_prompt += _project_context(session, task)
-    _mem = session.memory_for_prompt()
-    if _mem:
-        sys_prompt += "\n\nGHI NHỚ DỰ ÁN (MIRA.md):\n" + _mem
+    sys_prompt = _system_prompt(session, task)
     usage_total = {"in": 0, "out": 0}
     convo = list(history or [])
     convo.append({"role": "user", "content": task})
@@ -304,11 +478,23 @@ def _run_text_loop(*, task: str, session: Session, model: str,
     stop_reason = None
     t0 = time.time()
     rounds = max_turns if (max_turns and max_turns > 0) else MAX_TOOL_ROUNDS
+    recruited, primed = _recruit(session, task, prov, model, provider_name, base_url, api_key,
+                                 max_tokens, max_turns, max_budget_usd)
+    if recruited is not None:
+        session.log_event("stop", reason=recruited.get("stopReason") or "xong", layer=session.stop_layer)
+        recruited["seconds"] = round(time.time() - t0, 2)
+        return recruited
+    forced: list[tuple[str, dict]] = [primed] if primed else []
+    recent: list[tuple] = []
 
     for _ in range(rounds):
+        convo = _shrink(convo, session.audit)
         prompt = _render(convo, sys_prompt)
         try:
-            if no_stream:
+            if forced:
+                text, u = forced.pop(0)
+                emit(text)
+            elif no_stream:
                 text, u = prov.call(sys_prompt, prompt)
                 emit(text)
             else:
@@ -324,7 +510,7 @@ def _run_text_loop(*, task: str, session: Session, model: str,
         convo.append({"role": "assistant", "content": text})
 
         # ---- van NGÂN SÁCH: đếm từ token đã tiêu, KHÔNG hỏi model (I8) ----
-        spent = _price(model, usage_total)
+        spent = _spent(model, usage_total, session)
         _note_budget(session, max_budget_usd, spent)
         if max_budget_usd is not None and spent >= max_budget_usd:
             status = "stopped_budget"
@@ -340,6 +526,12 @@ def _run_text_loop(*, task: str, session: Session, model: str,
             if ok:
                 final_text = summary
                 break
+            halted = _stop_if_halt(session, why)
+            if halted:
+                status, stop_reason = halted
+                final_text = final_text or why
+                note(why)
+                break
             convo.append({"role": "user", "content": f"<result>\n{why}\n</result>"})
             continue
         name, args = call
@@ -350,6 +542,12 @@ def _run_text_loop(*, task: str, session: Session, model: str,
                 final_text = summary
                 note("finish")
                 break
+            halted = _stop_if_halt(session, why)
+            if halted:
+                status, stop_reason = halted
+                final_text = final_text or why
+                note(why)
+                break
             convo.append({"role": "user", "content": f"<result>\n{why}\n</result>"})
             continue
         if name not in TOOL_NAMES:
@@ -359,7 +557,23 @@ def _run_text_loop(*, task: str, session: Session, model: str,
         seen(name, args)
         res, _ev = session.call(name, args)
         tools_used.append(name)
+        mark = (name, json.dumps(args, sort_keys=True, ensure_ascii=False), res[:80])
+        recent.append(mark)
+        if len(recent) >= 3 and recent[-1] == recent[-2] == recent[-3]:
+            status = "stopped_turns"
+            session.stop_layer = "tool"
+            stop_reason = "cùng tool cùng kết quả ba lần"
+            final_text = final_text or stop_reason
+            note(stop_reason)
+            break
         convo.append({"role": "user", "content": f"<result>\n{clip_result(res)}\n</result>"})
+        reason = _over_budget(session, model, usage_total, max_budget_usd)
+        if reason:
+            status = "stopped_budget"
+            stop_reason = reason
+            final_text = final_text or reason
+            note(reason)
+            break
     else:
         if session.stop_layer == "verification":
             status = "stopped_verification"
@@ -376,7 +590,7 @@ def _run_text_loop(*, task: str, session: Session, model: str,
             "toolSummary": {"calls": len(tools_used), "tools": sorted(set(tools_used))},
             "seconds": round(time.time() - t0, 2),
             "model": model, "provider": prov.name,
-            "costUsd": _price(model, usage_total),
+            "costUsd": _spent(model, usage_total, session),
             "stopReason": stop_reason,
             "audit": session.audit,
             "protocol": "text",

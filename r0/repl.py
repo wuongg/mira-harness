@@ -467,20 +467,26 @@ def view_for_model(trace: list[dict]) -> list[dict]:
     return [{"role": "user", "content": summary}, *rows[start:]]
 
 
-def condense_trace(trace: list[dict]) -> tuple[str, dict | None]:
-    """Tóm tắt local. Trả sự kiện để gắn thêm, không sửa sổ."""
+def condense_trace(trace: list[dict], audit: list[dict] | None = None) -> tuple[str, dict | None]:
+    """Tóm tắt local. Có sổ sửa thì dùng dòng sổ, không lấy 120 ký tự đầu."""
     view = view_for_model(trace)
-    if len(view) <= 6:
+    if audit is None and len(view) <= 6:
         return "Hội thoại còn ngắn, chưa cần rút gọn.", None
-    old = view[:-6]
-    lines = []
-    for msg in old:
-        text = _message_text(msg.get("content")).strip().splitlines()
-        if not text or not text[0].strip():
-            continue
-        lines.append(f"- {msg.get('role', '?')}: {text[0][:120]}")
-    summary = "TÓM TẮT CÁC LƯỢT TRƯỚC:\n" + ("\n".join(lines[:40]) or "(không có nội dung)")
-    dropped = len(old)
+    if audit is not None:
+        lines = [f"{row.get('action')} {row.get('path')}"
+                 for row in audit
+                 if row.get("action") in ("write_file", "edit_file", "multi_edit")]
+        summary = "TÓM TẮT SỔ SỬA:\n" + ("\n".join(lines) or "(chưa sửa)")
+    else:
+        old = view[:-6]
+        lines = []
+        for msg in old:
+            text = _message_text(msg.get("content")).strip().splitlines()
+            if not text or not text[0].strip():
+                continue
+            lines.append(f"- {msg.get('role', '?')}: {text[0][:120]}")
+        summary = "TÓM TẮT CÁC LƯỢT TRƯỚC:\n" + ("\n".join(lines[:40]) or "(không có nội dung)")
+    dropped = max(0, len(view) - 6)
     count = sum(1 for e in trace if e.get("kind") == "message")
     event = {"kind": "condensed", "dropped": dropped, "kept": 6,
              "summary": summary, "message_count": count}
@@ -521,7 +527,8 @@ def repl(args) -> int:
 
     session = Session(root=root, mode=args.mode, approve=_ask_approval)
     session.trace.extend(loaded)
-    model = args.model or C.ROLE_MODEL["worker"]
+    from .providers import agent_binding
+    model, args.provider = agent_binding(args.model or C.ROLE_MODEL["worker"], getattr(args, "provider", None))
     team_mode = bool(args.team)
     cost_total = 0.0
     tok_total = {"in": 0, "out": 0}
@@ -561,7 +568,8 @@ def repl(args) -> int:
                     ui.note("Chọn plan, default, acceptEdits hoặc bypass.", "warn")
             elif cmd == "model":
                 if arg:
-                    model = arg
+                    from .providers import agent_binding
+                    model, args.provider = agent_binding(arg, getattr(args, "provider", None))
                     ui.note(f"Model: {model}.", "ok")
                 else:
                     ui.note(f"Model hiện tại: {model}.", "info")
@@ -661,6 +669,8 @@ def repl(args) -> int:
             _team_turn(line, session)
             print(ui.c(f"  {time.time() - t0:.1f}s", "dim"))
         else:
+            from .providers import agent_binding
+            model, args.provider = agent_binding(model, getattr(args, "provider", None))
             r = _one_turn(line, session, model, args, history, events, team_mode)
             if r:
                 cost_total += r.get("costUsd") or 0.0
@@ -772,6 +782,9 @@ def _err_note(err: str) -> None:
         ui.note("Khoá API không dùng được, nên model không trả lời.", "bad")
         ui.note("Gõ /keys để nhập lại, hoặc thoát rồi chạy mira keys set.", "info")
         ui.note(f"Chi tiết: {err[:160]}", "info")
+    elif "402" in low or "more credits" in low or "can only afford" in low:
+        ui.note("Số dư OpenRouter không đủ cho trần token của lượt này.", "bad")
+        ui.note("Nạp thêm credit tại openrouter.ai, hoặc thoát rồi vào mira lại.", "info")
     else:
         ui.note(f"Lỗi: {err}", "bad")
 

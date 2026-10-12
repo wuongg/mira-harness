@@ -96,6 +96,13 @@ class DiskGuardTest(unittest.TestCase):
         self.assertIn("viec 0", event["summary"])
         self.assertEqual(trace[0]["content"], "viec 0")
 
+    def test_compact_lay_so_sua(self):
+        trace = [{"kind": "message", "role": "user", "content": "x" * 200} for _ in range(8)]
+        audit = [{"action": "edit_file", "path": "app.py"}]
+        _note, event = condense_trace(trace, audit=audit)
+        self.assertIn("edit_file app.py", event["summary"])
+        self.assertNotIn("x" * 120, event["summary"])
+
     def test_plan_khong_nang_lan(self):
         s = self._sess(mode="plan")
         out = s.write_file("moi.txt", "a")

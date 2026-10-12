@@ -23,10 +23,10 @@ COMMANDS = [
 
 ARG_HINTS = {
     "/mode": ["plan", "default", "acceptEdits", "bypass"],
-    "/model": ["sonnet-5.5", "opus-5.5", "haiku-5.5", "gpt-6-astra", "gpt-6-luna",
+    "/model": ["anthropic/claude-sonnet-4.5", "sonnet-5.5", "opus-5.5", "haiku-5.5", "gpt-6-astra", "gpt-6-luna",
                "gpt-5.6-sol", "grok-4.7"],
     "/team": ["on", "off"],
-    "/keys": ["status", "set", "clear", "path", "anthropic", "openai", "xai",
+    "/keys": ["status", "set", "clear", "path", "openrouter", "anthropic", "openai", "xai",
               "tavily", "brave", "serper"],
 }
 
@@ -94,6 +94,36 @@ def _fallback(prompt: str) -> str:
     return input(prompt)
 
 
+def apply_console_key(buf: str, cycle: int, history: list[str], hist_i: int,
+                      vk: int, ch: str) -> tuple[str, int, int, str]:
+    """Một phím console. 'à' (U+00E0) là chữ, không phải phím mũi tên."""
+    if ch == "\x03":
+        return buf, cycle, hist_i, "interrupt"
+    if ch in ("\r", "\n") or vk == 0x0D:
+        return buf, cycle, hist_i, "submit"
+    if ch == "\x04":
+        return buf, cycle, hist_i, "eof"
+    if ch in ("\x08", "\x7f") or vk == 0x08:
+        return buf[:-1], 0, hist_i, "redraw"
+    if ch == "\t" or vk == 0x09:
+        new, n = accept(buf, cycle)
+        cycle = cycle + 1 if n > 1 and new.endswith(" ") else 0
+        return new, cycle, hist_i, "redraw"
+    if vk == 0x26 and history and not (ch and ch.isprintable()):
+        hist_i = max(0, hist_i - 1)
+        return history[hist_i], 0, hist_i, "redraw"
+    if vk == 0x28 and history and not (ch and ch.isprintable()):
+        hist_i = min(len(history), hist_i + 1)
+        text = history[hist_i] if hist_i < len(history) else ""
+        return text, 0, hist_i, "redraw"
+    if vk == 0x27 and not (ch and ch.isprintable()):
+        new, _ = accept(buf, cycle)
+        return new, 0, hist_i, "redraw"
+    if ch and ch.isprintable():
+        return buf + ch, 0, hist_i, "redraw"
+    return buf, cycle, hist_i, "redraw"
+
+
 def _visible_len(prompt: str, buf: str, gh: str) -> int:
     import re
     strip = lambda s: re.sub(r"\x1b\[[0-9;]*m", "", s)   # noqa: E731
@@ -111,50 +141,94 @@ def _draw(prompt: str, buf: str, gh: str, drawn: list, dim: str, reset: str) -> 
     drawn[0] = vis
 
 
+def _console_keys():
+    """Đọc phím Unicode. Trả (mã phím ảo, ký tự)."""
+    import ctypes
+    from ctypes import wintypes
+
+    class _Char(ctypes.Union):
+        _fields_ = [("UnicodeChar", wintypes.WCHAR), ("AsciiChar", ctypes.c_char)]
+
+    class _Key(ctypes.Structure):
+        _fields_ = [
+            ("bKeyDown", wintypes.BOOL),
+            ("wRepeatCount", wintypes.WORD),
+            ("wVirtualKeyCode", wintypes.WORD),
+            ("wVirtualScanCode", wintypes.WORD),
+            ("uChar", _Char),
+            ("dwControlKeyState", wintypes.DWORD),
+        ]
+
+    class _Event(ctypes.Union):
+        _fields_ = [("KeyEvent", _Key), ("_pad", ctypes.c_char * 32)]
+
+    class _Record(ctypes.Structure):
+        _fields_ = [("EventType", wintypes.WORD), ("Event", _Event)]
+
+    kernel = ctypes.windll.kernel32
+    kernel.GetStdHandle.restype = wintypes.HANDLE
+    kernel.GetConsoleMode.argtypes = [wintypes.HANDLE, ctypes.POINTER(wintypes.DWORD)]
+    kernel.SetConsoleMode.argtypes = [wintypes.HANDLE, wintypes.DWORD]
+    kernel.ReadConsoleInputW.argtypes = [
+        wintypes.HANDLE, ctypes.POINTER(_Record), wintypes.DWORD, ctypes.POINTER(wintypes.DWORD)]
+    kernel.ReadConsoleInputW.restype = wintypes.BOOL
+    handle = kernel.GetStdHandle(-10)
+    mode = wintypes.DWORD()
+    kernel.GetConsoleMode(handle, ctypes.byref(mode))
+    kernel.SetConsoleMode(handle, mode.value & ~0x0006)
+    try:
+        while True:
+            rec = _Record()
+            got = wintypes.DWORD()
+            if not kernel.ReadConsoleInputW(handle, ctypes.byref(rec), 1, ctypes.byref(got)):
+                break
+            if rec.EventType != 1 or not rec.Event.KeyEvent.bKeyDown:
+                continue
+            ch = rec.Event.KeyEvent.uChar.UnicodeChar or ""
+            yield rec.Event.KeyEvent.wVirtualKeyCode, ch
+    finally:
+        kernel.SetConsoleMode(handle, mode.value)
+
+
+def _console_pending() -> int:
+    """Số phím còn trong hàng đợi. Dán nhiều dòng thì Enter là xuống dòng, chưa gửi."""
+    import ctypes
+    from ctypes import wintypes
+    kernel = ctypes.windll.kernel32
+    kernel.GetStdHandle.restype = wintypes.HANDLE
+    kernel.GetNumberOfConsoleInputEvents.argtypes = [wintypes.HANDLE, ctypes.POINTER(wintypes.DWORD)]
+    kernel.GetNumberOfConsoleInputEvents.restype = wintypes.BOOL
+    waiting = wintypes.DWORD()
+    handle = kernel.GetStdHandle(-10)
+    if not kernel.GetNumberOfConsoleInputEvents(handle, ctypes.byref(waiting)):
+        return 0
+    return int(waiting.value)
+
+
 def _read_windows(prompt: str, history: list[str]) -> str:
-    import msvcrt
     from . import ui
 
     dim, reset = ("\x1b[2m", "\x1b[0m") if ui.use_color() else ("", "")
     buf, hist_i, cycle = "", len(history), 0
     drawn = [0]
     _draw(prompt, buf, ghost(buf), drawn, dim, reset)
-    while True:
-        ch = msvcrt.getch()
-        if ch in (b"\r", b"\n"):
-            sys.stdout.write("\n")
-            return buf
-        if ch == b"\x03":
+    for vk, ch in _console_keys():
+        buf, cycle, hist_i, action = apply_console_key(buf, cycle, history, hist_i, vk, ch)
+        if action == "submit":
+            if _console_pending():
+                buf += "\n"
+            else:
+                sys.stdout.write("\n")
+                return buf
+        elif action == "interrupt":
             sys.stdout.write("\n")
             raise KeyboardInterrupt
-        if ch == b"\x04":
+        if action == "eof":
             if not buf:
                 raise EOFError
             continue
-        if ch in (b"\x08", b"\x7f"):
-            buf, cycle = buf[:-1], 0
-        elif ch == b"\t":
-            new, n = accept(buf, cycle)
-            cycle = cycle + 1 if n > 1 and new.endswith(" ") else 0
-            buf = new
-        elif ch in (b"\x00", b"\xe0"):
-            k = msvcrt.getch()
-            if k == b"H" and history:
-                hist_i = max(0, hist_i - 1)
-                buf, cycle = history[hist_i], 0
-            elif k == b"P" and history:
-                hist_i = min(len(history), hist_i + 1)
-                buf, cycle = (history[hist_i] if hist_i < len(history) else ""), 0
-            elif k == b"M":                      # → : nhận gợi ý
-                buf, _ = accept(buf, cycle)
-                cycle = 0
-        else:
-            try:
-                buf += ch.decode("utf-8", "ignore")
-            except Exception:                    # noqa: BLE001
-                pass
-            cycle = 0
         _draw(prompt, buf, ghost(buf, cycle), drawn, dim, reset)
+    raise EOFError
 
 
 def _read_posix(prompt: str, history: list[str]) -> str:

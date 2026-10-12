@@ -126,6 +126,16 @@ def _check(root: Path, spec: dict, session: Session | None = None,
             return False
         refused = [ev for ev in session.events if ev.name == "read_skill_file" and not ev.ok]
         return any(ev.result.startswith(("LỖI", "BỊ CHẶN")) for ev in refused)
+    if kind == "roster":
+        if session is None:
+            return False
+        want = spec.get("steps") or ""
+        return any(row.get("kind") == "roster" and row.get("steps") == want for row in session.trace)
+    if kind == "blocked_then":
+        if session is None or not path.is_file():
+            return False
+        blocked = any(ev.name == "edit_file" and str(ev.result).startswith("BỊ CHẶN") for ev in session.events)
+        return blocked and spec.get("text", "") in path.read_text(encoding="utf-8")
     raise ValueError(f"không có kiểu kiểm tra {kind}")
 
 

@@ -27,10 +27,10 @@ class ToolsTest(unittest.TestCase):
     def test_glob(self):
         self.assertIn("a.py", self._sess().glob("**/*.py"))
 
-    def test_edit_replaces_all(self):
+    def test_edit_nhieu_cho_thi_loi(self):
         r = self._sess().edit_file("a.py", "x = ", "z = ")
-        self.assertIn("2 chỗ", r)
-        self.assertEqual((self.root / "a.py").read_text(), "z = 1\ny = 2\nz = 3\n")
+        self.assertTrue(r.startswith("LỖI"))
+        self.assertEqual((self.root / "a.py").read_text(), "x = 1\ny = 2\nx = 3\n")
 
     def test_edit_count(self):
         self._sess().edit_file("a.py", "x = ", "z = ", count=1)
@@ -71,10 +71,10 @@ class ToolsTest(unittest.TestCase):
         self.assertIn("mã thoát 0", out)
 
     def test_edit_gated(self):
-        self.assertIn("TỪ CHỐI", self._sess(approve=False).edit_file("a.py", "x", "z"))
+        self.assertIn("TỪ CHỐI", self._sess(approve=False).edit_file("a.py", "y = 2", "y = 9"))
 
     def test_plan_blocks_edit(self):
-        self.assertTrue(self._sess(mode="plan").edit_file("a.py", "x", "z").startswith("BỊ CHẶN"))
+        self.assertTrue(self._sess(mode="plan").edit_file("a.py", "y = 2", "y = 9").startswith("BỊ CHẶN"))
 
     def test_delete_works_and_gated(self):
         s = self._sess()
@@ -185,6 +185,37 @@ class ExtraToolsTest(unittest.TestCase):
     def test_catalog_and_schemas_synced(self):
         from r0.native import SCHEMAS
         self.assertEqual(set(TOOL_SPECS), set(SCHEMAS))
+
+    def test_skill_mang_chi_mot_file(self):
+        import r0.tools as T
+        doc = "---\nname: tim-mua\ndescription: Khi cần tìm mưa.\n---\nchạy scripts/run.py\n"
+        orig_block, orig_text = T._https_block_reason, T._https_text
+        T._https_block_reason = lambda url: None
+        T._https_text = lambda url, limit: doc
+        try:
+            session = self._sess(mode="bypass")
+            session.shape = "hoi"
+            out = session.install_skill("https://example.com/SKILL.md")
+            self.assertIn("đã cài skill tim-mua", out)
+            base = self.root / ".mira" / "skills" / "tim-mua"
+            self.assertTrue((base / "SKILL.md").is_file())
+            self.assertFalse((base / "scripts").exists())
+            self.assertTrue(session.install_skill("https://example.com/SKILL.md").startswith("LỖI"))
+            refused = self._sess(approve=False)
+            self.assertIn("TỪ CHỐI", refused.install_skill("https://example.com/SKILL.md"))
+        finally:
+            T._https_block_reason, T._https_text = orig_block, orig_text
+
+    def test_tim_html_va_mcp_khong_them_tool(self):
+        from r0.tools import _mcp_payload, _mcp_text, parse_search_html
+        rows = parse_search_html(
+            '<a href="https://duckduckgo.com/l/?uddg=https%3A%2F%2Fexample.com%2Fskill">mưa</a>', 3)
+        self.assertEqual(rows[0]["url"], "https://example.com/skill")
+        payload = _mcp_payload('data: {"jsonrpc":"2.0","result":{"tools":[{"name":"tra","description":"tra cứu"}]}}')
+        text = _mcp_text(payload["result"])
+        self.assertIn("NỘI DUNG KHÔNG TIN", text)
+        self.assertIn("tra", text)
+        self.assertTrue(self._sess().mcp_call("https://example.com/mcp", "rm -rf", {}).startswith("LỖI"))
 
 
 if __name__ == "__main__":

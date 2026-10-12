@@ -591,6 +591,8 @@ def _safe_run(fn) -> None:
 def _pick_model() -> str:
     """Chọn model mặc định theo khoá đang có — để gõ `mira` là chạy được ngay."""
     from .keys import resolve
+    if resolve("openrouter")[0]:
+        return C.OPENROUTER_MODEL
     if resolve("anthropic")[0]:
         return C.ROLE_MODEL["worker"]          # sonnet-5.5
     if resolve("openai")[0]:
@@ -606,7 +608,7 @@ def _open() -> int:
     Lần đầu chưa có khoá API: chạy cài đặt ngắn rồi vào phiên luôn.
     """
     from .keys import prompt_setup, resolve
-    have = any(resolve(p)[0] for p in ("anthropic", "openai", "xai"))
+    have = any(resolve(p)[0] for p in ("openrouter", "anthropic", "openai", "xai"))
     if not have:
         print()
         ui.masthead([
@@ -616,7 +618,7 @@ def _open() -> int:
         ])
         print()
         prompt_setup()
-        have = any(resolve(p)[0] for p in ("anthropic", "openai", "xai"))
+        have = any(resolve(p)[0] for p in ("openrouter", "anthropic", "openai", "xai"))
         if not have:
             ui.note("Chưa có khoá. Mở menu để chọn việc khác.", "warn")
             return interactive()
@@ -674,7 +676,7 @@ def build_parser() -> argparse.ArgumentParser:
     r.add_argument("--json", action="store_true", help="in số liệu thô thay vì bảng")
     r.add_argument("--classifier", default="keyword", choices=["keyword", "llm"],
                    help="bộ phân loại T1b: keyword (miễn phí) · llm (cần API key)")
-    r.add_argument("--provider", default=None, choices=["anthropic", "openai", "xai", "tavily", "brave", "serper"],
+    r.add_argument("--provider", default=None, choices=["openrouter", "anthropic", "openai", "xai", "tavily", "brave", "serper"],
                    help="chỉ dùng khi --classifier llm")
     r.add_argument("--model", default=None, help="model cho classifier (mặc định theo vai)")
     r.add_argument("--api-key", dest="api_key", default=None,
@@ -728,7 +730,7 @@ def build_parser() -> argparse.ArgumentParser:
     tm.add_argument("--reversibility", default="C1", choices=["C1", "C2", "C3"])
     tm.add_argument("--output-type", dest="output_type", default="free_string",
                     choices=["free_string", "enum", "number", "bool", "id"])
-    tm.add_argument("--provider", default=None, choices=["anthropic", "openai", "xai", "tavily", "brave", "serper"])
+    tm.add_argument("--provider", default=None, choices=["openrouter", "anthropic", "openai", "xai", "tavily", "brave", "serper"])
     tm.add_argument("--model", default=None, help="ép một model cho mọi vai")
     tm.add_argument("--base-url", dest="base_url", default=None)
     tm.add_argument("--max-tokens", dest="max_tokens", type=int, default=4096)
@@ -747,7 +749,7 @@ def build_parser() -> argparse.ArgumentParser:
         sp.add_argument("--cwd", default=".", help="thư mục gốc cho công cụ")
         sp.add_argument("--mode", default="default", choices=["plan", "default", "acceptEdits", "bypass"])
         sp.add_argument("--model", default=None)
-        sp.add_argument("--provider", default=None, choices=["anthropic", "openai", "xai", "tavily", "brave", "serper"])
+        sp.add_argument("--provider", default=None, choices=["openrouter", "anthropic", "openai", "xai", "tavily", "brave", "serper"])
         sp.add_argument("--base-url", dest="base_url", default=None)
         sp.add_argument("--max-tokens", dest="max_tokens", type=int, default=4096)
         sp.add_argument("--no-stream", dest="no_stream", action="store_true")
@@ -780,7 +782,7 @@ def build_parser() -> argparse.ArgumentParser:
     pn.add_argument("--file", default=None, help="tệp cần soi")
     pn.add_argument("--rounds", type=int, default=2)
     pn.add_argument("--offline", action="store_true", help="không gọi model, tính trực tiếp")
-    pn.add_argument("--provider", default=None, choices=["anthropic", "openai", "xai", "tavily", "brave", "serper"])
+    pn.add_argument("--provider", default=None, choices=["openrouter", "anthropic", "openai", "xai", "tavily", "brave", "serper"])
     pn.add_argument("--model", default=None)
     pn.add_argument("--base-url", dest="base_url", default=None)
     pn.add_argument("--out", default=None, help="ghi báo cáo markdown")
@@ -804,7 +806,7 @@ def build_parser() -> argparse.ArgumentParser:
                          help="so bộ dò từ khoá với model đọc nội dung (cần key)")
     dcp.add_argument("--n", type=int, default=40, help="số tác vụ, lấy mẫu PHÂN TẦNG (mặc định 40)")
     dcp.add_argument("--api-key", dest="api_key", default=None, help="khoá; mặc định đọc biến môi trường")
-    dcp.add_argument("--provider", default=None, choices=["anthropic", "openai", "xai", "tavily", "brave", "serper"])
+    dcp.add_argument("--provider", default=None, choices=["openrouter", "anthropic", "openai", "xai", "tavily", "brave", "serper"])
     dcp.add_argument("--model", default=None)
     dcp.add_argument("--base-url", dest="base_url", default=None)
     dcp.add_argument("--out", default=None, help="ghi báo cáo JSON")
@@ -830,10 +832,10 @@ def build_parser() -> argparse.ArgumentParser:
     kys = ky.add_subparsers(dest="action")
     kys.add_parser("status", help="xem trạng thái khoá").set_defaults(func=_cmd_keys)
     kset = kys.add_parser("set", help="nhập khoá (hỏi từng nhà cung cấp)")
-    kset.add_argument("--provider", default=None, choices=["anthropic", "openai", "xai", "tavily", "brave", "serper"])
+    kset.add_argument("--provider", default=None, choices=["openrouter", "anthropic", "openai", "xai", "tavily", "brave", "serper"])
     kset.set_defaults(func=_cmd_keys)
     kcl = kys.add_parser("clear", help="xoá một khoá")
-    kcl.add_argument("--provider", required=True, choices=["anthropic", "openai", "xai", "tavily", "brave", "serper"])
+    kcl.add_argument("--provider", required=True, choices=["openrouter", "anthropic", "openai", "xai", "tavily", "brave", "serper"])
     kcl.set_defaults(func=_cmd_keys)
     kys.add_parser("path", help="in đường dẫn tệp khoá").set_defaults(func=_cmd_keys)
     ky.set_defaults(func=_cmd_keys)

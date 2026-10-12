@@ -83,6 +83,9 @@ ROLE_MODEL = {
     "classifier":  "gpt-6-luna",     # model THẬT, rẻ (trước là "jev-system-one" — không gọi được)
 }
 
+# Model phiên `mira` khi có khoá OpenRouter. Đổi trong phiên bằng /model.
+OPENROUTER_MODEL = "anthropic/claude-sonnet-4.5"
+
 LANE_MAX = 2   # chỉ có 3 làn. Sàn = 3 KHÔNG tạo làn mới; nó đẩy cổng người
                # lên tầng cao nhất + bắt buộc 2 người duyệt (xem human_gate).
 

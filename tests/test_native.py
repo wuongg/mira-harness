@@ -165,6 +165,22 @@ class TestDichThamSo(unittest.TestCase):
         self.assertEqual(o[2]["role"], "tool")
         self.assertEqual(o[2]["tool_call_id"], "x1")
 
+    def test_lich_su_dang_chu_van_gui_duoc(self):
+        o = native.to_openai_messages([
+            {"role": "user", "content": "câu trước"},
+            {"role": "assistant", "content": "đã nghe"},
+            {"role": "user", "content": "## 1. Vai trò"},
+        ])
+        self.assertEqual(o[0]["content"], "câu trước")
+        self.assertEqual(o[1]["content"], "đã nghe")
+        self.assertEqual(o[2]["content"], "## 1. Vai trò")
+
+    def test_doc_so_token_con_lai(self):
+        from r0.providers import afford_tokens
+        detail = 'HTTP 402 — {"error":{"message":"can only afford 900"}}'
+        self.assertEqual(afford_tokens(detail), 900)
+        self.assertIsNone(afford_tokens("HTTP 401"))
+
 
 class TestNativeVongLap(unittest.TestCase):
     @classmethod

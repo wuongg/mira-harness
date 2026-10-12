@@ -44,6 +44,11 @@ class GhostTest(unittest.TestCase):
         self.assertNotEqual(a, b)
         self.assertTrue(a.endswith(" ") and b.endswith(" "))
 
+    def test_chu_a_huyen_la_chu(self):
+        buf, _c, _i, action = L.apply_console_key("xin ch", 0, [], 0, 0, "ào")
+        self.assertEqual(action, "redraw")
+        self.assertEqual(buf, "xin chào")
+
     def test_common_prefix(self):
         self.assertEqual(L.common_prefix(["/co", "/cost", "/compact"]), "/co")
         self.assertEqual(L.common_prefix([]), "")

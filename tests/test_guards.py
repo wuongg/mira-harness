@@ -103,8 +103,11 @@ class TestVanLuotVaNganSach(unittest.TestCase):
 
     def test_van_khong_lam_ho_hong_luong_binh_thuong(self):
         res = self._run(max_turns=25, max_budget_usd=None)
-        self.assertEqual(res["status"], "stopped_turns")   # stub không bao giờ finish
-        self.assertEqual(res["turns"], 25)
+        self.assertEqual(res["status"], "stopped_turns")
+        self.assertEqual(res["turns"], 3)
+        self.assertIn("ba lần", res["stopReason"])
+        layers = [row.get("layer") for row in res["trace"] if row.get("kind") == "stop"]
+        self.assertEqual(layers[-1], "tool")
 
 
 # ------------------------------------------------- đội làn 2 chạy song song
@@ -200,10 +203,9 @@ class TestSongSongLan2(unittest.TestCase):
     def test_thu_tu_buoc_tat_dinh(self):
         res = self._run(_plan(), 3)
         roles = [s["role"] for s in res["steps"]]
-        self.assertEqual(roles, ["planner", "coordinator",
+        self.assertEqual(roles, ["planner",
                                  "worker", "worker", "worker",
-                                 "verifier", "verifier", "verifier",
-                                 "oracle", "critic"])
+                                 "verifier", "verifier", "verifier"])
 
     def test_fail_closed_khi_mot_verifier_fail(self):
         FakeProvider.fail_verifier = True
@@ -215,7 +217,6 @@ class TestSongSongLan2(unittest.TestCase):
         res = self._run(_plan(), 3)
         self.assertEqual(res["status"], "ok")
         self.assertEqual(res["verifier_verdict"], "PASS")
-        self.assertAlmostEqual(res["oracle_score"], 0.9, places=3)
 
     def test_tran_ngan_sach_cua_lan(self):
         res = self._run(_plan(cap=1e-9), 3)
@@ -228,7 +229,7 @@ class TestSongSongLan2(unittest.TestCase):
 
     def test_expand_roles_chi_no_lan_2(self):
         self.assertEqual(expand_roles(ROLES_BY_LANE[1], 1, 3), ["worker", "verifier"])
-        self.assertEqual(len(expand_roles(ROLES_BY_LANE[2], 2, 3)), 10)
+        self.assertEqual(len(expand_roles(ROLES_BY_LANE[2], 2, 3)), 7)
 
     def test_dry_run_phong_to_vai(self):
         plan = _plan()

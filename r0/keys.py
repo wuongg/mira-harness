@@ -2,7 +2,7 @@
 
 Thứ tự tìm khoá (cái nào có trước thì thắng):
   1. tham số --api-key truyền trực tiếp
-  2. biến môi trường (ANTHROPIC_API_KEY / OPENAI_API_KEY / XAI_API_KEY)
+  2. biến môi trường (OPENROUTER_API_KEY / ANTHROPIC_API_KEY / OPENAI_API_KEY / XAI_API_KEY)
   3. tệp ~/.r0/keys.json (do lệnh `r0-shadow keys` ghi)
 
 Khoá KHÔNG bao giờ in đầy đủ ra màn hình — chỉ 4 ký tự đầu … 4 ký tự cuối.
@@ -17,14 +17,16 @@ from . import ui
 
 KEYS_PATH = Path.home() / ".r0" / "keys.json"
 
-ENV = {"anthropic": "ANTHROPIC_API_KEY",
+ENV = {"openrouter": "OPENROUTER_API_KEY",
+       "anthropic": "ANTHROPIC_API_KEY",
        "openai": "OPENAI_API_KEY",
        "xai": "XAI_API_KEY",
        "tavily": "TAVILY_API_KEY",
        "brave": "BRAVE_API_KEY",
        "serper": "SERPER_API_KEY"}
 
-LABEL = {"anthropic": "Anthropic (Claude)",
+LABEL = {"openrouter": "OpenRouter (model của agent)",
+         "anthropic": "Anthropic (Claude)",
          "openai": "OpenAI (GPT)",
          "xai": "xAI (Grok)",
          "tavily": "Tavily (tìm kiếm web)",

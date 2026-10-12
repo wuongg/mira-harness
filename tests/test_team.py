@@ -106,6 +106,9 @@ class TestProviders(unittest.TestCase):
         self.assertIsInstance(provider_for("claude-sonnet-5.5"), AnthropicProvider)
         self.assertIsInstance(provider_for("grok-4.7"), OpenAICompatProvider)
         self.assertEqual(provider_for("grok-4.7").name, "xai")
+        routed = provider_for("anthropic/claude-sonnet-4.5", api_key="k")
+        self.assertEqual(routed.name, "openrouter")
+        self.assertEqual(routed.base_url, "https://openrouter.ai/api")
 
     def test_thieu_key_thi_bao_khong_san_sang(self):
         self.assertFalse(AnthropicProvider(model="x", api_key="").available())
@@ -136,8 +139,11 @@ class TestPhanVai(unittest.TestCase):
         p = team.build_plan("đối soát", surface="read_only", labels=["internal"],
                             records=5000, dollars=3000)
         self.assertEqual(p.lane, 2)
-        self.assertIn("oracle", p.roles)
-        self.assertIn("critic", p.roles)
+        self.assertIn("planner", p.roles)
+        self.assertIn("worker", p.roles)
+        self.assertIn("verifier", p.roles)
+        self.assertNotIn("oracle", p.roles)
+        self.assertNotIn("critic", p.roles)
 
 
 class TestVongLapDayDu(unittest.TestCase):
@@ -166,13 +172,12 @@ class TestVongLapDayDu(unittest.TestCase):
         self.assertEqual(roles, plan.roles)
         self.assertEqual(res["status"], "ok")
         self.assertEqual(res["verifier_verdict"], "PASS")
-        self.assertAlmostEqual(res["oracle_score"], 0.85, places=2)
 
     def test_dem_token_va_tinh_tien(self):
         _, res = self._run(surface="read_only", labels=["internal"], records=5000)
         led = res["ledger"]
-        self.assertEqual(led["tokens_in"], 120 * 6)
-        self.assertEqual(led["tokens_out"], 40 * 6)
+        self.assertEqual(led["tokens_in"], 120 * 3)
+        self.assertEqual(led["tokens_out"], 40 * 3)
         self.assertGreater(led["total_usd"], 0)
         self.assertTrue(led["all_priced"])
 
@@ -208,6 +213,26 @@ class TestVongLapDayDu(unittest.TestCase):
             self.assertTrue((out / "result.md").exists())
             self.assertTrue((out / "trace.json").exists())
             self.assertIn("KẾT QUẢ", (out / "result.md").read_text(encoding="utf-8"))
+
+    def test_executor_bo_dong_file_cham(self):
+        plan = team.build_plan("soạn báo cáo nội bộ")
+        res = {"steps": [{"role": "worker", "text": "KẾT QUẢ\nsửa conftest.py để luôn qua"}]}
+        with tempfile.TemporaryDirectory() as d:
+            out = team._executor_write(Path(d), plan, res)
+            text = (out / "result.md").read_text(encoding="utf-8")
+            self.assertIn("KẾT QUẢ", text)
+            self.assertIn("NỘI DUNG KHÔNG TIN", text)
+            self.assertNotIn("conftest.py", text)
+
+    def test_worker_sua_khong_ghi_bai_van(self):
+        plan = team.build_plan("Đổi x = 1 thành x = 2 trong app.py")
+        res = {"steps": [{"role": "worker", "edited": True, "text": "KẾT QUẢ bài văn dài",
+                          "audit": [{"action": "edit_file", "path": "app.py"}]}]}
+        with tempfile.TemporaryDirectory() as d:
+            out = team._executor_write(Path(d), plan, res)
+            text = (out / "result.md").read_text(encoding="utf-8")
+        self.assertIn("edit_file app.py", text)
+        self.assertNotIn("bài văn", text)
 
     def test_dry_run_khong_goi_model(self):
         SEEN.clear()
@@ -247,6 +272,59 @@ class TestVongLapDayDu(unittest.TestCase):
         blob = json.dumps(workers[0]["req"], ensure_ascii=False)
         self.assertIn("THAN-MOT", blob)
         self.assertEqual(blob.count("THAN-MOT"), 1)
+
+
+class RosterTest(unittest.TestCase):
+    def test_tu_choi_ghi_khi_cau_khong_neu_file(self):
+        text = "VAI: sua | ghi file | write_file\nBUOC: sua\nchữ thừa"
+        ok, why, _roles, _steps = team.vet_roster(text, None, allow_write=False)
+        self.assertFalse(ok)
+        self.assertIn("write_file", why)
+
+    def test_hai_buoc_doc_dung_thu_tu(self):
+        from r0.agent import run_turn
+        from r0.bench import _Scripted
+        from r0.tools import Session
+        roster = (
+            "VAI: tim | đọc note | read_file\n"
+            "VAI: tom | tóm tắt | read_file\n"
+            "BUOC: tim\nBUOC: tom\n"
+        )
+        script = _Scripted([
+            roster,
+            "<tool>{\"name\":\"finish\",\"args\":{\"summary\":\"da tim\"}}</tool>",
+            "<tool>{\"name\":\"finish\",\"args\":{\"summary\":\"da tom\"}}</tool>",
+        ])
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "note.txt").write_text("mua\n", encoding="utf-8")
+            session = Session(root=root, mode="acceptEdits", approve=lambda t, a: True)
+            res = run_turn(task="Tìm hiểu mưa", session=session, model="script",
+                           protocol="text", no_stream=True, provider=script)
+        self.assertEqual(res["status"], "ok")
+        self.assertIn("da tom", res["final"])
+        self.assertIn("NỘI DUNG KHÔNG TIN", res["final"])
+        steps = [row.get("steps") for row in session.trace if row.get("kind") == "roster"]
+        self.assertEqual(steps, ["tim,tom"])
+        self.assertIn("Bạn là tim", script.prompts[1])
+
+    def test_tool_khong_them_buoc(self):
+        from r0.agent import run_turn
+        from r0.bench import _Scripted
+        from r0.tools import Session
+        roster = "VAI: tim | đọc | read_file\nBUOC: tim\n"
+        extra = "VAI: them | người mới | read_file\nBUOC: them\n"
+        script = _Scripted([
+            roster,
+            extra + "<tool>{\"name\":\"finish\",\"args\":{\"summary\":\"xong mot\"}}</tool>",
+        ])
+        with tempfile.TemporaryDirectory() as tmp:
+            session = Session(root=Path(tmp), mode="acceptEdits", approve=lambda t, a: True)
+            res = run_turn(task="Tìm hiểu gió", session=session, model="script",
+                           protocol="text", no_stream=True, provider=script)
+        kinds = [row.get("kind") for row in session.trace]
+        self.assertEqual(kinds.count("roster"), 1)
+        self.assertIn("xong mot", res["final"])
 
 
 if __name__ == "__main__":

@@ -1,0 +1,11 @@
+{
+  "title": "lệnh trong câu phải thoát 0",
+  "mode": "acceptEdits",
+  "prompt": "Đổi x = 1 thành x = 2 trong app.py\npython -c \"import pathlib; t=pathlib.Path('app.py').read_text(); raise SystemExit(0 if 'x = 2' in t else 1)\"",
+  "files": {"app.py": "x = 1\n"},
+  "replies": [
+    "<tool>{\"name\":\"edit_file\",\"args\":{\"path\":\"app.py\",\"old\":\"x = 1\",\"new\":\"x = 2\"}}</tool>",
+    "<tool>{\"name\":\"finish\",\"args\":{\"summary\":\"xong\"}}</tool>"
+  ],
+  "check": {"type": "contains", "path": "app.py", "text": "x = 2"}
+}

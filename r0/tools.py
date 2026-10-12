@@ -5,6 +5,8 @@ Chế độ quyền giống Claude Code: plan · default · acceptEdits · bypas
 """
 from __future__ import annotations
 
+import ast
+import difflib
 import ipaddress
 import json
 import os
@@ -26,7 +28,8 @@ from typing import Any, Callable
 MODES = ("plan", "default", "acceptEdits", "bypass")
 
 _MEDIUM = {"write_file", "edit_file", "multi_edit"}
-_HIGH = {"delete_file", "run_shell", "fetch_url", "web_search", "task"}
+_HIGH = {"delete_file", "run_shell", "fetch_url", "web_search", "task",
+        "install_skill", "mcp_list", "mcp_call"}
 
 
 def risk_of(tool: str) -> str:
@@ -54,7 +57,8 @@ def observable_for_tool(tool: str) -> dict:
     if tool in ("write_file", "edit_file", "multi_edit"):
         obs["tool_surface"] = "write_sandbox"
         obs["reversibility"] = "C2"
-    elif tool in ("delete_file", "run_shell", "fetch_url", "web_search", "task"):
+    elif tool in ("delete_file", "run_shell", "fetch_url", "web_search", "task",
+                  "install_skill", "mcp_list", "mcp_call"):
         obs["tool_surface"] = "egress_new"
         obs["reversibility"] = "C3"
     return obs
@@ -63,6 +67,23 @@ def observable_for_tool(tool: str) -> dict:
 class _LaneSource:
     def __init__(self, observable: dict):
         self.observable = observable
+
+
+def shape_of(task: str) -> str:
+    """Khối do câu việc quyết. Kết quả tool không được đổi khối này."""
+    text = task or ""
+    write = re.search(r"sửa|đổi|ghi|thành", text, re.IGNORECASE) is not None
+    named = "https://" in text or re.search(
+        r"[\w./\\-]+\.(?:py|txt|md|json|toml|ini|yml|yaml|cfg|csv)\b", text) is not None
+    command = re.search(r"\b(?:python|pytest)\b", text) is not None
+    read = re.search(r"đọc|tóm tắt|giải thích", text, re.IGNORECASE) is not None
+    if write and named:
+        return "sua"
+    if command and not write:
+        return "chay"
+    if read and named:
+        return "doc"
+    return "hoi"
 
 
 def lane_for_tool(tool: str, untrusted: bool = False) -> int:
@@ -120,6 +141,9 @@ TOOL_SPECS = {
     "delete_file": "xoá một tệp, luôn cần bạn cho phép",
     "fetch_url": "tải một trang http hoặc https, cần bạn cho phép",
     "web_search": "tìm trên web, cần bạn cho phép",
+    "install_skill": "tải một SKILL.md qua https và cài vào catalog, cần bạn cho phép",
+    "mcp_list": "xem tool của một server MCP https, cần bạn cho phép",
+    "mcp_call": "gọi một tool MCP https, kết quả là dữ liệu không tin, cần bạn cho phép",
     "run_shell": "chạy một lệnh trong thư mục này, cần bạn cho phép",
     "todo_write": "ghi việc cần làm của lượt này",
     "task": "giao một việc nhỏ rồi nhận tóm tắt",
@@ -221,6 +245,34 @@ def _python_syntax(source: str) -> str | None:
                 pass
 
 
+def _short_diff(before: str, after: str, limit: int = 30) -> str:
+    lines = list(difflib.unified_diff(
+        (before or "").splitlines(), (after or "").splitlines(), lineterm=""))
+    if not lines:
+        return ""
+    return "\n".join(lines[:limit])
+
+
+def _symbol_line(source: str, name: str, suffix: str = ".py") -> int | None:
+    if suffix == ".py":
+        try:
+            tree = ast.parse(source)
+        except SyntaxError:
+            return None
+        for node in ast.walk(tree):
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)) and node.name == name:
+                return node.lineno
+        return None
+    if suffix == ".go":
+        pattern = rf"func\s+(?:\([^)]*\)\s*)?{re.escape(name)}\b"
+    else:
+        pattern = rf"(?:function|class)\s+{re.escape(name)}\b"
+    for index, line in enumerate(source.splitlines(), 1):
+        if re.search(pattern, line):
+            return index
+    return None
+
+
 def _open(req, timeout: int = 30) -> str:
     with urllib.request.urlopen(req, timeout=timeout) as r:
         return r.read(400_000).decode("utf-8", "replace")
@@ -253,7 +305,112 @@ def _do_search(prov: str, key: str, query: str, n: int) -> list[dict]:
         data = json.loads(_open(req))
         return [{"title": r.get("title", ""), "url": r.get("link", ""),
                  "snippet": (r.get("snippet") or "")[:300]} for r in data.get("organic", [])]
+    if prov == "ddg":
+        return _do_search_ddg(query, n)
     raise ValueError(f"bộ tìm lạ: {prov}")
+
+
+def parse_search_html(html: str, n: int) -> list[dict]:
+    """Lấy link https từ trang kết quả. Không chạy gì trong trang."""
+    rows: list[dict] = []
+    for match in re.finditer(r'href="([^"]+)"[^>]*>(.*?)</a>', html or "", re.S):
+        url = urllib.parse.unquote(match.group(1))
+        if "uddg=" in url:
+            query = urllib.parse.parse_qs(urllib.parse.urlparse(url).query)
+            url = (query.get("uddg") or [url])[0]
+        title = re.sub(r"<[^>]+>", "", match.group(2)).strip()
+        if not url.startswith("https://") or not title:
+            continue
+        rows.append({"title": title, "url": url, "snippet": ""})
+        if len(rows) >= n:
+            break
+    return rows
+
+
+def _https_text(url: str, limit: int) -> str:
+    blocked = _https_block_reason(url)
+    if blocked:
+        return blocked
+    req = urllib.request.Request(url, headers={"user-agent": "mira/1.0"})
+    opener = urllib.request.build_opener(_GuardRedirect)
+    try:
+        with opener.open(req, timeout=30) as response:
+            return response.read(limit).decode("utf-8", "replace")
+    except Exception as e:                          # noqa: BLE001
+        return f"LỖI: {type(e).__name__}: {e}"
+
+
+def _mcp_text(result: dict) -> str:
+    from .skills import UNTRUSTED_MARK
+    tools = result.get("tools")
+    if isinstance(tools, list):
+        lines = []
+        for tool in tools:
+            if isinstance(tool, dict) and tool.get("name"):
+                lines.append(f"- {tool.get('name')}: {tool.get('description') or ''}")
+        body = "\n".join(lines) or "(không có tool)"
+        return f"{UNTRUSTED_MARK}\n{body}"
+    parts = []
+    for item in result.get("content") or []:
+        if isinstance(item, dict) and item.get("type") == "text":
+            parts.append(str(item.get("text") or ""))
+    body = "\n".join(parts).strip() or json.dumps(result, ensure_ascii=False)[:2000]
+    return f"{UNTRUSTED_MARK}\n{body[:8000]}"
+
+
+def _mcp_rpc(url: str, method: str, params: dict) -> str:
+    """JSON-RPC qua https. Không chạy server trên máy này."""
+    blocked = _https_block_reason(url)
+    if blocked:
+        return blocked
+    opener = urllib.request.build_opener(_GuardRedirect)
+    session = ""
+
+    def post(payload: dict) -> dict:
+        nonlocal session
+        req = urllib.request.Request(url, data=json.dumps(payload).encode("utf-8"), method="POST")
+        req.add_header("content-type", "application/json")
+        req.add_header("accept", "application/json, text/event-stream")
+        if session:
+            req.add_header("mcp-session-id", session)
+        with opener.open(req, timeout=30) as response:
+            session = response.headers.get("mcp-session-id") or session
+            raw = response.read(200_000).decode("utf-8", "replace")
+        data = _mcp_payload(raw)
+        if data.get("error"):
+            message = data["error"].get("message") if isinstance(data["error"], dict) else data["error"]
+            raise RuntimeError(str(message))
+        result = data.get("result")
+        return result if isinstance(result, dict) else {"content": [{"type": "text", "text": json.dumps(result, ensure_ascii=False)}]}
+
+    try:
+        post({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {
+            "protocolVersion": "2024-11-05", "capabilities": {},
+            "clientInfo": {"name": "mira", "version": "0"}}})
+        result = post({"jsonrpc": "2.0", "id": 2, "method": method, "params": params})
+    except Exception as e:                          # noqa: BLE001
+        return f"LỖI: {type(e).__name__}: {e}"
+    return _mcp_text(result)
+
+
+def _mcp_payload(raw: str) -> dict:
+    text = (raw or "").strip()
+    if text.startswith("{"):
+        return json.loads(text)
+    for line in text.splitlines():
+        if line.startswith("data:"):
+            bit = line[5:].strip()
+            if bit and bit != "[DONE]":
+                return json.loads(bit)
+    return {}
+
+
+def _do_search_ddg(query: str, n: int) -> list[dict]:
+    url = "https://duckduckgo.com/html/?q=" + urllib.parse.quote(query)
+    html = _https_text(url, 400_000)
+    if html.startswith("LỖI"):
+        raise RuntimeError(html)
+    return parse_search_html(html, n)
 
 
 @dataclass
@@ -295,6 +452,13 @@ class Session:
     skill_caps: dict = field(default_factory=dict)
     task_text: str = ""
     saw_untrusted: bool = False
+    shape: str = ""
+    gate_task: str = ""
+    role_tools: set | None = None
+    child_spent: float = 0.0
+    recruited: bool = False
+    role_system: str = ""
+    halt: bool = False
 
     def __post_init__(self):
         self.root = Path(self.root).resolve()
@@ -391,6 +555,18 @@ class Session:
         for target in targets:
             if self._grader_path(target) and target not in task:
                 return f"BỊ CHẶN: không sửa file người chấm {target}."
+        shaped = self._shape_block(tool, args)
+        if shaped:
+            return shaped
+        if self._task_names_file() and tool in (
+                "write_file", "edit_file", "multi_edit", "delete_file", "run_shell", "fetch_url"):
+            if not (tool == "run_shell" and not targets):
+                for target in targets:
+                    if target not in task:
+                        return f"BỊ CHẶN: {target} không có trong câu việc."
+        for target in targets:
+            if self._in_skill_tree(target) and target not in task:
+                return "BỊ CHẶN: không ghi vào .mira/skills."
         if not self.saw_untrusted:
             return None
         if tool not in ("write_file", "edit_file", "multi_edit", "delete_file", "run_shell", "fetch_url"):
@@ -400,7 +576,55 @@ class Session:
         for target in targets:
             if target not in task:
                 return f"BỊ CHẶN: sau dữ liệu không tin, {target} không có trong câu việc."
+        return self._content_block(tool, args)
+
+    def _in_skill_tree(self, target: str) -> bool:
+        norm = str(target or "").replace("\\", "/")
+        return norm == ".mira/skills" or norm.startswith(".mira/skills/") or "/.mira/skills/" in f"/{norm}"
+
+    def _content_block(self, tool: str, args: dict) -> str | None:
+        """Sau dữ liệu không tin, chữ mới phải chứa cụm đứng sau thành."""
+        if tool not in ("write_file", "edit_file", "multi_edit"):
+            return None
+        found = re.search(r"thành\s+(.+?)(?:\s+trong\b|$)", self.task_text or "", re.I)
+        if not found:
+            return None
+        need = found.group(1).strip().strip(".")
+        if not need:
+            return None
+        if tool == "write_file":
+            blobs = [str(args.get("content") or "")]
+        elif tool == "edit_file":
+            blobs = [str(args.get("new") or "")]
+        else:
+            blobs = [str(item) for item in (args.get("news") or [])]
+        if any(need not in blob for blob in blobs):
+            return "BỊ CHẶN: nội dung sửa không có cụm sau thành."
         return None
+
+    def _shape_block(self, tool: str, args: dict) -> str | None:
+        """Dạng đọc và hỏi không ghi. Dạng chạy không ghi. Shell phải nằm trong câu việc."""
+        shape = self.shape or ""
+        if not shape:
+            return None
+        writes = {"write_file", "edit_file", "multi_edit", "delete_file"}
+        if shape in ("doc", "hoi") and tool in writes | {"run_shell", "fetch_url"}:
+            return f"BỊ CHẶN: dạng {shape} không làm {tool}."
+        if shape == "chay" and tool in writes | {"fetch_url", "web_search"}:
+            return f"BỊ CHẶN: dạng chạy không làm {tool}."
+        if shape in ("sua", "chay") and tool == "run_shell":
+            cmd = str(args.get("cmd") or "")
+            if not cmd or cmd not in (self.task_text or ""):
+                return "BỊ CHẶN: lệnh không có trong câu việc."
+        return None
+
+    def _task_names_file(self) -> bool:
+        """Câu việc đã nêu một file hoặc URL thì path khác không được tự thêm."""
+        task = self.task_text or ""
+        if "https://" in task:
+            return True
+        return re.search(
+            r"[\w./\\-]+\.(?:py|txt|md|json|toml|ini|yml|yaml|cfg|csv)\b", task) is not None
 
     def _skill_ceiling(self, tool: str) -> str | None:
         """Skill đã khai trần thì tool ngoài trần bị chặn trước khi hỏi và trước khi nâng làn."""
@@ -415,6 +639,14 @@ class Session:
         if tool in allowed:
             return None
         return f"BỊ CHẶN: skill đang mở không cho phép {tool}."
+
+    def _role_block(self, tool: str) -> str | None:
+        """Vai được tuyển chỉ gọi tool đã khai. Trần trống thì không thêm khóa."""
+        from .skills import _HARNESS_TOOLS
+        allowed = self.role_tools
+        if not allowed or tool in _HARNESS_TOOLS or tool in allowed:
+            return None
+        return f"BỊ CHẶN: vai này không được gọi {tool}."
 
     def accept_finish(self) -> tuple[bool, str]:
         """finish là lời xin. Làn quyết định sổ phải có tác dụng gì."""
@@ -540,8 +772,8 @@ class Session:
         return text
 
     def read_file(self, path: str, start: int = 1, n: int = 100,
-                  max_bytes: int = 200_000) -> str:
-        """Cửa sổ dòng, có số dòng. Muốn phần sau thì gọi lại với start tiếp theo."""
+                  max_bytes: int = 200_000, symbol: str = "") -> str:
+        """Cửa sổ dòng, có số dòng. `symbol` nhảy tới hàm trong bản đồ ast."""
         p = self._resolve(path)
         if _denied_path(self.root, p):
             return f"BỊ CHẶN: không đọc {path}."
@@ -558,6 +790,11 @@ class Session:
             return f"(tệp nhị phân, {p.stat().st_size} byte, không hiển thị)"
         lines = text.splitlines()
         total = len(lines)
+        if symbol:
+            line_no = _symbol_line(text, symbol, p.suffix)
+            if line_no is None:
+                return f"LỖI: không thấy {symbol} trong {path}"
+            start = line_no
         self.saw_untrusted = True
         if total == 0:
             return f"{path}  dòng 0 / 0\n(trống)"
@@ -585,6 +822,7 @@ class Session:
                 continue
             out.append(("D " if x.is_dir() else "F ") + x.name
                        + (f"  ({x.stat().st_size}B)" if x.is_file() else ""))
+        self.saw_untrusted = True
         return "\n".join(out) or "(trống)"
 
     def grep(self, pattern: str, path: str = ".", max_hits: int = 60) -> str:
@@ -615,16 +853,18 @@ class Session:
             if seen >= max_hits:
                 break
         if not counts:
+            self.saw_untrusted = True
             return "(không thấy)"
         rows = [f"{name}  {n} chỗ" for name, n in counts.items()]
         if seen >= max_hits:
             rows.append(f"... (cắt ở {max_hits} kết quả)")
+        self.saw_untrusted = True
         return "\n".join(rows)
 
     def write_file(self, path: str, content: str) -> str:
         """CỬA GHI DUY NHẤT (I1). Không có đường nào khác chạm đĩa."""
         p = self._resolve(path)
-        denied = self._permit("write_file", {"path": path, "bytes": len(content)},
+        denied = self._permit("write_file", {"path": path, "bytes": len(content), "content": content},
                               f"NGƯỜI DÙNG TỪ CHỐI ghi {path}.")
         if denied:
             return denied
@@ -634,7 +874,7 @@ class Session:
         p.write_text(content, encoding="utf-8")
         self.audit.append({"action": "write_file", "path": str(p.relative_to(self.root)),
                            "bytes": len(content), "mode": self.mode, "overwrote": existed})
-        return f"đã ghi {path} ({len(content)} ký tự)" + (" [ghi đè]" if existed else " [mới]")
+        return f"đã ghi {path} ({len(content)} ký tự)" + (" [ghi đè]" if existed else " [mới]") + _short_diff("", content)
 
     def glob(self, pattern: str, path: str = ".", limit: int = 200) -> str:
         base = self._resolve(path)
@@ -651,22 +891,25 @@ class Session:
         return "\n".join(out) or "(không khớp)"
 
     def edit_file(self, path: str, old: str, new: str, count: int = 0) -> str:
-        """Sửa tại chỗ: thay `old` bằng `new`. count=0 -> thay TẤT CẢ chỗ khớp."""
+        """Sửa tại chỗ: thay `old` bằng `new`. Nhiều chỗ khớp mà không nêu count thì lỗi."""
         p = self._resolve(path)
         if not p.is_file():
             return f"LỖI: không có tệp {path}"
         if not old:
             return "LỖI: thiếu `old` (đoạn cần thay)"
         text = p.read_text(encoding="utf-8")
+        hits = text.count(old)
         if old not in text:
             return f"LỖI: không thấy đoạn cần thay trong {path}"
-        n_rep = min(count, text.count(old)) if count and count > 0 else text.count(old)
-        updated = text.replace(old, new, n_rep if (count and count > 0) else -1)
+        if (not count or int(count) <= 0) and hits > 1:
+            return "LỖI: đoạn cần thay khớp nhiều chỗ."
+        n_rep = min(count, hits) if count and count > 0 else hits
+        updated = text.replace(old, new, n_rep if (count and count > 0) else 1)
         if p.suffix == ".py":
             err = _python_syntax(updated)
             if err:
                 return f"LỖI: cú pháp Python trong {path}: {err}"
-        denied = self._permit("edit_file", {"path": path, "n": n_rep},
+        denied = self._permit("edit_file", {"path": path, "n": n_rep, "new": new},
                               f"NGƯỜI DÙNG TỪ CHỐI sửa {path}.")
         if denied:
             return denied
@@ -674,7 +917,7 @@ class Session:
         p.write_text(updated, encoding="utf-8")
         self.audit.append({"action": "edit_file", "path": str(p.relative_to(self.root)),
                            "replaced": n_rep, "mode": self.mode})
-        return f"đã sửa {path}: thay {n_rep} chỗ"
+        return f"đã sửa {path}: thay {n_rep} chỗ\n{_short_diff(text, updated)}\n{self.diff_summary()}"
 
     def delete_file(self, path: str) -> str:
         p = self._resolve(path)
@@ -743,14 +986,18 @@ class Session:
         prepared: list[tuple] = []
         for p, path, old, new, cnt in plans:
             text = p.read_text(encoding="utf-8")
+            if cnt <= 0 and text.count(old) > 1:
+                return "LỖI: đoạn cần thay khớp nhiều chỗ."
             n = min(cnt, text.count(old)) if cnt > 0 else text.count(old)
-            updated = text.replace(old, new, n if cnt > 0 else -1)
+            updated = text.replace(old, new, n if cnt > 0 else 1)
             if p.suffix == ".py":
                 err = _python_syntax(updated)
                 if err:
                     return f"LỖI: cú pháp Python trong {path}: {err}"
             prepared.append((p, path, updated, n))
-        denied = self._permit("multi_edit", {"paths": [path for _p, path, _u, _n in prepared]},
+        denied = self._permit("multi_edit",
+                              {"paths": [path for _p, path, _u, _n in prepared],
+                               "news": [new for _p, _path, _old, new, _cnt in plans]},
                               "NGƯỜI DÙNG TỪ CHỐI sửa nhiều chỗ.")
         if denied:
             return denied
@@ -770,12 +1017,14 @@ class Session:
         if denied:
             return denied
         prov = provider or os.environ.get("R0_SEARCH_PROVIDER") or "tavily"
-        if prov not in SEARCH_ENV:
-            return f"LỖI: không biết bộ tìm {prov!r}; có: {', '.join(SEARCH_ENV)}"
-        key = _search_key(prov)
-        if not key:
-            return (f"LỖI: chưa có khoá tìm kiếm cho {prov} — chạy "
-                    f"`r0-shadow keys set --provider {prov}`")
+        if prov not in SEARCH_ENV and prov != "ddg":
+            return f"LỖI: không biết bộ tìm {prov!r}; có: {', '.join(SEARCH_ENV)}, ddg"
+        if prov in SEARCH_ENV and not _search_key(prov):
+            if provider:
+                return (f"LỖI: chưa có khoá tìm kiếm cho {prov} — chạy "
+                        f"`r0-shadow keys set --provider {prov}`")
+            prov = "ddg"
+        key = _search_key(prov) if prov in SEARCH_ENV else ""
         self.audit.append({"action": "web_search", "query": query,
                            "provider": prov, "mode": self.mode})
         try:
@@ -788,6 +1037,56 @@ class Session:
         return "\n".join(
             f"{i}. {r.get('title', '')}\n   {r.get('url', '')}\n   {r.get('snippet', '')}"
             for i, r in enumerate(rows, 1))
+
+    def install_skill(self, url: str) -> str:
+        """Cài đúng một SKILL.md. Không tải script, không ghi đè skill đã có."""
+        from .skills import UNTRUSTED_MARK, skill_document, skill_dir
+        blocked = _https_block_reason(url)
+        if blocked:
+            return blocked
+        denied = self._permit("install_skill", {"url": url}, f"NGƯỜI DÙNG TỪ CHỐI cài skill {url}.")
+        if denied:
+            return denied
+        text = _https_text(url, 32_000)
+        if text.startswith("LỖI"):
+            return text
+        self.saw_untrusted = True
+        parsed = skill_document(text)
+        if isinstance(parsed, str):
+            return parsed
+        name, desc, stored = parsed
+        dest = skill_dir(self.root, name)
+        if dest.exists():
+            return f"LỖI: skill {name} đã có, không ghi đè."
+        dest.mkdir(parents=True)
+        (dest / "SKILL.md").write_text(stored, encoding="utf-8")
+        self.audit.append({"action": "install_skill", "path": f".mira/skills/{name}/SKILL.md",
+                           "url": url, "mode": self.mode})
+        return (f"{UNTRUSTED_MARK}\nđã cài skill {name}: {desc}\n"
+                "Mở bằng use_skill. Không có script kèm theo.")
+
+    def mcp_list(self, url: str) -> str:
+        denied = self._permit("mcp_list", {"url": url}, f"NGƯỜI DÙNG TỪ CHỐI MCP {url}.")
+        if denied:
+            return denied
+        text = _mcp_rpc(url, "tools/list", {})
+        self.saw_untrusted = True
+        return text
+
+    def mcp_call(self, url: str, tool: str, arguments=None) -> str:
+        if not re.fullmatch(r"[A-Za-z0-9_.:-]{1,64}", tool or ""):
+            return "LỖI: tên tool MCP không hợp lệ."
+        if arguments is None:
+            arguments = {}
+        if not isinstance(arguments, dict):
+            return "LỖI: arguments phải là object."
+        denied = self._permit("mcp_call", {"url": url, "tool": tool},
+                              f"NGƯỜI DÙNG TỪ CHỐI gọi MCP {tool}.")
+        if denied:
+            return denied
+        text = _mcp_rpc(url, "tools/call", {"name": tool, "arguments": arguments})
+        self.saw_untrusted = True
+        return text
 
     def task(self, task: str, max_turns: int = 12, max_budget_usd=None) -> str:
         """Giao một việc cho agent CON rồi nhận tóm tắt. Có trần độ sâu."""
@@ -803,6 +1102,7 @@ class Session:
         res = self.spawn(task, self.depth + 1, int(max_turns or 12), max_budget_usd)
         if isinstance(res, str):
             return res
+        self.child_spent += float(res.get("costUsd") or 0)
         head = f"agent con [{res.get('status')}] · {res.get('turns', 0)} lượt"
         c = res.get("costUsd")
         if c is not None:
@@ -904,12 +1204,14 @@ class Session:
         for arg in argv[1:]:
             if self._arg_outside(arg):
                 return f"BỊ CHẶN: lệnh trỏ ra ngoài thư mục gốc: {arg}"
-        self.audit.append({"action": "run_shell", "cmd": cmd, "mode": self.mode})
+        row = {"action": "run_shell", "cmd": cmd, "mode": self.mode, "exit": None}
+        self.audit.append(row)
         work = Path(tempfile.mkdtemp(prefix="mira-sh-"))
         try:
             shutil.copytree(self.root, work, dirs_exist_ok=True, ignore=_ignore_workspace)
             r = subprocess.run(_shell_argv(work, argv), shell=False, cwd=str(work),
                                timeout=timeout, capture_output=True, text=True)
+            row["exit"] = r.returncode
             if not (r.stdout or "").strip() and not (r.stderr or "").strip():
                 body = "lệnh chạy xong, không có đầu ra."
             else:
@@ -929,13 +1231,15 @@ class Session:
         t0 = time.time()
         approved = None
         ceiling = self._skill_ceiling(name)
-        if ceiling:
-            res = ceiling
+        role_block = self._role_block(name)
+        if ceiling or role_block:
+            res = ceiling or role_block
             approved = False
         elif name == "read_file":
             res = self.read_file(args.get("path", ""),
                                  start=int(args.get("start") or 1),
-                                 n=int(args.get("n") or 100))
+                                 n=int(args.get("n") or 100),
+                                 symbol=str(args.get("symbol") or ""))
         elif name == "list_dir":
             res = self.list_dir(args.get("path", "."))
         elif name == "grep":
@@ -963,6 +1267,15 @@ class Session:
         elif name == "web_search":
             res = self.web_search(args.get("query", ""), args.get("n", 5),
                                   args.get("provider"))
+            approved = not res.startswith(("NGƯỜI DÙNG TỪ CHỐI", "BỊ CHẶN", "LỖI"))
+        elif name == "install_skill":
+            res = self.install_skill(args.get("url", ""))
+            approved = not res.startswith(("NGƯỜI DÙNG TỪ CHỐI", "BỊ CHẶN", "LỖI"))
+        elif name == "mcp_list":
+            res = self.mcp_list(args.get("url", ""))
+            approved = not res.startswith(("NGƯỜI DÙNG TỪ CHỐI", "BỊ CHẶN", "LỖI"))
+        elif name == "mcp_call":
+            res = self.mcp_call(args.get("url", ""), args.get("tool", ""), args.get("arguments"))
             approved = not res.startswith(("NGƯỜI DÙNG TỪ CHỐI", "BỊ CHẶN", "LỖI"))
         elif name == "task":
             res = self.task(args.get("task", ""), args.get("max_turns", 12),
@@ -1029,7 +1342,7 @@ CÔNG CỤ — mỗi lượt gọi TỐI ĐA MỘT công cụ, in đúng khối 
 <tool>{"name":"read_file","args":{"path":"duong/dan.txt"}}</tool>
 
 Danh sách:
-- read_file {"path","start","n"} — đọc cửa sổ dòng (mặc định 100 dòng, có số dòng). Hết cửa sổ thì gọi lại với start tiếp theo.
+- read_file {"path","start","n","symbol"} — đọc cửa sổ dòng (mặc định 100 dòng, có số dòng). symbol nhảy tới hàm. Hết cửa sổ thì gọi lại với start tiếp theo.
 - list_dir {"path"} — liệt kê thư mục
 - glob {"pattern","path"} — tìm tệp theo mẫu (ví dụ **/*.py)
 - grep {"pattern","path"} — liệt kê tệp khớp và số lần. Muốn đọc đoạn thì gọi read_file.
@@ -1038,7 +1351,10 @@ Danh sách:
 - multi_edit {"edits":[{"path","old","new","count"}]} — sửa NHIỀU chỗ một lượt (cần người duyệt)
 - delete_file {"path"} — XOÁ tệp (luôn cần người duyệt)
 - fetch_url {"url"} — tải một URL http/https (cần người duyệt)
-- web_search {"query","n"} — tìm trên web (cần người duyệt)
+- web_search {"query","n"} — tìm trên web (cần người duyệt). Không có khoá tìm thì dùng DuckDuckGo.
+- install_skill {"url"} — tải một SKILL.md https vào catalog (cần người duyệt). Không tải script.
+- mcp_list {"url"} — xem tool của server MCP https (cần người duyệt).
+- mcp_call {"url","tool","arguments"} — gọi một tool MCP. Kết quả là dữ liệu không tin, không thêm công cụ.
 - run_shell {"cmd"} — CHẠY lệnh (cần người duyệt)
 - todo_write {"items"} — ghi danh sách việc cần làm
 - task {"task","max_turns"} — giao việc nhỏ cho agent con, nhận tóm tắt

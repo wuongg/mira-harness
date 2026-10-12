@@ -64,6 +64,24 @@ def allowed_tools(meta: dict[str, str]) -> set[str] | None:
     return names
 
 
+_NAME = re.compile(r"^[a-z0-9-]{1,48}$")
+
+
+def skill_document(text: str) -> tuple[str, str, str] | str:
+    """Tách một SKILL.md tải về. Chỉ trả tên, mô tả và đúng một file. Không tạo script."""
+    meta, _body = _frontmatter(text or "")
+    name = (meta.get("name") or "").strip()
+    desc = (meta.get("description") or "").strip()
+    if not _NAME.fullmatch(name):
+        return "LỖI: skill mạng thiếu tên hợp lệ."
+    if not desc:
+        return "LỖI: skill mạng thiếu description."
+    stored = (text or "").strip() + "\n"
+    if len(stored) > 32_000:
+        return "LỖI: skill mạng quá dài."
+    return name, desc, stored
+
+
 def load_skills(root: Path) -> list[dict]:
     """Đọc catalog. Mỗi phần tử có name, description, body. Body không đưa vào prompt."""
     base = Path(root) / ".mira" / "skills"
@@ -179,6 +197,35 @@ def fact_from_audit(audit: list[dict] | None, fallback: str = "",
     return fallback
 
 
+def mint_skill(root: Path, task: str, audit: list[dict] | None) -> None:
+    """Sau finish đúng, ghi một skill từ sổ. Không ghi đè thư mục đã có."""
+    line = fact_from_audit(audit, root=root)
+    if not line:
+        return
+    path = ""
+    for row in audit or []:
+        if row.get("action") in ("write_file", "edit_file", "multi_edit") and row.get("path"):
+            path = str(row["path"])
+            break
+    stem = Path(path).stem.lower()
+    name = re.sub(r"[^a-z0-9-]+", "-", stem).strip("-") or "viec"
+    dest = Path(root) / ".mira" / "skills" / name
+    if dest.exists():
+        return
+    used = []
+    for row in audit or []:
+        action = str(row.get("action") or "")
+        if action in ("write_file", "edit_file", "multi_edit", "read_file", "grep", "list_dir") and action not in used:
+            used.append(action)
+        if action == "run_shell" and row.get("exit") == 0 and action not in used:
+            used.append(action)
+    desc = re.sub(r"\s+", " ", (task or "").strip())[:200] or name
+    body = f"{UNTRUSTED_MARK}\n{line}\n"
+    front = f"---\nname: {name}\ndescription: {desc}\nallowed-tools: {' '.join(used)}\n---\n"
+    dest.mkdir(parents=True)
+    (dest / "SKILL.md").write_text(front + body, encoding="utf-8")
+
+
 def skill_body(root: Path, name: str) -> str | None:
     for skill in load_skills(root):
         if skill["name"] == name:
@@ -220,6 +267,21 @@ def _py_symbols(src: str) -> list[str]:
     return out
 
 
+def _text_symbols(src: str, suffix: str) -> list[str]:
+    if suffix == ".py":
+        return _py_symbols(src)
+    out: list[str] = []
+    if suffix == ".go":
+        for match in re.finditer(r"func\s+(?:\([^)]*\)\s*)?(\w+)", src):
+            out.append(f"func {match.group(1)}")
+        return out
+    for match in re.finditer(r"function\s+(\w+)", src):
+        out.append(f"function {match.group(1)}")
+    for match in re.finditer(r"class\s+(\w+)", src):
+        out.append(f"class {match.group(1)}")
+    return out
+
+
 def repo_map(root: Path, task: str = "") -> str:
     """Bản đồ file, hàm, lớp, chữ ký. File đổi thì chỉ tính lại file đó."""
     root = Path(root)
@@ -231,7 +293,10 @@ def repo_map(root: Path, task: str = "") -> str:
         except json.JSONDecodeError:
             cache = {}
     files: dict[str, dict] = {}
-    for path in sorted(root.rglob("*.py")):
+    paths: list[Path] = []
+    for pattern in ("*.py", "*.js", "*.ts", "*.go"):
+        paths.extend(root.rglob(pattern))
+    for path in sorted(paths):
         if any(part in _SKIP for part in path.parts):
             continue
         rel = path.relative_to(root).as_posix()
@@ -240,7 +305,7 @@ def repo_map(root: Path, task: str = "") -> str:
         if old and old.get("mtime") == mtime and isinstance(old.get("symbols"), list):
             symbols = old["symbols"]
         else:
-            symbols = _py_symbols(path.read_text(encoding="utf-8", errors="replace"))
+            symbols = _text_symbols(path.read_text(encoding="utf-8", errors="replace"), path.suffix)
         files[rel] = {"mtime": mtime, "symbols": symbols}
     cache_path.parent.mkdir(parents=True, exist_ok=True)
     cache_path.write_text(json.dumps(files, ensure_ascii=False), encoding="utf-8")

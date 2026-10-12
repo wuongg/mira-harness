@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import urllib.error
 import urllib.request
 
@@ -115,11 +116,71 @@ class XAIProvider(OpenAICompatProvider):
     env_key = "XAI_API_KEY"
 
 
-REGISTRY = {"anthropic": AnthropicProvider, "openai": OpenAICompatProvider, "xai": XAIProvider}
+class OpenRouterProvider(OpenAICompatProvider):
+    """Một khoá, nhiều model. Endpoint giống OpenAI."""
+    name = "openrouter"
+    default_base = "https://openrouter.ai/api"
+    env_key = "OPENROUTER_API_KEY"
+
+    def __init__(self, model: str, api_key: str | None = None,
+                 base_url: str | None = None, timeout: int = 180,
+                 max_tokens: int = 512):
+        # OpenRouter giữ credit theo trần token xin trước. 4096 dễ vượt số dư khoá.
+        super().__init__(model, api_key=api_key, base_url=base_url, timeout=timeout,
+                         max_tokens=min(int(max_tokens or 512), 512))
+
+    def call(self, system: str, user: str) -> tuple[str, dict]:
+        try:
+            return self._complete(system, user)
+        except ProviderError as e:
+            afford = afford_tokens(str(e))
+            if not afford or afford >= self.max_tokens:
+                raise
+            self.max_tokens = afford
+            return self._complete(system, user)
+
+    def _complete(self, system: str, user: str) -> tuple[str, dict]:
+        data = self._post("/v1/chat/completions", {
+            "model": self.model,
+            "max_tokens": self.max_tokens,
+            "messages": [{"role": "system", "content": system},
+                         {"role": "user", "content": user}],
+        }, {"authorization": f"Bearer {self.api_key or ''}",
+            "HTTP-Referer": "https://github.com/wuongg/mira-harness",
+            "X-Title": "mira"})
+        ch = (data.get("choices") or [{}])[0]
+        text = (ch.get("message") or {}).get("content") or ""
+        u = data.get("usage", {}) or {}
+        return text, {"in": int(u.get("prompt_tokens", 0)), "out": int(u.get("completion_tokens", 0))}
+
+
+REGISTRY = {"openrouter": OpenRouterProvider, "anthropic": AnthropicProvider,
+            "openai": OpenAICompatProvider, "xai": XAIProvider}
+
+
+def afford_tokens(detail: str) -> int | None:
+    """Số token OpenRouter còn cho phép khi trả 402."""
+    found = re.search(r"can only afford (\d+)", detail or "")
+    if not found:
+        return None
+    count = int(found.group(1))
+    return count if count >= 1 else None
 
 # tên model -> nhà cung cấp, để tự chọn khi không truyền --provider
 BY_MODEL = (("claude", "anthropic"), ("opus", "anthropic"), ("sonnet", "anthropic"),
             ("haiku", "anthropic"), ("grok", "xai"))
+
+
+def agent_binding(model: str, provider_name: str | None = None) -> tuple[str, str | None]:
+    """Có khoá OpenRouter thì phiên agent đi OpenRouter. Khoá hãng khác không được gọi thay."""
+    from . import config as C
+    from .keys import resolve
+    if provider_name and provider_name != "openrouter":
+        return model, provider_name
+    if resolve("openrouter")[0]:
+        chosen = model if model and "/" in model else C.OPENROUTER_MODEL
+        return chosen, "openrouter"
+    return model, provider_name
 
 
 def provider_for(model: str, name: str | None = None, **kw) -> BaseProvider:
@@ -128,12 +189,15 @@ def provider_for(model: str, name: str | None = None, **kw) -> BaseProvider:
             raise ProviderError(f"không biết provider {name!r}; có: {', '.join(REGISTRY)}")
         cls = REGISTRY[name]
     else:
-        cls = OpenAICompatProvider
         low = model.lower()
-        for needle, prov in BY_MODEL:
-            if needle in low:
-                cls = REGISTRY[prov]
-                break
+        if "/" in low:
+            cls = REGISTRY["openrouter"]
+        else:
+            cls = OpenAICompatProvider
+            for needle, prov in BY_MODEL:
+                if needle in low:
+                    cls = REGISTRY[prov]
+                    break
     return cls(model=model, **kw)
 
 
