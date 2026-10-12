@@ -12,8 +12,11 @@ import re
 from pathlib import Path
 
 MAP_TOKEN_CAP = 1000
+CATALOG_TOKEN_CAP = 1000
+SKILL_CALL_CAP = 4
 FACT_CHAR_CAP = 800
 _SKIP = {".git", "__pycache__", ".venv", ".mira"}
+_SKILL_DIRS = ("scripts", "references", "assets")
 
 
 def estimate_tokens(text: str) -> int:
@@ -61,6 +64,78 @@ def load_skills(root: Path) -> list[dict]:
 def catalog_text(skills: list[dict]) -> str:
     lines = [f"- {s['name']}: {s['description']}" for s in skills]
     return "SKILL (chỉ tên và lúc nào dùng):\n" + "\n".join(lines)
+
+
+def _words(text: str) -> set[str]:
+    return {w.lower() for w in re.findall(r"\w{3,}", text or "")}
+
+
+def catalog_for_prompt(skills: list[dict], task: str) -> tuple[str, dict]:
+    """Giữ nguyên catalog khi còn dưới trần. Vượt trần thì chỉ giữ skill trùng câu việc."""
+    full = catalog_text(skills)
+    tokens = estimate_tokens(full)
+    stats = {"skills": len(skills), "tokens": tokens, "kept": len(skills)}
+    if tokens <= CATALOG_TOKEN_CAP or not skills:
+        return full, stats
+    want = _words(task)
+    ranked = sorted(
+        skills,
+        key=lambda s: (-len(want & _words(f"{s['name']} {s['description']}")), skills.index(s)),
+    )
+    chosen: list[dict] = []
+    for skill in ranked:
+        if not (want & _words(f"{skill['name']} {skill['description']}")):
+            continue
+        trial = chosen + [skill]
+        if chosen and estimate_tokens(catalog_text(trial)) > CATALOG_TOKEN_CAP:
+            continue
+        chosen.append(skill)
+    chosen.sort(key=lambda s: skills.index(s))
+    stats["kept"] = len(chosen)
+    text = catalog_text(chosen) if chosen else "SKILL (chỉ tên và lúc nào dùng):\n"
+    return text, stats
+
+
+def skill_dir(root: Path, name: str) -> Path:
+    return Path(root) / ".mira" / "skills" / name
+
+
+def skill_file_names(root: Path, name: str) -> list[str]:
+    """Tên file trong scripts, references, assets. Không đọc nội dung."""
+    base = skill_dir(root, name)
+    found: list[str] = []
+    for folder in _SKILL_DIRS:
+        directory = base / folder
+        if not directory.is_dir():
+            continue
+        for path in sorted(directory.rglob("*")):
+            if path.is_file():
+                found.append(path.relative_to(base).as_posix())
+    return found
+
+
+def resolve_skill_file(root: Path, name: str, rel: str) -> Path | None:
+    """Path hợp lệ thì trả file. Ra ngoài ba thư mục hoặc có .. thì None."""
+    parts = [part for part in (rel or "").replace("\\", "/").split("/") if part and part != "."]
+    if not parts or ".." in parts or parts[0] not in _SKILL_DIRS:
+        return None
+    base = skill_dir(root, name).resolve()
+    target = base.joinpath(*parts).resolve()
+    if base not in target.parents or not target.is_file():
+        return None
+    return target
+
+
+def worker_skill_block(root: Path, name: str) -> str:
+    """Một thân skill. Không kèm thân skill khác."""
+    body = skill_body(root, name) or ""
+    return f"THÂN SKILL ĐANG MỞ ({name}):\n{body}"
+
+
+def short_fact(task: str) -> str:
+    """Một dòng đã kiểm. Không chép bài của worker."""
+    bit = " ".join((task or "").split())
+    return ("đã kiểm: " + bit)[:200]
 
 
 def skill_body(root: Path, name: str) -> str | None:
@@ -143,7 +218,7 @@ def repo_map(root: Path, task: str = "") -> str:
 
 
 def remember_fact(root: Path, task: str, text: str) -> None:
-    """Ghi một dòng việc đã kiểm. Chỉ chỗ verifier PASS được gọi hàm này."""
+    """Ghi một dòng việc đã kiểm. Chỉ verifier PASS hoặc checker làn 2 được gọi."""
     bit = (text or "").strip()
     if not bit:
         return
@@ -188,8 +263,9 @@ def context_block(root: Path, task: str) -> str:
     parts: list[str] = []
     skills = load_skills(root)
     if skills:
-        cat = catalog_text(skills)
-        parts.append(cat + f"\n(catalog: {len(skills)} skill, {estimate_tokens(cat)} token)")
+        cat, stats = catalog_for_prompt(skills, task)
+        parts.append(
+            cat + f"\n(catalog: {stats['skills']} skill, {stats['tokens']} token, giữ {stats['kept']})")
     mapped = repo_map(root, task)
     if mapped:
         parts.append("BẢN ĐỒ KÝ HIỆU:\n" + mapped)

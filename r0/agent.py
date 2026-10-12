@@ -33,12 +33,15 @@ def _price(model: str, u: dict) -> float:
     return (u.get("in", 0) * p["in"] + u.get("out", 0) * p["out"]) / 1e6
 
 
-def _consider_finish(session: Session, summary: str) -> tuple[bool, str]:
+def _consider_finish(session: Session, summary: str, task: str = "") -> tuple[bool, str]:
     """True khi làn chấp nhận kết thúc. Từ chối thì trả lý do cho model."""
     ok, why = session.accept_finish()
     if not ok:
         session.log_event("finish_refused", reason=why, layer="verification")
         return False, why
+    if session.lane_seen == 2:
+        from .skills import remember_fact, short_fact
+        remember_fact(session.root, task, short_fact(task))
     return True, summary
 
 
@@ -95,12 +98,13 @@ def run_turn(*, task: str, session: Session, model: str,
 
 
 def _project_context(session: Session, task: str) -> str:
-    """Catalog, bản đồ, fact. Ghi số skill và token catalog vào sổ."""
-    from .skills import catalog_text, context_block, estimate_tokens, load_skills
+    """Catalog, bản đồ, fact. Ghi số skill, token và số skill còn giữ vào sổ."""
+    from .skills import catalog_for_prompt, context_block, load_skills
     skills = load_skills(session.root)
     if skills:
-        session.log_event("skill_catalog", skills=len(skills),
-                          tokens=estimate_tokens(catalog_text(skills)), layer="context")
+        _text, stats = catalog_for_prompt(skills, task)
+        session.log_event("skill_catalog", skills=stats["skills"], tokens=stats["tokens"],
+                          kept=stats["kept"], layer="context")
     block = context_block(session.root, task)
     return ("\n\n" + block) if block else ""
 
@@ -194,7 +198,7 @@ def _run_native_loop(*, task: str, session: Session, model: str,
         calls = native.tool_calls(blocks)
         if not calls:
             summary = native.text_of(blocks)
-            ok, why = _consider_finish(session, summary)
+            ok, why = _consider_finish(session, summary, task)
             if ok:
                 final_text = summary
                 break
@@ -207,7 +211,7 @@ def _run_native_loop(*, task: str, session: Session, model: str,
             name, args = c["name"], c.get("input") or {}
             if name == "finish":
                 summary = str(args.get("summary") or native.text_of(blocks))
-                ok, why = _consider_finish(session, summary)
+                ok, why = _consider_finish(session, summary, task)
                 if ok:
                     final_text = summary
                     note("finish")
@@ -322,7 +326,7 @@ def _run_text_loop(*, task: str, session: Session, model: str,
         call = parse_tool(text)
         if not call:
             summary = _strip_tool(text)
-            ok, why = _consider_finish(session, summary)
+            ok, why = _consider_finish(session, summary, task)
             if ok:
                 final_text = summary
                 break
@@ -331,7 +335,7 @@ def _run_text_loop(*, task: str, session: Session, model: str,
         name, args = call
         if name == "finish":
             summary = str(args.get("summary") or _strip_tool(text))
-            ok, why = _consider_finish(session, summary)
+            ok, why = _consider_finish(session, summary, task)
             if ok:
                 final_text = summary
                 note("finish")

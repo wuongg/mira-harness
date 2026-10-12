@@ -74,6 +74,9 @@ SCHEMAS: dict[str, dict] = {
                     "required": ["names"]},
     "use_skill": {"description": "Mở đúng một thân skill đã có trong catalog",
                   "properties": {"name": {"type": "string"}}, "required": ["name"]},
+    "read_skill_file": {"description": "Đọc một file kèm của skill đã mở, không chạy script",
+                        "properties": {"name": {"type": "string"}, "path": {"type": "string"}},
+                        "required": ["name", "path"]},
 }
 
 

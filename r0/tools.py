@@ -112,6 +112,7 @@ TOOL_SPECS = {
     "task": "giao một việc nhỏ rồi nhận tóm tắt",
     "plan_skills": "ghi thứ tự skill sẽ mở, không đọc thân",
     "use_skill": "mở đúng một thân skill đã có trong catalog",
+    "read_skill_file": "đọc một file kèm của skill đã mở, không chạy script",
     "finish": "kết thúc và trả lời",
 }
 
@@ -425,7 +426,25 @@ class Session:
                 return f"LỖI: chưa tới skill {wanted}. Tiếp theo là {nxt or 'hết'}."
         self.skills_opened.append(wanted)
         self.log_event("skill_open", name=wanted, layer="tool")
-        return found["body"]
+        from .skills import skill_file_names
+        names = skill_file_names(self.root, wanted)
+        listing = ", ".join(names) if names else "(không)"
+        return found["body"] + "\nfile kèm: " + listing
+
+    def read_skill_file(self, name: str, path: str) -> str:
+        """Đọc một file trong scripts, references hoặc assets của skill đã mở."""
+        from .skills import resolve_skill_file
+        wanted = (name or "").strip()
+        if wanted not in self.skills_opened:
+            return f"LỖI: skill {wanted or '(trống)'} chưa mở"
+        target = resolve_skill_file(self.root, wanted, path or "")
+        if target is None:
+            return "LỖI: không đọc file này"
+        try:
+            text = target.read_text(encoding="utf-8")
+        except UnicodeDecodeError:
+            return f"(tệp nhị phân, {target.stat().st_size} byte, không hiển thị)"
+        return text
 
     def read_file(self, path: str, start: int = 1, n: int = 100,
                   max_bytes: int = 200_000) -> str:
@@ -433,8 +452,9 @@ class Session:
         p = self._resolve(path)
         if _denied_path(self.root, p):
             return f"BỊ CHẶN: không đọc {path}."
-        if p.name == "SKILL.md" and ".mira" in p.parts and "skills" in p.parts:
-            return "BỊ CHẶN: thân skill chỉ mở bằng use_skill."
+        skills_root = (self.root / ".mira" / "skills").resolve()
+        if p == skills_root or skills_root in p.parents:
+            return "BỊ CHẶN: file skill chỉ mở bằng use_skill hoặc read_skill_file."
         if not p.is_file():
             return f"LỖI: không có tệp {path}"
         raw = p.read_bytes()[:max_bytes]
@@ -845,6 +865,8 @@ class Session:
             res = self.plan_skills(args.get("names") or [])
         elif name == "use_skill":
             res = self.use_skill(args.get("name", ""))
+        elif name == "read_skill_file":
+            res = self.read_skill_file(args.get("name", ""), args.get("path", ""))
         else:
             res = f"LỖI: không có công cụ {name}"
         ev = ToolEvent(name=name, args=args, result=res,
@@ -912,7 +934,8 @@ Danh sách:
 - todo_write {"items"} — ghi danh sách việc cần làm
 - task {"task","max_turns"} — giao việc nhỏ cho agent con, nhận tóm tắt
 - plan_skills {"names"} — ghi thứ tự skill, chưa đọc thân
-- use_skill {"name"} — mở đúng một thân skill trong catalog
+- use_skill {"name"} — mở đúng một thân skill trong catalog, kèm tên file đi theo
+- read_skill_file {"name","path"} — đọc một file trong scripts, references hoặc assets của skill đã mở
 - finish {"summary"} — kết thúc
 
 QUY TẮC

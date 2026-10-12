@@ -67,6 +67,25 @@ def _check(root: Path, spec: dict, session: Session | None = None,
         if len(reads) < 2 or len(sizes) < 2:
             return False
         return reads[1] < reads[0] and sizes[1] < sizes[0]
+    if kind == "skill_file":
+        if session is None or session.skills_opened != list(spec.get("opened") or []):
+            return False
+        marker = spec.get("hidden") or ""
+        filename = spec.get("filename") or ""
+        saw_name = False
+        for index, reply in enumerate(replies or []):
+            if "read_skill_file" not in reply or filename not in reply:
+                continue
+            if index >= len(prompts or []):
+                return False
+            if marker and marker in prompts[index]:
+                return False
+            if filename in prompts[index]:
+                saw_name = True
+        if not saw_name:
+            return False
+        refused = [ev for ev in session.events if ev.name == "read_skill_file" and not ev.ok]
+        return any(ev.result.startswith(("LỖI", "BỊ CHẶN")) for ev in refused)
     raise ValueError(f"không có kiểu kiểm tra {kind}")
 
 

@@ -230,6 +230,7 @@ def execute_plan(plan: TeamPlan, *, provider_name: str | None = None,
     log = on_step or (lambda _m: None)
     ledger = ledger if ledger is not None else Ledger()
     skill_names: list[str] = []
+    skill_at = [-1]
     steps: list[dict] = []
     prev = ""
     status = "ok"
@@ -253,20 +254,16 @@ def execute_plan(plan: TeamPlan, *, provider_name: str | None = None,
             u += (f"\n\n[PHẦN {shard[0]}/{shard[1]} — chỉ làm phần này, "
                   f"không lặp lại phần của phần khác]")
         if root is not None and role in ("planner", "worker"):
-            from .skills import catalog_text, estimate_tokens, load_skills, skill_body
+            from .skills import catalog_for_prompt, load_skills, worker_skill_block
             skills = load_skills(root)
             if skills:
-                cat = catalog_text(skills)
-                u += f"\n\n{cat}\n(catalog: {len(skills)} skill, {estimate_tokens(cat)} token)"
+                cat, stats = catalog_for_prompt(skills, plan.task_text)
+                u += (f"\n\n{cat}\n(catalog: {stats['skills']} skill, "
+                      f"{stats['tokens']} token, giữ {stats['kept']})")
             if role == "planner":
                 u += "\nNếu cần skill, dòng cuối đúng dạng: SKILLS: ten, ten"
-            elif skill_names:
-                body = skill_body(root, skill_names[0])
-                if body:
-                    u += f"\n\nTHÂN SKILL ĐANG MỞ ({skill_names[0]}):\n{body}"
-                rest = skill_names[1:]
-                if rest:
-                    u += "\nSkill chưa mở: " + ", ".join(rest)
+            elif 0 <= skill_at[0] < len(skill_names):
+                u += "\n\n" + worker_skill_block(root, skill_names[skill_at[0]])
         return u
 
     def _call(role: str, pv: str = "", shard: tuple[int, int] | None = None) -> dict:
@@ -405,20 +402,41 @@ def execute_plan(plan: TeamPlan, *, provider_name: str | None = None,
         if role == "planner":
             prev = st["text"]
             if root is not None:
-                from .skills import load_skills, parse_skill_line
+                from .skills import SKILL_CALL_CAP, load_skills, parse_skill_line
                 known = {s["name"] for s in load_skills(root)}
                 asked = parse_skill_line(prev)
-                skill_names[:] = [name for name in asked if name in known]
-                unknown = [name for name in asked if name not in known]
-                if unknown:
-                    prev += "\nTỪ CHỐI skill: " + ", ".join(unknown)
+                accepted = [name for name in asked if name in known]
+                skill_names[:] = accepted[:SKILL_CALL_CAP]
+                refused = [name for name in asked if name not in known]
+                refused += accepted[SKILL_CALL_CAP:]
+                if refused:
+                    prev += "\nTỪ CHỐI skill: " + ", ".join(refused)
         if _over_cap():
             _stop_budget()
             break
     else:
         # --- pha 2: worker (song song nếu làn 2 + workers > 1) ---
         worker_steps: list[dict] = []
-        if has_worker:
+        if has_worker and skill_names:
+            texts: list[str] = []
+            for index, _name in enumerate(skill_names):
+                skill_at[0] = index
+                st = _call("worker", pv=prev)
+                _log_step(st)
+                steps.append(st)
+                worker_steps.append(st)
+                if st.get("error") or st.get("blocked"):
+                    status = "blocked" if st.get("blocked") else "error"
+                    fail_reason = st["error"]
+                    break
+                if st.get("text"):
+                    texts.append(st["text"])
+                    prev = "\n\n".join(f"[worker {n + 1}] {bit}" for n, bit in enumerate(texts))
+                if _over_cap():
+                    _stop_budget()
+                    break
+            skill_at[0] = -1
+        elif has_worker:
             if fanout:
                 items = [(prev, (i + 1, workers)) for i in range(workers)]
             else:
@@ -453,8 +471,8 @@ def execute_plan(plan: TeamPlan, *, provider_name: str | None = None,
             elif all(v == "PASS" for v in verdicts):
                 verifier_verdict = "PASS"
                 if root is not None:
-                    from .skills import remember_fact
-                    remember_fact(root, plan.task_text, prev)
+                    from .skills import remember_fact, short_fact
+                    remember_fact(root, plan.task_text, short_fact(plan.task_text))
             else:
                 verifier_verdict = next(v for v in verdicts if v != "PASS")
             if _over_cap():
