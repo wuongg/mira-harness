@@ -875,6 +875,8 @@ def _executor_write(out_dir: Path, plan: TeamPlan, result: dict) -> Path:
            if result.get("promoted") else ""),
         encoding="utf-8")
     (d / "trace.json").write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
+    from .pipeline import write_trace_chain
+    write_trace_chain(d, plan.plan_hash, result.get("steps") or [], getattr(plan, "brief_hash", None))
     return d
 
 

@@ -10,10 +10,13 @@ SHADOW: mọi bước chỉ GHI LOG, không có side effect ra ngoài sandbox.
 """
 from __future__ import annotations
 
+import hashlib
+import json
 import math
 import random
 import re
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any
 
 from . import config as C
@@ -175,7 +178,91 @@ def human_gate(t: Task, lane: int, floor: dict[str, Any]) -> dict[str, Any]:
     return {"tier": tier, "scale": scale, "class_c": class_c,
             "floor": floor["floor"], "dual_approval": dual,
             "minutes": C.GATE_MINUTES[tier] * (2 if dual else 1),
-            "plan_hash": f"{abs(hash((t.id, tier)))%10**12:012d}"}
+            "plan_hash": plan_digest(t, tier)}
+
+
+def plan_digest(t: Task, tier: int) -> str:
+    """SHA256 của id, tầng cổng, bề mặt và nhãn. Không dùng hash() của process."""
+    body = {
+        "id": t.id,
+        "tier": tier,
+        "tool_surface": t.observable["tool_surface"],
+        "data_labels": sorted(t.observable.get("data_labels") or []),
+    }
+    raw = json.dumps(body, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
+
+_GENESIS = "0" * 64
+
+
+def seal_record(payload: dict, prev: str) -> dict:
+    """Gắn prev_hash rồi băm canonical. Trường hash không nằm trong phần được băm."""
+    body = {k: v for k, v in payload.items() if k not in ("hash", "prev_hash")}
+    body["prev_hash"] = prev
+    raw = json.dumps(body, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+    body["hash"] = hashlib.sha256(raw.encode("utf-8")).hexdigest()
+    return body
+
+
+def write_trace_chain(directory: Path, plan_hash: str, steps: list, brief_hash: str | None) -> str:
+    """Ghi trace.jsonl và manifest.json. Trả hash dòng cuối."""
+    header = {"kind": "header", "plan_hash": plan_hash}
+    if brief_hash:
+        header["brief_hash"] = brief_hash
+    prev = _GENESIS
+    lines: list[dict] = []
+    for payload in [header, *steps]:
+        clean = json.loads(json.dumps(payload, ensure_ascii=False))
+        sealed = seal_record(clean, prev)
+        lines.append(sealed)
+        prev = sealed["hash"]
+    directory.mkdir(parents=True, exist_ok=True)
+    blob = "\n".join(json.dumps(row, sort_keys=True, ensure_ascii=False) for row in lines) + "\n"
+    (directory / "trace.jsonl").write_text(blob, encoding="utf-8")
+    (directory / "manifest.json").write_text(
+        json.dumps({"head": prev, "plan_hash": plan_hash}, sort_keys=True) + "\n",
+        encoding="utf-8")
+    return prev
+
+
+def verify_trace(directory: Path) -> tuple[int, str]:
+    """0 khi xích và manifest khớp. 1 và một câu tiếng Việt khi lệch."""
+    directory = Path(directory)
+    chain = directory / "trace.jsonl"
+    manifest_path = directory / "manifest.json"
+    if not chain.is_file() or not manifest_path.is_file():
+        return 1, "thiếu trace.jsonl hoặc manifest.json"
+    try:
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return 1, "lệch manifest: không đọc được JSON"
+    prev = _GENESIS
+    header_plan = None
+    count = 0
+    for raw in chain.read_text(encoding="utf-8").splitlines():
+        if not raw.strip():
+            continue
+        count += 1
+        try:
+            obj = json.loads(raw)
+        except json.JSONDecodeError:
+            return 1, "lệch nội dung: một dòng không phải JSON"
+        if obj.get("prev_hash") != prev:
+            return 1, "lệch xích: một dòng không nối dòng trước"
+        expect = seal_record(obj, prev)["hash"]
+        if obj.get("hash") != expect:
+            return 1, "lệch nội dung: hash không khớp dòng"
+        if obj.get("kind") == "header":
+            header_plan = obj.get("plan_hash")
+        prev = obj["hash"]
+    if count == 0:
+        return 1, "lệch xích: trace trống"
+    if manifest.get("head") != prev:
+        return 1, "lệch manifest: head không phải dòng cuối"
+    if manifest.get("plan_hash") != header_plan:
+        return 1, "lệch manifest: plan_hash khác header"
+    return 0, ""
 
 
 # ================================================== oracle / verifier độc lập

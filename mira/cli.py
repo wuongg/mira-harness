@@ -409,6 +409,14 @@ def cmd_doctor(args) -> int:
     return 0 if ok else 1
 
 
+def cmd_verify(args) -> int:
+    from .pipeline import verify_trace
+    code, reason = verify_trace(Path(args.dir))
+    if code != 0 and reason:
+        print(reason, file=sys.stderr)
+    return code
+
+
 def cmd_selftest(args) -> int:
     root = Path(__file__).resolve().parents[1]
     tests = root / "tests"
@@ -850,6 +858,10 @@ def build_parser() -> argparse.ArgumentParser:
 
     st = sub.add_parser("selftest", help="kiểm tra bất biến")
     st.set_defaults(func=cmd_selftest)
+
+    vf = sub.add_parser("verify", help="kiểm xích hash của một thư mục đã ghi")
+    vf.add_argument("dir", help="thư mục có trace.jsonl và manifest.json")
+    vf.set_defaults(func=cmd_verify)
 
     ev = sub.add_parser("eval", help="chấm vài việc local: qua/fail, vòng, tiền")
     ev.set_defaults(func=_cmd_eval)
