@@ -292,8 +292,10 @@ def prepare_staging(root: Path) -> Path:
 
     def ignore(directory, names):
         skipped = [name for name in names if name in _COPY_SKIP]
-        if Path(directory).resolve() == (root / ".mira") and "staging" not in skipped:
-            skipped.append("staging")
+        if Path(directory).resolve() == (root / ".mira"):
+            for name in ("staging", "runs"):
+                if name not in skipped:
+                    skipped.append(name)
         return skipped
 
     for child in root.iterdir():
@@ -383,7 +385,7 @@ def _rel_skipped(rel: Path) -> bool:
     parts = rel.parts
     if ".git" in parts or "__pycache__" in parts or ".env" in parts:
         return True
-    return len(parts) >= 2 and parts[0] == ".mira" and parts[1] == "staging"
+    return len(parts) >= 2 and parts[0] == ".mira" and parts[1] in ("staging", "runs")
 
 
 def promote_staging(real_root: Path, staging: Path, audit: list) -> list[str]:
