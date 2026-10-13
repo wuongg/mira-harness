@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "mira"
-version = "2.5.0"
+dynamic = ["version"]
 description = "Mira - harness doi nhom agent (nen R0 shadow): giao viec, xem log, do luong"
 readme = "README.md"
 requires-python = ">=3.9"
@@ -17,3 +17,6 @@ r0-shadow = "r0.cli:main"
 
 [tool.setuptools]
 packages = ["r0"]
+
+[tool.setuptools.dynamic]
+version = {attr = "r0.__version__"}

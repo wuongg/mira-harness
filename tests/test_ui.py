@@ -1,15 +1,31 @@
 """Kiểm lớp trình bày mới và màn thống kê."""
 from __future__ import annotations
 
+import shutil
 import sys
+import tempfile
 import unittest
+from argparse import Namespace
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from r0 import stats, ui                        # noqa: E402
+from r0.cli import cmd_run                      # noqa: E402
 
-RUN = Path(__file__).resolve().parents[1] / "out"
+RUN = Path()
+
+
+def setUpModule():
+    global RUN
+    RUN = Path(tempfile.mkdtemp(prefix="mira-stats-"))
+    cmd_run(Namespace(out=str(RUN), cache_hit=0.0, seed=1, n=0, labels=None,
+                      quiet=True, json=False, classifier="keyword", provider=None,
+                      model=None, api_key=None, base_url=None, no_cache=True))
+
+
+def tearDownModule():
+    shutil.rmtree(RUN, ignore_errors=True)
 
 
 class TestLinhVat(unittest.TestCase):

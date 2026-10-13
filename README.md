@@ -3,7 +3,7 @@
 Chạy toàn bộ đường ống của SPEC (**T1a → T1b → T2 → sàn động → cổng người →
 oracle/verifier → D1–D4 → sổ cái**) ở chế độ **shadow**: ghi log, **không hành động**.
 
-Bản này tương ứng **SPEC v1.2.1** · CLI v1.15.0.
+Bản này tương ứng **SPEC v1.2.1** · CLI v2.5.0.
 
 ---
 
@@ -129,7 +129,7 @@ pip install -e .
 ```
 
 Xong. Kiểm tra: `mira doctor` — phải báo **môi trường OK**.
-Rồi `mira selftest` — phải **28 bài OK, 0 đỏ**.
+Rồi `mira selftest` — selftest là unittest, phải PASS, không cần thư mục out.
 
 Không muốn cài? Chạy thẳng: `python3 -m r0 <lệnh>`
 Không có Python? `docker build -t mira . && docker run --rm -v "$PWD/out:/app/out" mira run`

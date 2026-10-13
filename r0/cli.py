@@ -33,7 +33,7 @@ from .tasks import load_tasks
 from .team import cmd_team
 from .agent import cmd_agent
 
-VERSION = "2.5.0"
+from . import __version__ as VERSION
 DEFAULT_RUN = "out"
 
 

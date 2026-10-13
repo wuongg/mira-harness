@@ -1,16 +1,32 @@
 """Kiểm TUI: lớp dữ liệu thuần (kiểm được không cần TTY) + đường --dump."""
 from __future__ import annotations
 
+import shutil
 import sys
 import tempfile
+import types
 import unittest
+from argparse import Namespace
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from r0 import tui                                  # noqa: E402
+from r0.cli import cmd_run                          # noqa: E402
 
-RUN = Path(__file__).resolve().parents[1] / "out-v112"
+RUN = Path()
+
+
+def setUpModule():
+    global RUN
+    RUN = Path(tempfile.mkdtemp(prefix="mira-tui-"))
+    cmd_run(Namespace(out=str(RUN), cache_hit=0.0, seed=1, n=0, labels=None,
+                      quiet=True, json=False, classifier="keyword", provider=None,
+                      model=None, api_key=None, base_url=None, no_cache=True))
+
+
+def tearDownModule():
+    shutil.rmtree(RUN, ignore_errors=True)
 
 
 class TestBieuDo(unittest.TestCase):
@@ -93,10 +109,12 @@ class TestDump(unittest.TestCase):
 
 class TestLopCurses(unittest.TestCase):
     def test_curses_co_trong_thu_vien_chuan(self):
+        """Không cần TTY. Thiếu _curses thì dùng module giả."""
         try:
-            import curses  # noqa: F401
+            import curses
         except ModuleNotFoundError:
-            self.skipTest("bản Python này không có _curses")
+            curses = types.ModuleType("curses")
+            curses.wrapper = lambda fn: None
         self.assertTrue(hasattr(curses, "wrapper"))
 
     def test_app_khoi_tao_duoc_khong_can_man_hinh(self):

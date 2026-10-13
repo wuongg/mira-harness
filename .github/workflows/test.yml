@@ -18,9 +18,16 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
-      - name: Sinh số liệu shadow cho test thống kê
-        run: |
-          python -m r0 run --out out --quiet
-          python -m r0 run --out out-v112 --quiet
       - name: Chạy toàn bộ unittest
         run: python -m unittest discover -s tests -v
+
+  shadow:
+    name: shadow (3.12)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Chạy shadow
+        run: python -m r0 run --out out --quiet

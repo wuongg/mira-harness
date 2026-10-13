@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 import sys
+import tempfile
 import threading
 import time
 import unittest
@@ -58,8 +59,8 @@ class TestVanLuotVaNganSach(unittest.TestCase):
         cls.srv.server_close()
 
     def _session(self):
-        d = Path(__file__).resolve().parents[1] / "out"
-        d.mkdir(parents=True, exist_ok=True)
+        d = Path(tempfile.mkdtemp(prefix="mira-guard-"))
+        self.addCleanup(lambda: __import__("shutil").rmtree(d, ignore_errors=True))
         return Session(root=d, mode="default", approve=lambda t, a: True)
 
     def _run(self, **kw):
