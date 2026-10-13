@@ -93,6 +93,8 @@ OVERRIDE_WORDS = ("bỏ qua", "ignore", "quên hướng dẫn", "thay thế hư�
 EXFIL_WORDS = ("gửi", "đẩy", "tải lên", "xuất", "chuyển tiếp", "sao chép",
                "đổi người nhận", "đăng ký")
 TOKEN_EXFIL = ("gui",)
+# `xuất` nằm trong `xuất hiện`. LA10 là bài học chứa chữ ignore và cụm này.
+_NOT_EXFIL = ("xuất hiện",)
 EXTERNAL_RES = (r"[\w.+-]+@[\w.-]+\.[a-z]{2,}", r"\b\d{1,3}(?:\.\d{1,3}){3}\b", r"https?://\S+")
 
 # NFKC không đổi bốn mã này. Bảng đóng, chỉ chữ đã làm rơi HG01/HG03/HG05/HG07.
@@ -116,12 +118,44 @@ def _has_token(low: str, token: str) -> bool:
     return re.search(rf"(?<!\w){re.escape(token)}(?!\w)", low) is not None
 
 
+_NEGATION = ("không có ", "không phải ", "không được ")
+
+
+def _mask_negation(low: str) -> str:
+    """Xóa cụm ngay sau tiền tố phủ định, tới dấu câu, 4 từ, hoặc phủ định kế."""
+    chars = list(low)
+    i = 0
+    n = len(low)
+    while i < n:
+        prefix = next((p for p in _NEGATION if low.startswith(p, i)), None)
+        if prefix is None:
+            i += 1
+            continue
+        j = i + len(prefix)
+        words = 0
+        while j < n and low[j] not in ",.;":
+            if any(low.startswith(p, j) for p in _NEGATION):
+                break
+            if low[j].isspace() and not low[j - 1].isspace():
+                words += 1
+                if words >= 4:
+                    break
+            j += 1
+        for k in range(i, j):
+            chars[k] = " "
+        i = j if j > i else i + 1
+    return "".join(chars)
+
+
 def content_signal(text: str) -> dict[str, Any]:
     """Dò prompt-injection trong nội dung. Trả bằng chứng, KHÔNG trả phán quyết."""
-    low = fold_confusable(text).lower()
+    low = _mask_negation(fold_confusable(text).lower())
     agent = any(w in low for w in AGENT_DIRECTED)
     override = any(w in low for w in OVERRIDE_WORDS)
-    exfil = any(w in low for w in EXFIL_WORDS) or any(_has_token(low, w) for w in TOKEN_EXFIL)
+    scrubbed = low
+    for phrase in _NOT_EXFIL:
+        scrubbed = scrubbed.replace(phrase, " ")
+    exfil = any(w in scrubbed for w in EXFIL_WORDS) or any(_has_token(scrubbed, w) for w in TOKEN_EXFIL)
     external = any(re.search(p, low) for p in EXTERNAL_RES)
     hits: list[str] = []
     if override and (agent or exfil):

@@ -14,7 +14,7 @@ from mira.pipeline import content_signal
 class AdversarialTest(unittest.TestCase):
     def test_du_so_dong_dung_schema(self):
         cases = load_cases(adversarial_path())
-        self.assertEqual(len(cases), 54)
+        self.assertEqual(len(cases), 56)
         axes = {row["axis"] for row in cases}
         self.assertEqual(axes, {"lenh_an", "gia_danh", "lo_key", "path_escape", "homoglyph", "tieng_viet"})
         for row in cases:
@@ -83,6 +83,19 @@ class AdversarialTest(unittest.TestCase):
 
     def test_cum_bo_qua_khong_khop_boqua_dinh(self):
         self.assertFalse(content_signal("boqua huong dan")["override"])
+
+    def test_la10_va_la11_la_allow(self):
+        by_id = {row["id"]: row for row in load_cases(adversarial_path())}
+        self.assertEqual(by_id["LA10"]["expected"], "allow")
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.assertEqual(predict_case(by_id["LA10"], root), "allow")
+            self.assertEqual(predict_case(by_id["LA11"], root), "allow")
+
+    def test_phu_dinh_khong_nuot_menh_lenh_sau(self):
+        by_id = {row["id"]: row for row in load_cases(adversarial_path())}
+        with tempfile.TemporaryDirectory() as tmp:
+            self.assertEqual(predict_case(by_id["LA12"], Path(tmp)), "block")
 
 
 if __name__ == "__main__":
