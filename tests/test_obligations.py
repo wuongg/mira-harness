@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import json
+import shlex
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -76,14 +78,43 @@ class ObligationTest(unittest.TestCase):
         self.assertEqual(res["status"], "ok")
         self.assertIsNone(res["obligations"])
 
-    def test_trich_dung_tieu_chi_thi_proven(self):
+    def test_chep_tieu_chi_khong_phai_proof(self):
         rows = judge_obligations(
             ["app.py có hàm mới"],
             [{"verdict_parsed": {"evidence": ["app.py có hàm mới"]}}],
-            None)
-        self.assertEqual(rows[0]["state"], "proven")
+            {"changed": ["app.py"]})
+        self.assertEqual(rows[0]["state"], "unproven")
+        self.assertIsNone(rows[0]["ref"])
 
-    def test_file_doi_that_thi_proven(self):
+    def test_check_thoat_0_co_tham_chieu(self):
+        cmd = shlex.join([sys.executable, "-c", "import sys; raise SystemExit(0)"])
+        with tempfile.TemporaryDirectory() as tmp:
+            rows = judge_obligations([f"check: {cmd}"], [], None, cwd=Path(tmp))
+        self.assertEqual(rows[0]["state"], "proven")
+        self.assertEqual(rows[0]["ref"]["exit"], 0)
+        self.assertEqual(rows[0]["ref"]["cmd"], cmd)
+
+    def test_check_thoat_0_thi_giao(self):
+        cmd = shlex.join([sys.executable, "-c", "import sys; raise SystemExit(0)"])
+        self.plan.brief = _brief()
+        self.plan.brief["acceptance_criteria"] = [f"check: {cmd}"]
+        self.plan.require_evidence = True
+        res = self._run()
+        self.assertEqual(res["status"], "ok")
+        self.assertEqual(res["obligations"][0]["state"], "proven")
+        self.assertEqual(res["obligations"][0]["ref"]["kind"], "check")
+
+    def test_check_thoat_loi_khong_giao(self):
+        cmd = shlex.join([sys.executable, "-c", "import sys; raise SystemExit(1)"])
+        self.plan.brief = _brief()
+        self.plan.brief["acceptance_criteria"] = [f"check: {cmd}"]
+        self.plan.require_evidence = True
+        res = self._run()
+        self.assertEqual(res["status"], "withheld")
+        self.assertEqual(res["obligations"][0]["state"], "failed")
+        self.assertEqual(res["obligations"][0]["ref"]["exit"], 1)
+
+    def test_file_doi_that_khong_chung_minh_dung(self):
         _Prov.text = _PASS
         self.plan.brief = _brief()
         self.plan.task_text = "sửa app.py cho gọn"
@@ -103,8 +134,8 @@ class ObligationTest(unittest.TestCase):
             plan.require_evidence = True
             with patch("mira.team.provider_for", _Prov), patch("mira.agent.run_turn", fake_turn):
                 res = team.execute_plan(plan, api_key="k", root=root, on_step=lambda _m: None)
-        self.assertEqual(res["obligations"][0]["state"], "proven")
-        self.assertEqual(res["status"], "ok")
+        self.assertEqual(res["obligations"][0]["state"], "unproven")
+        self.assertEqual(res["status"], "withheld")
 
 
 if __name__ == "__main__":

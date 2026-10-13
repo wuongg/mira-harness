@@ -1020,7 +1020,9 @@ def execute_plan(plan: TeamPlan, *, provider_name: str | None = None,
     if (getattr(plan, "require_evidence", False) and isinstance(brief, dict)
             and brief.get("acceptance_criteria")):
         from .obligations import judge_obligations, unproven
-        obligations = judge_obligations(list(brief["acceptance_criteria"]), steps, evidence)
+        obligations = judge_obligations(
+            list(brief["acceptance_criteria"]), steps, evidence,
+            cwd=staging_box[0] or root)
         missing = unproven(obligations)
         if status == "ok" and missing:
             status, fail_reason = "withheld", "còn tiêu chí chưa có bằng chứng"
