@@ -651,6 +651,11 @@ def _cmd_dash(a) -> int:
     return cmd_dash(a)
 
 
+def _cmd_ingest(a) -> int:
+    from .ingest import ingest_dir
+    return ingest_dir(Path(a.trace_dir))
+
+
 def _cmd_eval(a) -> int:
     from .bench import run_adversarial, run_eval
     if getattr(a, "suite", None) == "adversarial":
@@ -836,6 +841,10 @@ def build_parser() -> argparse.ArgumentParser:
                     choices=["cost", "tasks", "audit", "vc", "latency"],
                     help="chỉ số lớn hiển thị")
     sx.set_defaults(func=cmd_stats)
+
+    ig = sub.add_parser("ingest", help="nạp trace team vào 16 chỉ số, ghi nguồn real")
+    ig.add_argument("trace_dir", help="thư mục có trace.json của team hoặc xích hash")
+    ig.set_defaults(func=_cmd_ingest)
 
     tu = sub.add_parser("tui", help="TUI toàn màn hình (curses, không thêm phụ thuộc)")
     tu.add_argument("--run", default=DEFAULT_RUN, help="thư mục lần chạy")

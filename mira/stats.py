@@ -115,7 +115,19 @@ def render(run: str, metric: str = "cost") -> None:
     dual = metrics.get("dual_approval_rate", 0)
     print("  " + ui.c(f"VC escalate {ui.pct(vc)}  ·  2 người duyệt {ui.pct(dual)}  ·  "
                       f"fail-closed {sh.get('note', '')[:0] or '100%'}", "faint"))
+    print("  " + ui.c(f"nguồn dữ liệu: {data_source_of(metrics)}", "faint"))
     ui.footer(f"r0-shadow · {time.strftime('%Y-%m-%d %H:%M')} · nguồn {d}", indent=2)
+
+
+def data_source_of(metrics: dict) -> str:
+    """real hoặc synthetic. Thiếu khóa thì synthetic, không đoán real."""
+    src = metrics.get("data_source")
+    if src in ("real", "synthetic"):
+        return src
+    label = str((metrics.get("labeled_taskset") or {}).get("label_source") or "")
+    if "synthetic" in label.lower():
+        return "synthetic"
+    return "synthetic"
 
 
 def cmd_stats(args) -> int:
