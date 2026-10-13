@@ -5,7 +5,6 @@ import hashlib
 import json
 from pathlib import Path
 
-from . import config as C
 from .team import Ledger, _worker_for_disk
 
 BRIEF_KEYS = (
@@ -79,15 +78,13 @@ def contain_brief(brief, task: str = "") -> str:
 def charged_call(ledger: Ledger, role: str, model: str, prov, system: str, user: str,
                  *, declared_price: tuple[float, float] | None = None):
     """Cùng cửa giá với đội. Không có giá thì không gọi model."""
-    if declared_price is not None:
-        rates = {"in": declared_price[0], "out": declared_price[1]}
-    else:
-        rates = C.PRICES.get(model)
+    from .prices import resolve_price
+    rates, source = resolve_price(model, declared_price)
     if rates is None:
         return "", {"blocked": True, "error": f"model {model} chưa có giá"}
     text, usage = prov.call(system, user)
     ledger.charge(role, model, usage or {}, getattr(prov, "name", "") or "",
-                  price=rates, declared_by_user=declared_price is not None)
+                  price=rates, declared_by_user=source == "cli", price_source=source)
     return text, {"blocked": False, "usage": usage}
 
 

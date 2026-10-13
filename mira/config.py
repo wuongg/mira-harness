@@ -49,7 +49,7 @@ BUDGET = {
 SESSION_CAP = 20.0
 DAY_CAP = 60.0
 
-# Model không có trong bảng vẫn bị trần tiền. Số này là ước lượng, không phải giá niêm yết.
+# Model không có trong bảng vẫn bị chặn. Hằng số này không phải một bậc giá.
 UNKNOWN_PRICE = {"in": 5.00, "out": 15.00, "cache_write": 6.25, "cache_read": 0.50}
 
 # Trần đưa vào prompt. Phần dài hơn thì agent tự đọc lại.
@@ -57,16 +57,14 @@ MEMORY_PROMPT_CHARS = 2_000
 TOOL_RESULT_CHARS = 8_000
 
 # ---------------------------------------------------------------- giá model
-# USD / 1M token.  cache_read = giá đọc lại prefix đã cache.
-PRICES = {
-    "opus-5.5":      {"in": 4.00, "out": 20.00, "cache_write": 5.00, "cache_read": 0.20},
-    "sonnet-5.5":    {"in": 2.00, "out": 10.00, "cache_write": 2.50, "cache_read": 0.20},
-    "haiku-5.5":     {"in": 0.10, "out": 0.50, "cache_write": 0.125, "cache_read": 0.02},
-    "gpt-6-astra":   {"in": 10.00, "out": 50.00, "cache_write": 12.50, "cache_read": 0.50},
-    "gpt-6-luna":    {"in": 0.10, "out": 0.50, "cache_write": 0.125, "cache_read": 0.02},
-    "gpt-5.6-sol":   {"in": 4.00, "out": 20.00, "cache_write": 5.00, "cache_read": 0.20},
-    "grok-4.7":      {"in": 2.00, "out": 2.00, "cache_write": 2.50, "cache_read": 0.10},
-}
+# USD / 1M token. Nạp từ mira/prices.toml. Không giữ dict thứ hai.
+def _shipped_prices() -> dict:
+    from pathlib import Path
+    from .prices import load_prices_file
+    return load_prices_file(Path(__file__).with_name("prices.toml"))
+
+
+PRICES = _shipped_prices()
 VENDOR = {"opus-5.5": "anthropic", "sonnet-5.5": "anthropic", "haiku-5.5": "anthropic",
           "gpt-6-astra": "openai", "gpt-6-luna": "openai", "gpt-5.6-sol": "openai",
           "grok-4.7": "xai"}

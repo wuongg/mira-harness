@@ -335,7 +335,8 @@ class Ledger:
     subagent_runs: int = 0          # đếm đội con trong CẢ cây (chặn bùng nổ)
 
     def charge(self, role: str, model: str, usage: dict, provider: str,
-               *, price: dict | None = None, declared_by_user: bool = False) -> float:
+               *, price: dict | None = None, declared_by_user: bool = False,
+               price_source: str = "") -> float:
         tin, tout = usage.get("in", 0), usage.get("out", 0)
         p = price if price is not None else C.PRICES.get(model)
         if p:
@@ -344,7 +345,7 @@ class Ledger:
             usd = 0.0
         row = {"role": role, "model": model, "provider": provider,
                "in": tin, "out": tout, "usd": round(usd, 6),
-               "priced": bool(p)}
+               "priced": bool(p), "price_source": price_source}
         if declared_by_user:
             row["declared_by_user"] = True
         self.rows.append(row)
@@ -361,7 +362,8 @@ class Ledger:
                 "tokens_in": self.total_in, "tokens_out": self.total_out,
                 "subagent_runs": self.subagent_runs,
                 "all_priced": all(r["priced"] for r in self.rows) if self.rows else True,
-                "declared_by_user": any(r.get("declared_by_user") for r in self.rows)}
+                "declared_by_user": any(r.get("declared_by_user") for r in self.rows),
+                "price_sources": [r.get("price_source", "") for r in self.rows]}
 
 
 # ------------------------------------------------------------- thực thi
@@ -500,15 +502,14 @@ def execute_plan(plan: TeamPlan, *, provider_name: str | None = None,
             u += "\n\nKẾ HOẠCH TRƯỚC:\n" + (pv or "")[:4000]
         return u
 
-    def _rates(model: str) -> dict | None:
-        if plan.declared_price is not None:
-            return {"in": plan.declared_price[0], "out": plan.declared_price[1]}
-        return C.PRICES.get(model)
+    def _rates(model: str) -> tuple[dict | None, str]:
+        from .prices import resolve_price
+        return resolve_price(model, plan.declared_price)
 
     def _call(role: str, pv: str = "", shard: tuple[int, int] | None = None) -> dict:
         """Một lần gọi model. An toàn khi chạy trong nhiều luồng."""
         model = _model_of(role)
-        rates = _rates(model)
+        rates, source = _rates(model)
         if rates is None:
             return {"role": role, "model": model, "shard": shard, "blocked": True,
                     "error": f"model {model} chưa có giá"}
@@ -525,7 +526,7 @@ def execute_plan(plan: TeamPlan, *, provider_name: str | None = None,
             return {"role": role, "model": model, "shard": shard, "error": str(e)}
         with lock:                                  # sổ cái phải nguyên tử (I8)
             usd = ledger.charge(role, model, usage, prov.name, price=rates,
-                                declared_by_user=plan.declared_price is not None)
+                                declared_by_user=source == "cli", price_source=source)
         return {"role": role, "model": model, "shard": shard, "provider": prov.name,
                 "text": text, "usage": usage, "usd": round(usd, 6),
                 "seconds": round(time.time() - t0, 2)}
@@ -615,7 +616,8 @@ def execute_plan(plan: TeamPlan, *, provider_name: str | None = None,
         from .agent import run_turn
         from .tools import Session
         model = _model_of("worker")
-        if _rates(model) is None:
+        rates, source = _rates(model)
+        if rates is None:
             return {"role": "worker", "model": model, "blocked": True,
                     "error": f"model {model} chưa có giá", "edited": False}
         staging_box[0] = prepare_staging(Path(root))
@@ -627,8 +629,8 @@ def execute_plan(plan: TeamPlan, *, provider_name: str | None = None,
                        max_tokens=max_tokens, protocol="text", no_stream=True,
                        price_in=plan.declared_price)
         usage = res.get("usage") or {"in": 0, "out": 0}
-        usd = ledger.charge("worker", model, usage, "run_turn", price=_rates(model),
-                            declared_by_user=plan.declared_price is not None)
+        usd = ledger.charge("worker", model, usage, "run_turn", price=rates,
+                            declared_by_user=source == "cli", price_source=source)
         return {"role": "worker", "model": _model_of("worker"), "provider": "run_turn",
                 "text": res.get("final") or "", "usage": usage,
                 "usd": usd, "seconds": float(res.get("seconds") or 0),

@@ -31,11 +31,9 @@ def _fmt_tokens(u: dict) -> str:
 
 
 def _price(model: str, u: dict, declared: tuple[float, float] | None = None) -> float:
-    """Giá đã biết. Model lạ không có giá khai thì ra 0, không dùng giá đoán."""
-    if declared is not None:
-        p = {"in": float(declared[0]), "out": float(declared[1])}
-    else:
-        p = C.PRICES.get(model)
+    """Giá đã biết. Không có cli, file, hay env thì ra 0. Không dùng UNKNOWN_PRICE."""
+    from .prices import resolve_price
+    p, _source = resolve_price(model, declared)
     if not p:
         return 0.0
     return (u.get("in", 0) * p["in"] + u.get("out", 0) * p["out"]) / 1e6
@@ -220,7 +218,8 @@ def run_turn(*, task: str, session: Session, model: str,
       `max_budget_usd`  — dừng ngay khi chi phí lượt vượt mức này
     """
     session.declared_price = price_in
-    if price_in is None and model not in C.PRICES:
+    from .prices import resolve_price
+    if resolve_price(model, price_in)[0] is None:
         return {"status": "blocked", "error": f"model {model} chưa có giá",
                 "final": "", "usage": {"in": 0, "out": 0}, "turns": 0,
                 "toolSummary": {"calls": 0, "tools": []}}
