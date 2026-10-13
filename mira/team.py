@@ -616,6 +616,11 @@ def execute_plan(plan: TeamPlan, *, provider_name: str | None = None,
             "version": 1,
             "brief": getattr(plan, "brief", None),
             "brief_hash": getattr(plan, "brief_hash", None),
+            "contract": {
+                "version": 1,
+                "hash": getattr(plan, "brief_hash", None),
+                "parent": None,
+            },
         })
 
     def _note(st: dict) -> dict:
@@ -1116,13 +1121,16 @@ def resume_team(root: Path, run_id: str, **kw) -> tuple[int, dict]:
             return 2, {"status": "error", "error": why, "fail_reason": why}
         if brief_hash(new_brief) != data.get("brief_hash"):
             diff = contract_diff(stored or {}, new_brief)
-            if diff["invalidates"]:
-                return 2, {
-                    "status": "error",
-                    "error": "yêu cầu đã đổi — không tiếp tục kế hoạch cũ",
-                    "fail_reason": "yêu cầu đã đổi — không tiếp tục kế hoạch cũ",
-                    "contract_diff": diff,
-                }
+            if not diff["lines"]:
+                diff["lines"] = ["nội dung brief khác hash đã lưu"]
+            why = "yêu cầu đã đổi — không tiếp tục kế hoạch cũ"
+            return 2, {
+                "status": "error",
+                "error": why,
+                "fail_reason": why,
+                "contract_diff": diff,
+                "contract": data.get("contract"),
+            }
     steps = list(data.get("steps") or [])
     held = data.get("status") in ("withheld", "error", "blocked")
     if held or any(step.get("error") or step.get("blocked") for step in steps):
@@ -1189,6 +1197,8 @@ def cmd_team(args) -> int:
             ui.note(f"{row['state']}: {row['criterion']}", "info")
         if code == 2:
             ui.note(res.get("error") or "không có checkpoint cho id này", "bad")
+            for line in (res.get("contract_diff") or {}).get("lines") or []:
+                ui.note(line, "warn")
             return 2
         if res.get("status") == "withheld":
             ui.note("GIỮ LẠI — không giao", "warn")
