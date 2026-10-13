@@ -204,7 +204,7 @@ Dài 37 ký tự. ASCII. Không dấu.
 
 ### Hành vi cũ sang mới
 
-Không thêm thư viện. Không đổi luật promote, nhãn, làn, hay van giá. Thêm khóa trong `Ledger.charge` để lần charge từ `_worker_edit` và từ intake không mất cộng dồn khi hai luồng cùng vào. Khóa đó là `threading.Lock` nằm trên chính sổ cái, không phải chỉ khóa cục bộ của `_call`. `_call` giữ khóa ngoài của nó. Hai khóa lồng nhau phải là `RLock` trên sổ cái, nếu không `_call` tự khóa chết. Chọn `RLock` trong `charge` và giữ khóa `_call` như cũ.
+Không thêm thư viện. Không đổi luật promote, nhãn, làn, hay van giá. Lỗ đã thấy: `Ledger.charge` trong `_worker_edit` (`mira/team.py` dòng 630) và `intake.charged_call` (`mira/intake.py` dòng 89) không cầm khóa, trong khi `_call` cầm khóa cục bộ (dòng 526). Sửa bằng một khóa chung trên `Ledger`: `threading.RLock` tạo trong `__post_init__`, và `charge` tự cầm khóa đó. Mọi cửa (`_call`, `_worker_edit`, intake) đi qua `charge` nên cùng một khóa. Khóa cục bộ của `_call` giữ nguyên để không đổi lịch fan-out. `RLock` để `_call` cầm khóa ngoài rồi vào `charge` không tự khóa chết.
 
 Fuzz không sửa sản phẩm ngoài khóa sổ cái. Nếu một kịch bản đỏ vì cửa ghi, đó là lỗi cần sửa trong phạm vi I1 của mục này, không phải nới assert.
 
@@ -237,7 +237,7 @@ Mười hai bất biến được assert trong mọi kịch bản. Không có I4
 11. I8. Model không giá thì `call` của provider bằng 0 và status `blocked`.
 12. I8. Khi có trần, `ledger["total_usd"]` không vượt trần sau khi đã dừng, và bằng tổng các dòng trong sai số làm tròn 1e-6.
 
-`test_charge_nam_muoi_luong`: 50 luồng gọi `Ledger.charge` cùng lúc, mỗi luồng một đô đã biết. Tổng bằng 50. Đây là bất biến I8 bổ sung, không nằm trong 200 kịch bản vì 200 kịch bản không tạo 50 luồng.
+`test_charge_muoi_luong_nam_nghin`: 10 luồng, mỗi luồng gọi `Ledger.charge` 5.000 lần với cùng một đơn giá đã biết. Tổng đúng 50.000 lần cộng. Đây là bẫy chuyên cho lỗ `_worker_edit` và `charged_call` không cầm khóa. Không thay bằng 50 luồng một lần.
 
 `test_seed_lap_lai_cung_thu_tu`: hai lần rút 200 bộ tham số từ seed `20261013` cho cùng list. Không gọi model ở test này.
 
