@@ -5,7 +5,7 @@ logic của SPEC (T1a → T1b → T2 → sàn động → cổng người), nên
 thấy không phải do LLM quyết — nó do code tất định quyết, đúng bất biến I5.
 
 Bất biến được cài bằng code:
-  I1  Executor là cửa GHI duy nhất  -> chỉ `_executor_write()` ghi ra đĩa
+  I1  Cửa ghi cây nguồn là promote sau cổng; `_executor_write()` chỉ ghi `--out`
   I2  fail-closed                   -> verifier FAIL hoặc cổng chưa duyệt ⇒ KHÔNG ghi
   I3  nhãn dữ liệu từ NGUỒN         -> lấy từ tham số dòng lệnh, không từ model
   I5  cổng là code                   -> `human_gate()` trả số, không trả văn bản
@@ -18,7 +18,9 @@ fail-closed vẫn do code quyết.
 from __future__ import annotations
 
 import json
+import os
 import re
+import shutil
 import threading
 import time
 import uuid
@@ -217,6 +219,76 @@ def build_plan(task_text: str, **hints) -> TeamPlan:
                     cap_usd=C.BUDGET.get(lane, {}).get("cap", 0.0))
 
 
+_COPY_SKIP = {".git", "__pycache__", ".env"}
+
+
+def prepare_staging(root: Path) -> Path:
+    """Bản sao cây nguồn cho một run. Bỏ .git, .env, __pycache__ và staging cũ."""
+    root = Path(root).resolve()
+    rid = time.strftime("%Y%m%d-%H%M%S") + "-" + uuid.uuid4().hex[:8]
+    staging = root / ".mira" / "staging" / rid
+    staging.mkdir(parents=True)
+
+    def ignore(directory, names):
+        skipped = [name for name in names if name in _COPY_SKIP]
+        if Path(directory).resolve() == (root / ".mira") and "staging" not in skipped:
+            skipped.append("staging")
+        return skipped
+
+    for child in root.iterdir():
+        if child.name in _COPY_SKIP:
+            continue
+        dest = staging / child.name
+        if child.is_dir():
+            shutil.copytree(child, dest, ignore=ignore)
+        elif child.is_file():
+            shutil.copy2(child, dest)
+    return staging
+
+
+def withhold_staging(staging: Path) -> Path:
+    """Đổi tên staging thành *.withheld. Không đụng cây nguồn."""
+    staging = Path(staging)
+    if not staging.exists() or staging.name.endswith(".withheld"):
+        return staging
+    dest = staging.with_name(staging.name + ".withheld")
+    if dest.exists():
+        shutil.rmtree(dest)
+    staging.rename(dest)
+    return dest
+
+
+def _rel_skipped(rel: Path) -> bool:
+    parts = rel.parts
+    if ".git" in parts or "__pycache__" in parts or ".env" in parts:
+        return True
+    return len(parts) >= 2 and parts[0] == ".mira" and parts[1] == "staging"
+
+
+def promote_staging(real_root: Path, staging: Path, audit: list) -> list[str]:
+    """Đưa file khác bản nguồn vào cây thật. Chỉ gọi sau verifier và cổng người."""
+    real_root = Path(real_root).resolve()
+    staging = Path(staging).resolve()
+    promoted: list[str] = []
+    for path in sorted(staging.rglob("*")):
+        if not path.is_file():
+            continue
+        rel = path.relative_to(staging)
+        if _rel_skipped(rel):
+            continue
+        dest = real_root / rel
+        new = path.read_bytes()
+        old = dest.read_bytes() if dest.is_file() else None
+        if old == new:
+            continue
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        os.replace(str(path), str(dest))
+        rel_s = rel.as_posix()
+        audit.append({"action": "promote", "path": rel_s})
+        promoted.append(rel_s)
+    return promoted
+
+
 def expand_roles(roles: list[str], lane: int, workers: int) -> list[str]:
     """N worker / N verifier khi làn 2 chạy song song; ngược lại giữ nguyên."""
     if lane != 2 or workers <= 1:
@@ -309,6 +381,7 @@ def execute_plan(plan: TeamPlan, *, provider_name: str | None = None,
     fail_reason = None
     verifier_verdict = None
     oracle_score = None
+    staging_box: list[Path | None] = [None]
     lock = threading.Lock()
     fanout = plan.lane == 2 and workers > 1
 
@@ -444,10 +517,11 @@ def execute_plan(plan: TeamPlan, *, provider_name: str | None = None,
         return st
 
     def _worker_edit(pv: str) -> dict:
-        """Một worker sửa qua run_turn. Không mở worker thứ hai trên cùng một cây."""
+        """Một worker sửa trong staging. Không mở worker thứ hai trên cùng một cây."""
         from .agent import run_turn
         from .tools import Session
-        child = Session(root=Path(root), mode="acceptEdits", approve=lambda _t, _a: True)
+        staging_box[0] = prepare_staging(Path(root))
+        child = Session(root=staging_box[0], mode="acceptEdits", approve=lambda _t, _a: True)
         child.gate_task = plan.task_text
         child.recruited = True
         res = run_turn(task=pv or plan.task_text, session=child, model=_model_of("worker"),
@@ -625,10 +699,18 @@ def execute_plan(plan: TeamPlan, *, provider_name: str | None = None,
     if status == "ok" and any(s.get("degraded") for s in steps):
         status, fail_reason = "withheld", "có đội con không qua kiểm"
 
+    staging_out = None
+    if staging_box[0] is not None:
+        if status != "ok":
+            staging_out = str(withhold_staging(staging_box[0]))
+        else:
+            staging_out = str(staging_box[0])
+
     return {"status": status, "fail_reason": fail_reason,
             "verifier_verdict": verifier_verdict, "oracle_score": oracle_score,
             "steps": steps, "ledger": ledger.summary(), "plan": plan.as_dict(),
-            "depth": depth, "nested": any(s.get("sub") for s in steps)}
+            "depth": depth, "nested": any(s.get("sub") for s in steps),
+            "staging": staging_out, "promoted": [], "promote_audit": []}
 
 
 def _aggregate(res: dict) -> str:
@@ -653,7 +735,9 @@ def _executor_write(out_dir: Path, plan: TeamPlan, result: dict) -> Path:
     (d / "result.md").write_text(
         f"# Kết quả\n\n**Yêu cầu:** {plan.task_text}\n\n"
         f"**Làn:** {plan.lane} · **sàn:** {plan.floor} · **cổng:** tầng {plan.gate_tier}\n\n"
-        f"---\n\n{body}\n",
+        f"---\n\n{body}\n"
+        + (("\n**Đã đưa vào cây:**\n" + "\n".join(f"- {p}" for p in (result.get("promoted") or [])) + "\n")
+           if result.get("promoted") else ""),
         encoding="utf-8")
     (d / "trace.json").write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
     return d
@@ -714,7 +798,8 @@ def cmd_team(args) -> int:
     print()
     ui.title("THỰC THI")
     res = execute_plan(plan, provider_name=args.provider, model_override=args.model,
-                       base_url=args.base_url, max_tokens=args.max_tokens,
+                       base_url=args.base_url, api_key=getattr(args, "api_key", None),
+                       max_tokens=args.max_tokens,
                        workers=workers, depth=sub_depth, root=Path.cwd(),
                        on_step=lambda m: print("  " + m))
 
@@ -760,7 +845,18 @@ def cmd_team(args) -> int:
     if need and not approved:
         print()
         ui.note("chưa duyệt — Executor không ghi (đúng I1/I2).", "warn")
+        if res.get("staging"):
+            held = withhold_staging(Path(res["staging"]))
+            res["staging"] = str(held)
         return 4
+
+    if res.get("staging"):
+        staging = Path(res["staging"])
+        if staging.is_dir() and not staging.name.endswith(".withheld"):
+            audit: list[dict] = []
+            res["promoted"] = promote_staging(Path.cwd(), staging, audit)
+            res["promote_audit"] = audit
+            shutil.rmtree(staging, ignore_errors=True)
 
     if not args.out:
         ui.note("không có --out nên không ghi gì", "info")
