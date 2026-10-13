@@ -1,5 +1,7 @@
 """Suite đối kháng: schema, báo cáo theo nhóm, không gọi model."""
+import ctypes
 import io
+import os
 import tempfile
 import unicodedata
 import unittest
@@ -118,6 +120,37 @@ class AdversarialTest(unittest.TestCase):
         self.assertIn("\\", by_id["PE02"]["path"])
         with tempfile.TemporaryDirectory() as tmp:
             self.assertEqual(predict_case(by_id["PE02"], Path(tmp)), "block")
+
+    def test_goc_chua_resolve_van_phan_dung_path_escape(self):
+        """Gốc 8.3 hoặc symlink phải cho phép file trong thư mục, vẫn chặn thoát."""
+        by_id = {row["id"]: row for row in load_cases(adversarial_path())}
+        with tempfile.TemporaryDirectory() as tmp:
+            alias = _goc_khac_resolve(Path(tmp))
+            if alias is None:
+                self.skipTest("máy không tạo được path khác resolve()")
+            for case_id in ("PE01", "PE02", "PE03", "PE04", "PE05", "PE06", "PE07", "PE08"):
+                self.assertEqual(
+                    predict_case(by_id[case_id], alias),
+                    by_id[case_id]["expected"],
+                    case_id,
+                )
+
+
+def _goc_khac_resolve(real: Path) -> Path | None:
+    """Một path trỏ cùng thư mục nhưng không bằng resolve(), như TEMP 8.3 trên runner."""
+    if os.name == "nt":
+        buf = ctypes.create_unicode_buffer(512)
+        n = ctypes.windll.kernel32.GetShortPathNameW(str(real), buf, 512)
+        if n and Path(buf.value) != real.resolve():
+            return Path(buf.value)
+    link = real.parent / (real.name + "-link")
+    try:
+        link.symlink_to(real, target_is_directory=True)
+    except OSError:
+        return None
+    if link.resolve() != link:
+        return link
+    return None
 
 
 if __name__ == "__main__":

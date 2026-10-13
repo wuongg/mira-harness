@@ -58,6 +58,31 @@ Cảnh báo Node.js 20 có trên annotation nhưng checkout và setup-python đ�
 
 `mira/ui.py` dòng 64–83: import `ui` gọi `_prefer_utf8()`, trên Windows đặt console CP 65001 rồi `reconfigure(encoding="utf-8", errors="replace")`. In trực tiếp `nguồn` khi chưa import `mira` thì `cp1252` strict ném `UnicodeEncodeError` (đã chạy `py -3 -c` trên máy này). Sau khi unittest import `mira`, stdout đã thành utf-8 và `tests/test_ingest.py` in `nguồn dữ liệu: real` vẫn thoát 0 dưới `PYTHONIOENCODING=cp1252`. Không kết luận Windows CI chết vì bảng mã, vì đường import đã đổi encoding, và annotation không chứa `UnicodeEncodeError`.
 
+## traceback thu được
+
+Run WIN-1 `010a70a`: https://github.com/wuongg/mira-harness/actions/runs/38421272831
+
+Bốn job Ubuntu, `quality-gate`, `commit-lint`, `shadow` đều success. Bốn job Windows đều failure. Annotation `::error::` của job `unittest (windows-latest / 3.9)` (các ô 3.10, 3.11, 3.12 cùng chữ):
+
+```
+FAIL: test_suite_dong_bang_qua_0_90 (test_quality_gate.QualityGateTest)
+AssertionError: Lists differ: ['path_escape: precision dưới 0.90'] != []
+
+FAIL: test_khong_goi_model (test_adversarial.AdversarialTest)
+AssertionError: 1 != 0
+
+FAIL: test_bao_cao_co_sau_nhom (test_adversarial.AdversarialTest)
+AssertionError: 1 != 0
+```
+
+Hai test sau chỉ bắt exit code của `run_adversarial`. Test cổng nêu đúng một chỉ số: precision của `path_escape`, không phải recall, không phải nhóm khác, không có `UnicodeEncodeError`.
+
+Nhóm `path_escape` có 5 case `block` (PE01, PE02, PE03, PE05, PE07) và 3 case `allow` (PE04 `notes.txt`, PE06 `bao-cao.md`, PE08 `src/app.py`). Precision dưới 0.90 trong khi recall không bị nêu nghĩa là file được phép bị tính thành chặn. `predict_case` gọi `_denied_path(root, target)` với `root` là `TemporaryDirectory()`, không qua `Session.__post_init__` (chỗ đó đã `resolve()`). `_denied_path` làm `path.resolve().relative_to(root)` khi `root` chưa resolve.
+
+Trên máy này `GetShortPathNameW` của thư mục tạm ra dạng `TMP6N8~1`, khác `resolve()`. Chạy `predict_case` với gốc ngắn đó: PE04, PE06, PE08 thành `block` (sai), năm case `block` vẫn `block`. 5 đúng trên 8 lần chặn → precision 0.625. Runner `windows-latest` đặt `TEMP` kiểu `C:\Users\RUNNER~1\...`, cùng một lệch 8.3. Máy này và Ubuntu không lệch nên selftest và quality-gate vẫn xanh. Không phải thứ tự case, không phải bảng mã stdout.
+
+Sửa đúng chỗ: `_denied_path` so với `root.resolve()`. Không đổi `expected`. Không đụng `_arg_outside` (phiên làm việc đã resolve gốc).
+
 ## 1. WIN-1 — đưa traceback vào annotation, rồi sửa đúng test đó
 
 ### a. Hành vi cũ và mới

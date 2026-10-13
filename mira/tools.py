@@ -190,7 +190,7 @@ def clip_result(text: str, limit: int | None = None) -> str:
 def _denied_path(root: Path, path: Path) -> bool:
     """Không đưa bí mật của dự án vào hội thoại."""
     try:
-        rel = path.resolve().relative_to(root)
+        rel = path.resolve().relative_to(root.resolve())
     except ValueError:
         return True
     if ".git" in rel.parts:
