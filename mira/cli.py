@@ -740,7 +740,8 @@ def build_parser() -> argparse.ArgumentParser:
     tk.set_defaults(func=cmd_task)
 
     tm = sub.add_parser("team", help="giao một task cho đội agent (GỌI MODEL THẬT)")
-    tm.add_argument("task", help="yêu cầu, để trong dấu ngoặc kép")
+    tm.add_argument("task", nargs="?", default=None, help="yêu cầu, để trong dấu ngoặc kép")
+    tm.add_argument("--resume", default=None, help="tiếp run từ checkpoint, không tính lại tiền đã chi")
     tm.add_argument("--surface", default="read_only",
                     choices=["read_only", "write_sandbox", "write_external", "egress_new"])
     tm.add_argument("--labels", default="internal",
