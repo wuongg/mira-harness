@@ -29,7 +29,8 @@ class NameTest(unittest.TestCase):
     def test_khong_con_hoi_tools(self):
         import mira.team as team
         self.assertIn("read_file", READ_TOOLS)
-        self.assertFalse(hasattr(team, "HOI_TOOLS"))
+        names = sorted(n for n in dir(team) if n.endswith("_TOOLS"))
+        self.assertEqual(names, ["READ_TOOLS", "WRITE_TOOLS"])
 
     def test_eval_slug_moi(self):
         root = ROOT / "eval" / "tasks"
@@ -39,8 +40,8 @@ class NameTest(unittest.TestCase):
             self.assertFalse((root / name).exists(), name)
 
     def test_palette_doi_ten(self):
-        self.assertTrue((ROOT / "mira" / "tui_palette_256.txt").is_file())
-        self.assertFalse((ROOT / "mira" / "chon_dat_256.txt").exists())
+        names = sorted(p.name for p in (ROOT / "mira").glob("*.txt"))
+        self.assertEqual(names, ["tui_palette_256.txt"])
 
 
 if __name__ == "__main__":

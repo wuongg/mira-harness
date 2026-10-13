@@ -1,17 +1,14 @@
 import unittest
 from pathlib import Path
 
-from mira.mascot_art import render
-
-
-PNG = Path(__file__).resolve().parents[1] / "chon_dat_cutout.png"
+from mira.mascot_art import MASCOT_PNG, render
 
 
 class MascotArtTest(unittest.TestCase):
     def test_half_block_truecolor(self):
-        if not PNG.exists():
+        if not MASCOT_PNG.exists():
             self.skipTest("không có ảnh tách nền")
-        lines = render(24, 8, PNG)
+        lines = render(24, 8, MASCOT_PNG)
         self.assertGreaterEqual(len(lines), 4)
         blob = "\n".join(lines)
         self.assertTrue("▀" in blob or "▄" in blob)

@@ -13,14 +13,14 @@ import sys
 import zlib
 from pathlib import Path
 
-_PNG = Path(__file__).resolve().parents[1] / "chon_dat_cutout.png"
+MASCOT_PNG = Path(__file__).with_name("mascot_rgba.png")
 _CACHE: tuple[int, int, bytes] | None = None
 
 
 def _read_png(path: Path) -> tuple[int, int, bytes]:
     """Đọc PNG RGBA 8-bit, không phụ thuộc thư viện ngoài."""
     global _CACHE
-    if _CACHE is not None and _CACHE[0] and path == _PNG:
+    if _CACHE is not None and _CACHE[0] and path == MASCOT_PNG:
         return _CACHE
     data = path.read_bytes()
     if data[:8] != b"\x89PNG\r\n\x1a\n":
@@ -71,7 +71,7 @@ def _read_png(path: Path) -> tuple[int, int, bytes]:
         rows.append(bytes(row))
         prev = row
     packed = b"".join(rows)
-    if path == _PNG:
+    if path == MASCOT_PNG:
         _CACHE = (width, height, packed)
     return width, height, packed
 
@@ -172,7 +172,7 @@ def _cell(top: tuple[int, int, int, int], bot: tuple[int, int, int, int]) -> str
 
 def render(cols: int, rows: int | None = None, path: Path | None = None) -> list[str]:
     """Trả các dòng ANSI. `rows` là số dòng terminal; bỏ trống thì giữ tỉ lệ ảnh."""
-    src = path or _PNG
+    src = path or MASCOT_PNG
     if not src.exists():
         return []
     w, h, px = _read_png(src)
@@ -248,7 +248,7 @@ def _bounds(w: int, h: int, px: bytes, alpha: int = 24) -> tuple[int, int, int, 
 
 def _boxed(dw: int, dh: int, path: Path | None = None) -> bytes | None:
     """Ảnh thu vào khung dw×dh, căn giữa, phần thừa trong suốt."""
-    src = path or _PNG
+    src = path or MASCOT_PNG
     if not src.exists() or dw < 1 or dh < 1:
         return None
     w, h, px = _read_png(src)
@@ -346,9 +346,9 @@ def logo() -> list[str]:
 
 def mark(cols: int = 32, rows: int = 11) -> list[str]:
     """Mặt nhỏ nhưng còn mắt nháy, má và lưỡi. Mỗi ô chữ là hai điểm ảnh gốc."""
-    if not _PNG.exists() or cols < 1 or rows < 1:
+    if not MASCOT_PNG.exists() or cols < 1 or rows < 1:
         return []
-    w, h, px = _read_png(_PNG)
+    w, h, px = _read_png(MASCOT_PNG)
     x0, y0, x1, y1 = _face_box(w, h, px)
     raw = _nearest(px, w, x0, y0, x1 - x0, y1 - y0, cols, rows * 2)
     lines = []
@@ -367,10 +367,10 @@ def mark(cols: int = 32, rows: int = 11) -> list[str]:
 def sprite(cols: int = 16, rows: int | None = None) -> list[str]:
     """Bản bằng ký tự, khi terminal không hiện được file ảnh."""
     cols = max(8, cols)
-    if not _PNG.exists():
+    if not MASCOT_PNG.exists():
         return []
     if rows is None:
-        w, h, px = _read_png(_PNG)
+        w, h, px = _read_png(MASCOT_PNG)
         x0, y0, x1, y1 = _bounds(w, h, px)
         rows = max(4, round(cols * (y1 - y0) / (x1 - x0) / 2))
     rows = max(4, rows)
@@ -561,7 +561,7 @@ def _proto() -> str:
 def embed(cols: int = 14, rows: int = 8) -> tuple[str, int, int] | None:
     """Đưa đúng file ảnh vào ô `cols`×`rows`. None nếu terminal không hiện ảnh."""
     kind = _proto()
-    if not kind or not _PNG.exists():
+    if not kind or not MASCOT_PNG.exists():
         return None
     try:
         cw_px, ch_px = _cell_px()
