@@ -6,7 +6,7 @@ on:
 
 jobs:
   unittest:
-    name: unittest (${{ matrix.os }})
+    name: unittest (${{ matrix.os }} / ${{ matrix.python-version }})
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -19,7 +19,25 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
       - name: Chạy toàn bộ unittest
-        run: python -m unittest discover -s tests -v
+        continue-on-error: true
+        shell: bash
+        run: |
+          set +e
+          python -m unittest discover -s tests -v > unittest.txt 2>&1
+          echo $? > unittest.exit
+      - name: Ghi annotation từng test đỏ
+        if: always()
+        shell: bash
+        run: python tools/ci_annotate.py unittest.txt "$(tr -d '\r' < unittest.exit)"
+      - name: Giữ log unittest
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: unittest-${{ matrix.os }}-${{ matrix.python-version }}
+          path: |
+            unittest.txt
+            unittest.exit
+          retention-days: 7
 
   shadow:
     name: shadow (3.12)
