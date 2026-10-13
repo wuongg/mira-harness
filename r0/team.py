@@ -354,9 +354,15 @@ class Ledger:
 
 
 # ------------------------------------------------------------- thực thi
-def _first_word(text: str) -> str:
-    m = re.search(r"[A-Za-z]+", text or "")
-    return (m.group(0) if m else "").upper()
+def _verdict_token(text: str) -> str | None:
+    """Chỉ nhận đúng PASS hoặc FAIL ở dòng đầu, sau khi strip."""
+    lines = (text or "").splitlines()
+    if not lines:
+        return None
+    token = lines[0].strip()
+    if token in ("PASS", "FAIL"):
+        return token
+    return None
 
 
 def _score(text: str) -> float | None:
@@ -673,8 +679,8 @@ def execute_plan(plan: TeamPlan, *, provider_name: str | None = None,
             for st in ver_steps:
                 _log_step(st)
                 steps.append(st)
-            verdicts = [_first_word(s.get("text", "")) for s in ver_steps]
-            if not verdicts:
+            verdicts = [_verdict_token(s.get("text", "")) for s in ver_steps]
+            if not verdicts or any(v is None for v in verdicts):
                 verifier_verdict = None
             elif all(v == "PASS" for v in verdicts):
                 verifier_verdict = "PASS"
@@ -707,7 +713,7 @@ def execute_plan(plan: TeamPlan, *, provider_name: str | None = None,
     # ---- fail-closed (I2) ----
     if status == "ok" and plan.lane >= 1:
         if verifier_verdict is None:
-            status, fail_reason = "withheld", "không có phán quyết của verifier"
+            status, fail_reason = "withheld", "verifier không theo giao thức, giữ lại"
         elif verifier_verdict != "PASS":
             status, fail_reason = "withheld", f"verifier trả {verifier_verdict}"
     if status == "ok" and plan.lane == 2 and oracle_score is not None and oracle_score < 0.7:
