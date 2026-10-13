@@ -206,6 +206,7 @@ class TestNativeVongLap(unittest.TestCase):
         res = agent.run_turn(task="đọc hai tệp", session=s, model=model,
                              provider_name=provider_name, base_url=self.base,
                              api_key="k", protocol="native", no_stream=not stream_it,
+                             price_in=(1.0, 1.0),
                              on_text=got.append, on_tool=lambda n, a: None)
         return d, res, got
 
@@ -249,7 +250,7 @@ class TestNativeVongLap(unittest.TestCase):
     def test_thieu_key_thi_chan_ngay(self):
         d, s = self._session()
         res = agent.run_turn(task="x", session=s, model="claude-x", provider_name="anthropic",
-                             base_url=self.base, api_key="", protocol="native",
+                             base_url=self.base, api_key="", protocol="native", price_in=(1.0, 1.0),
                              on_text=lambda _s: None)
         self.assertEqual(res["status"], "blocked")
         self.assertEqual(res["protocol"], "native")

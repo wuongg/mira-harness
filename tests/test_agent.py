@@ -119,7 +119,7 @@ class TestVongLapCongCu(unittest.TestCase):
         seen_tools = []
         res = agent.run_turn(task="đọc a.txt", session=s, model="claude-x",
                              provider_name="anthropic", base_url=self.base, api_key="k",
-                             protocol="text",
+                             protocol="text", price_in=(1.0, 1.0),
                              on_text=lambda _t: None, on_tool=lambda n, a: seen_tools.append(n))
         self.assertEqual(res["status"], "ok")
         self.assertEqual(seen_tools, ["read_file"], "phải gọi đúng một công cụ")
@@ -133,7 +133,7 @@ class TestVongLapCongCu(unittest.TestCase):
         SEEN.clear()
         agent.run_turn(task="đọc a.txt", session=s, model="claude-x",
                        provider_name="anthropic", base_url=self.base, api_key="k",
-                       protocol="text",
+                       protocol="text", price_in=(1.0, 1.0),
                        on_text=lambda _t: None)
         self.assertEqual(len(SEEN), 2)
         self.assertIn("<result>", json.dumps(SEEN[-1]["req"], ensure_ascii=False),

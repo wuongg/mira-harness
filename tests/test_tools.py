@@ -138,9 +138,15 @@ class ExtraToolsTest(unittest.TestCase):
 
     def test_web_search_no_key(self):
         import os
-        for v in ("TAVILY_API_KEY", "BRAVE_API_KEY", "SERPER_API_KEY"):
-            os.environ.pop(v, None)
-        self.assertTrue(self._sess().web_search("hello", provider="tavily").startswith("LỖI"))
+        from r0 import keys
+        old = keys.KEYS_PATH
+        keys.KEYS_PATH = self.root / "khong-co-keys.json"
+        try:
+            for v in ("TAVILY_API_KEY", "BRAVE_API_KEY", "SERPER_API_KEY"):
+                os.environ.pop(v, None)
+            self.assertTrue(self._sess().web_search("hello", provider="tavily").startswith("LỖI"))
+        finally:
+            keys.KEYS_PATH = old
 
     def test_web_search_with_stub(self):
         import os

@@ -300,7 +300,8 @@ class RosterTest(unittest.TestCase):
             (root / "note.txt").write_text("mua\n", encoding="utf-8")
             session = Session(root=root, mode="acceptEdits", approve=lambda t, a: True)
             res = run_turn(task="Tìm hiểu mưa", session=session, model="script",
-                           protocol="text", no_stream=True, provider=script)
+                           protocol="text", no_stream=True, provider=script,
+                           price_in=(1.0, 1.0))
         self.assertEqual(res["status"], "ok")
         self.assertIn("da tom", res["final"])
         self.assertIn("NỘI DUNG KHÔNG TIN", res["final"])
@@ -321,7 +322,8 @@ class RosterTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             session = Session(root=Path(tmp), mode="acceptEdits", approve=lambda t, a: True)
             res = run_turn(task="Tìm hiểu gió", session=session, model="script",
-                           protocol="text", no_stream=True, provider=script)
+                           protocol="text", no_stream=True, provider=script,
+                           price_in=(1.0, 1.0))
         kinds = [row.get("kind") for row in session.trace]
         self.assertEqual(kinds.count("roster"), 1)
         self.assertIn("xong mot", res["final"])
