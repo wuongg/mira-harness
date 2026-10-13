@@ -458,10 +458,10 @@ Không push bốn commit sản phẩm cho đến khi người duyệt lát thự
 
 ## 8. Ngoài phạm vi
 
-Giữ nguyên trên backlog, không đánh dấu xong: T2 scrub env, T3 docstring keys, T4 README, P2-03 `mira ingest`, P2-04 context budgeter, P3, P4. Không sửa `mira verify` để tìm `trace.jsonl` ở thư mục con. Không đổi 50 case thành 100 trong commit P2-01. Không thêm dependency, kể cả `tomli` trên PyPI. Parser 3.9 là code trong repo.
+Các mục sau là backlog, không phải việc kỳ này: T2 scrub env, T3 docstring keys, T4 README, P2-03 `mira ingest`, P2-04 context budgeter, P3, P4. Không sửa `mira verify` để tìm `trace.jsonl` ở thư mục con. Không đổi 50 case thành 100 trong commit P2-01. Không thêm dependency, kể cả `tomli` trên PyPI. Parser 3.9 là code trong repo.
 
 ## 9. Tự kiểm
 
-Không còn chỗ ghi TBD. Bốn mục đều có hàm cũ sang mới, tên file test, tên từng test, lệnh, và tiêu đề commit đã đếm ký tự. Ước lượng cộng lại khoảng 280 dòng P1-04, 295 dòng P1-06, 280 dòng P2-01, 130 dòng P2-02. Bộ case 50 dòng nằm trong ước lượng P2-01. I1, I2, I3, I5, I8 không bị nới: promote vẫn một cửa, withheld vẫn không promote, nhãn vẫn từ CLI, làn vẫn từ `build_plan`, model không giá vẫn không được gọi. I4 và I7 không được thêm vào assert.
+Dòng duy nhất chứa chữ TBD là câu tự kiểm cũ ở chỗ này. Đó không phải một việc khuyết bốn phần, và không phải một mục backlog. Việc khuyết thì đã viết đủ hàm, test, lệnh và commit ở mục 3 đến mục 6. Các mục liệt kê ở mục 8 là backlog, không phải việc kỳ này. Bốn mục kỳ này đều có hàm cũ sang mới, tên file test, tên từng test, lệnh, và tiêu đề commit đã đếm ký tự. Ước lượng cộng lại khoảng 280 dòng P1-04, 295 dòng P1-06, 280 dòng P2-01, 130 dòng P2-02. Bộ case 50 dòng nằm trong ước lượng P2-01. I1, I2, I3, I5, I8 không bị nới: promote vẫn một cửa, withheld vẫn không promote, nhãn vẫn từ CLI, làn vẫn từ `build_plan`, model không giá vẫn không được gọi. I4 và I7 không được thêm vào assert.
 
 Thăm dò bộ dò cho thấy ít nhất LA07, LA08, LK06, TV04, TV08 và các case homoglyph block có thể làm recall dưới ngưỡng. Plan không sửa các nhãn đó cho khớp code. Số chính thức vẫn là đầu ra lệnh sau P2-01.
