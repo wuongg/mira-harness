@@ -7,7 +7,9 @@ from __future__ import annotations
 
 import json
 import os
+import random
 import re
+import time
 import urllib.error
 import urllib.request
 
@@ -22,7 +24,35 @@ def _file_key(name: str) -> str | None:
 
 
 class ProviderError(RuntimeError):
-    pass
+    def __init__(self, message: str, attempts: int = 0):
+        super().__init__(message)
+        self.attempts = attempts
+
+
+def retry_open(request, timeout, *, name: str, rng: random.Random, sleep=time.sleep):
+    """Tối đa 3 lần urlopen. Chỉ 429 và 5xx được chờ rồi thử lại."""
+    url = getattr(request, "full_url", "")
+    last = None
+    for attempt in range(1, 4):
+        try:
+            return urllib.request.urlopen(request, timeout=timeout), attempt
+        except urllib.error.HTTPError as e:
+            detail = e.read().decode("utf-8", "replace")[:400]
+            try:
+                e.close()
+            except Exception:                               # noqa: BLE001
+                pass
+            err = ProviderError(f"{name}: HTTP {e.code} — {detail}", attempt)
+            retry = e.code == 429 or 500 <= int(e.code) <= 599
+            if not retry or attempt == 3:
+                raise err from None
+            last = err
+            base = 0.5 if attempt == 1 else 1.0
+            sleep(base + rng.uniform(0, 0.25))
+        except urllib.error.URLError as e:
+            raise ProviderError(
+                f"{name}: không kết nối được {url} — {e.reason}", attempt) from None
+    raise last
 
 
 class BaseProvider:
@@ -42,6 +72,8 @@ class BaseProvider:
         self.base_url = (base_url or self.default_base).rstrip("/")
         self.timeout = timeout
         self.max_tokens = max_tokens
+        self.attempts = 0
+        self._rng = random.Random()
 
     def _key_from_env(self) -> str | None:
         raise NotImplementedError
@@ -60,13 +92,13 @@ class BaseProvider:
         for k, v in headers.items():
             req.add_header(k, v)
         try:
-            with urllib.request.urlopen(req, timeout=self.timeout) as r:
-                return json.loads(r.read().decode("utf-8"))
-        except urllib.error.HTTPError as e:
-            detail = e.read().decode("utf-8", "replace")[:400]
-            raise ProviderError(f"{self.name}: HTTP {e.code} — {detail}") from None
-        except urllib.error.URLError as e:
-            raise ProviderError(f"{self.name}: không kết nối được {url} — {e.reason}") from None
+            resp, self.attempts = retry_open(
+                req, self.timeout, name=self.name, rng=self._rng)
+        except ProviderError as e:
+            self.attempts = e.attempts
+            raise
+        with resp:
+            return json.loads(resp.read().decode("utf-8"))
 
 
 class AnthropicProvider(BaseProvider):

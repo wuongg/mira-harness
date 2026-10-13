@@ -740,7 +740,8 @@ def build_parser() -> argparse.ArgumentParser:
     tk.set_defaults(func=cmd_task)
 
     tm = sub.add_parser("team", help="giao một task cho đội agent (GỌI MODEL THẬT)")
-    tm.add_argument("task", help="yêu cầu, để trong dấu ngoặc kép")
+    tm.add_argument("task", nargs="?", default=None, help="yêu cầu, để trong dấu ngoặc kép")
+    tm.add_argument("--resume", default=None, help="tiếp run từ checkpoint, không tính lại tiền đã chi")
     tm.add_argument("--surface", default="read_only",
                     choices=["read_only", "write_sandbox", "write_external", "egress_new"])
     tm.add_argument("--labels", default="internal",
@@ -761,6 +762,8 @@ def build_parser() -> argparse.ArgumentParser:
     tm.add_argument("--clarify-max", dest="clarify_max", type=int, default=3,
                     help="trần vòng hỏi làm rõ brief")
     tm.add_argument("--brief", default=None, help="brief JSON đã duyệt, bỏ tầng hỏi")
+    tm.add_argument("--require-evidence", dest="require_evidence", action="store_true",
+                    help="không giao khi tiêu chí nghiệm thu chưa có bằng chứng")
     tm.add_argument("--approve", action="store_true", help="duyệt cổng người trước khi ghi")
     tm.add_argument("--price-in", dest="price_in", default=None,
                     help="giá USD mỗi triệu token, dạng IN,OUT")

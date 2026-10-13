@@ -292,8 +292,10 @@ def prepare_staging(root: Path) -> Path:
 
     def ignore(directory, names):
         skipped = [name for name in names if name in _COPY_SKIP]
-        if Path(directory).resolve() == (root / ".mira") and "staging" not in skipped:
-            skipped.append("staging")
+        if Path(directory).resolve() == (root / ".mira"):
+            for name in ("staging", "runs"):
+                if name not in skipped:
+                    skipped.append(name)
         return skipped
 
     for child in root.iterdir():
@@ -305,6 +307,59 @@ def prepare_staging(root: Path) -> Path:
         elif child.is_file():
             shutil.copy2(child, dest)
     return staging
+
+
+def checkpoint_path(root: Path, run_id: str) -> Path:
+    return Path(root) / ".mira" / "runs" / run_id / "checkpoint.json"
+
+
+def write_checkpoint(root: Path, payload: dict) -> None:
+    """Ghi nguyên tử. File tạm cùng thư mục rồi os.replace."""
+    dest = checkpoint_path(root, payload["id"])
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    tmp = dest.with_suffix(".json.tmp")
+    tmp.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+    os.replace(tmp, dest)
+
+
+def _ledger_ok(blob: dict) -> bool:
+    rows = blob.get("rows") or []
+    got = round(sum(float(row.get("usd", 0.0)) for row in rows), 6)
+    return round(float(blob.get("total_usd", 0.0)), 6) == got
+
+
+def ledger_from_checkpoint(blob: dict) -> Ledger:
+    """Gán rows đã chi. Không gọi charge."""
+    led = Ledger()
+    led.rows = list(blob.get("rows") or [])
+    led.total_usd = float(blob.get("total_usd", 0.0))
+    led.total_in = int(blob.get("total_in", 0))
+    led.total_out = int(blob.get("total_out", 0))
+    led.subagent_runs = int(blob.get("subagent_runs", 0))
+    return led
+
+
+def load_checkpoint(root: Path, run_id: str) -> dict:
+    path = checkpoint_path(root, run_id)
+    if not path.is_file():
+        raise CheckpointError("không có checkpoint cho id này")
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError):
+        raise CheckpointError("checkpoint hỏng") from None
+    if not isinstance(data, dict):
+        raise CheckpointError("checkpoint hỏng")
+    if int(data.get("version", 1)) != 1:
+        raise CheckpointError("checkpoint version không đọc được")
+    if not _ledger_ok(data.get("ledger") or {}):
+        raise CheckpointError("checkpoint lệch sổ cái")
+    return data
+
+
+class CheckpointError(Exception):
+    def __init__(self, message: str):
+        super().__init__(message)
+        self.message = message
 
 
 def withhold_staging(staging: Path) -> Path:
@@ -337,7 +392,7 @@ def _rel_skipped(rel: Path) -> bool:
     parts = rel.parts
     if ".git" in parts or "__pycache__" in parts or ".env" in parts:
         return True
-    return len(parts) >= 2 and parts[0] == ".mira" and parts[1] == "staging"
+    return len(parts) >= 2 and parts[0] == ".mira" and parts[1] in ("staging", "runs")
 
 
 def promote_staging(real_root: Path, staging: Path, audit: list) -> list[str]:
@@ -465,6 +520,7 @@ def staging_evidence(root: Path, staging: Path, task: str, worker_text: str) -> 
     root = Path(root).resolve()
     staging = Path(staging).resolve()
     diff = False
+    changed: list[str] = []
     for path in staging.rglob("*"):
         if not path.is_file():
             continue
@@ -475,7 +531,7 @@ def staging_evidence(root: Path, staging: Path, task: str, worker_text: str) -> 
         old = dest.read_bytes() if dest.is_file() else None
         if old != path.read_bytes():
             diff = True
-            break
+            changed.append(rel.as_posix())
     claimed = bool(re.search(r"đã sửa|\bedited\b", worker_text or "", re.IGNORECASE))
     cmd = _named_command(task)
     exit_code = None
@@ -485,7 +541,8 @@ def staging_evidence(root: Path, staging: Path, task: str, worker_text: str) -> 
             proc = subprocess.run(argv, shell=False, cwd=str(staging), timeout=60,
                                   capture_output=True, text=True, env=_shell_env())
             exit_code = proc.returncode
-    return {"empty_diff": not diff, "claimed": claimed, "cmd": cmd, "exit": exit_code}
+    return {"empty_diff": not diff, "claimed": claimed, "cmd": cmd,
+            "exit": exit_code, "changed": changed}
 
 
 def execute_plan(plan: TeamPlan, *, provider_name: str | None = None,
@@ -497,7 +554,11 @@ def execute_plan(plan: TeamPlan, *, provider_name: str | None = None,
                  on_step: Callable[[str], None] | None = None,
                  dry_run: bool = False,
                  root: Path | None = None,
-                 oracle: str | None = None) -> dict:
+                 oracle: str | None = None,
+                 run_id: str | None = None,
+                 resume_steps: list | None = None,
+                 resume_staging: str | None = None,
+                 record: bool = True) -> dict:
     """Chạy kế hoạch. Trả về bản ghi đầy đủ. KHÔNG tự ghi ra đĩa.
 
     `workers > 1` + làn 2: N worker chạy SONG SONG, rồi N verifier chạy song song.
@@ -514,13 +575,69 @@ def execute_plan(plan: TeamPlan, *, provider_name: str | None = None,
     skill_retried = [False]
     steps: list[dict] = []
     prev = ""
+    staging_box: list[Path | None] = [None]
     status = "ok"
     fail_reason = None
+    run_id = run_id or uuid.uuid4().hex[:12]
+    pending = [dict(step) for step in (resume_steps or [])]
+    if resume_staging:
+        staging_box[0] = Path(resume_staging)
+
+    def _reuse(factory):
+        if pending:
+            return pending.pop(0)
+        return factory()
+
+    def _snapshot() -> None:
+        if root is None or not record:
+            return
+        obs = plan.task.observable
+        price = getattr(plan, "declared_price", None)
+        write_checkpoint(root, {
+            "id": run_id,
+            "next_index": len(steps),
+            "task": plan.task_text,
+            "steps": steps,
+            "ledger": {
+                "rows": list(ledger.rows),
+                "total_usd": round(ledger.total_usd, 6),
+                "total_in": ledger.total_in,
+                "total_out": ledger.total_out,
+                "subagent_runs": ledger.subagent_runs,
+            },
+            "staging": str(staging_box[0]) if staging_box[0] is not None else None,
+            "status": status,
+            "fail_reason": fail_reason,
+            "hints": {
+                "surface": obs["tool_surface"],
+                "labels": list(obs["data_labels"]),
+                "records": obs["records"],
+                "dollars": obs["dollars"],
+                "reversibility": obs["reversibility"],
+                "output_type": obs["output_type"],
+            },
+            "declared_price": list(price) if price else None,
+            "workers": workers,
+            "version": 1,
+            "brief": getattr(plan, "brief", None),
+            "brief_hash": getattr(plan, "brief_hash", None),
+            "contract": {
+                "version": 1,
+                "hash": getattr(plan, "brief_hash", None),
+                "parent": None,
+            },
+            "require_evidence": bool(getattr(plan, "require_evidence", False)),
+        })
+
+    def _note(st: dict) -> dict:
+        steps.append(st)
+        _snapshot()
+        return st
+
     verifier_verdict = None
     verifier_raw = ""
     verifier_parsed = None
     oracle_score = None
-    staging_box: list[Path | None] = [None]
     lock = threading.Lock()
     fanout = plan.lane == 2 and workers > 1
 
@@ -591,13 +708,15 @@ def execute_plan(plan: TeamPlan, *, provider_name: str | None = None,
             text, usage = prov.call(ROLE_SYSTEM[role], _user)
         except ProviderError as e:
             return {"role": role, "model": model, "shard": shard, "error": str(e),
-                    "context_policy": policy}
+                    "attempt": getattr(prov, "attempts", 1), "context_policy": policy}
         with lock:                                  # sổ cái phải nguyên tử (I8)
             usd = ledger.charge(role, model, usage, prov.name, price=rates,
                                 declared_by_user=source == "cli", price_source=source)
         return {"role": role, "model": model, "shard": shard, "provider": prov.name,
                 "text": text, "usage": usage, "usd": round(usd, 6),
-                "seconds": round(time.time() - t0, 2), "context_policy": policy}
+                "seconds": round(time.time() - t0, 2),
+                "attempt": getattr(prov, "attempts", 1),
+                "context_policy": policy}
 
     def _fanout(items: list[tuple[str, str, tuple[int, int] | None]]) -> list[dict]:
         """Chạy nhiều lần gọi SONG SONG; trả về ĐÚNG THỨ TỰ chỉ số."""
@@ -667,7 +786,7 @@ def execute_plan(plan: TeamPlan, *, provider_name: str | None = None,
         sub_res = execute_plan(sub, provider_name=provider_name, model_override=model_override,
                                base_url=base_url, api_key=api_key, max_tokens=max_tokens,
                                workers=1, depth=depth - 1, ledger=ledger, on_step=log,
-                               root=root)
+                               root=root, record=False)
         text = _aggregate(sub_res)
         st = {"role": "worker", "shard": shard, "model": _model_of("worker"),
               "provider": "nested", "text": text, "usage": {"in": 0, "out": 0},
@@ -711,7 +830,7 @@ def execute_plan(plan: TeamPlan, *, provider_name: str | None = None,
                 "context_policy": budget["policy"]}
 
     def _over_cap() -> bool:
-        return bool(plan.cap_usd) and ledger.total_usd > plan.cap_usd
+        return bool(plan.cap_usd) and ledger.total_usd >= plan.cap_usd
 
     oracle_gate = "disabled"
     if oracle == "on" and plan.lane == 2:
@@ -743,9 +862,9 @@ def execute_plan(plan: TeamPlan, *, provider_name: str | None = None,
 
     # --- pha 1: planner → coordinator (tuần tự, có phụ thuộc dữ liệu) ---
     for role in head:
-        st = _call(role, prior=_prior())
+        st = _reuse(lambda role=role: _call(role, prior=_prior()))
         _log_step(st)
-        steps.append(st)
+        _note(st)
         if st.get("error") or st.get("blocked"):
             status = "blocked" if st.get("blocked") else "error"
             fail_reason = st["error"]
@@ -759,9 +878,9 @@ def execute_plan(plan: TeamPlan, *, provider_name: str | None = None,
                 if refused and not skill_retried[0] and not st.get("error"):
                     skill_retried[0] = True
                     prev += "\nTỪ CHỐI skill: " + ", ".join(refused)
-                    st2 = _call("planner", prior=_prior() + [f"TỪ CHỐI skill: {', '.join(refused)}"])
+                    st2 = _reuse(lambda: _call("planner", prior=_prior() + [f"TỪ CHỐI skill: {', '.join(refused)}"]))
                     _log_step(st2)
-                    steps.append(st2)
+                    _note(st2)
                     if st2.get("error") or st2.get("blocked"):
                         status = "blocked" if st2.get("blocked") else "error"
                         fail_reason = st2["error"]
@@ -781,9 +900,9 @@ def execute_plan(plan: TeamPlan, *, provider_name: str | None = None,
             texts: list[str] = []
             for index, _name in enumerate(skill_names):
                 skill_at[0] = index
-                st = _call("worker", prior=_prior())
+                st = _reuse(lambda: _call("worker", prior=_prior()))
                 _log_step(st)
-                steps.append(st)
+                _note(st)
                 worker_steps.append(st)
                 if st.get("error") or st.get("blocked"):
                     status = "blocked" if st.get("blocked") else "error"
@@ -799,10 +918,10 @@ def execute_plan(plan: TeamPlan, *, provider_name: str | None = None,
         elif has_worker:
             from .tools import shape_of
             if root is not None and shape_of(plan.task_text) == "edit":
-                worker_steps = [_worker_edit(_prior())]
+                worker_steps = [_reuse(lambda: _worker_edit(_prior()))]
                 for st in worker_steps:
                     _log_step(st)
-                    steps.append(st)
+                    _note(st)
                 bad = next((s for s in worker_steps if s.get("error") or s.get("blocked")), None)
                 if bad:
                     status = "blocked" if bad.get("blocked") else "error"
@@ -815,10 +934,13 @@ def execute_plan(plan: TeamPlan, *, provider_name: str | None = None,
                     items = [(_prior(), (i + 1, workers)) for i in range(workers)]
                 else:
                     items = [(_prior(), None)]
-                worker_steps = _parallel(_worker_step, items)
+                if len(items) == 1:
+                    worker_steps = [_reuse(lambda: _worker_step(*items[0]))]
+                else:
+                    worker_steps = _parallel(_worker_step, items)
                 for st in worker_steps:
                     _log_step(st)
-                    steps.append(st)
+                    _note(st)
                 bad = next((s for s in worker_steps if s.get("error") or s.get("blocked")), None)
                 if bad:
                     status = "blocked" if bad.get("blocked") else "error"
@@ -835,13 +957,13 @@ def execute_plan(plan: TeamPlan, *, provider_name: str | None = None,
                                       (i + 1, len(worker_steps)))
                                      for i in range(len(worker_steps))])
             else:
-                ver_steps = [_call("verifier", prior=_prior())]
+                ver_steps = [_reuse(lambda: _call("verifier", prior=_prior()))]
             for st in ver_steps:
                 env = _verdict_envelope(st.get("text", ""))
                 st["verdict_raw"] = st.get("text", "")
                 st["verdict_parsed"] = env
                 _log_step(st)
-                steps.append(st)
+                _note(st)
             parsed = [s.get("verdict_parsed") for s in ver_steps]
             if ver_steps:
                 verifier_raw = ver_steps[-1].get("text", "")
@@ -864,9 +986,9 @@ def execute_plan(plan: TeamPlan, *, provider_name: str | None = None,
         # --- pha 4: oracle → critic (tổng hợp) ---
         if status == "ok":
             for role in tail:
-                st = _call(role, prior=_prior())
+                st = _reuse(lambda role=role: _call(role, prior=_prior()))
                 _log_step(st)
-                steps.append(st)
+                _note(st)
                 if st.get("error") or st.get("blocked"):
                     status = "blocked" if st.get("blocked") else "error"
                     fail_reason = st["error"]
@@ -904,6 +1026,17 @@ def execute_plan(plan: TeamPlan, *, provider_name: str | None = None,
     # đội con không qua kiểm -> làm bẩn cả lượt, KHÔNG giao (đọc chặt của I2)
     if status == "ok" and any(s.get("degraded") for s in steps):
         status, fail_reason = "withheld", "có đội con không qua kiểm"
+    obligations = None
+    brief = getattr(plan, "brief", None)
+    if (getattr(plan, "require_evidence", False) and isinstance(brief, dict)
+            and brief.get("acceptance_criteria")):
+        from .obligations import judge_obligations, unproven
+        obligations = judge_obligations(
+            list(brief["acceptance_criteria"]), steps, evidence,
+            cwd=staging_box[0] or root)
+        missing = unproven(obligations)
+        if status == "ok" and missing:
+            status, fail_reason = "withheld", "còn tiêu chí chưa có bằng chứng"
 
     staging_out = None
     if staging_box[0] is not None:
@@ -912,7 +1045,8 @@ def execute_plan(plan: TeamPlan, *, provider_name: str | None = None,
         else:
             staging_out = str(staging_box[0])
 
-    return {"status": status, "fail_reason": fail_reason,
+    _snapshot()
+    return {"id": run_id, "status": status, "fail_reason": fail_reason,
             "verifier_verdict": verifier_verdict, "oracle_score": oracle_score,
             "verdict_raw": verifier_raw, "verdict_parsed": verifier_parsed,
             "oracle_gate": oracle_gate,
@@ -921,7 +1055,24 @@ def execute_plan(plan: TeamPlan, *, provider_name: str | None = None,
             "staging": staging_out, "staging_evidence": evidence,
             "promoted": [], "promote_audit": [],
             "role_prompts": getattr(plan, "role_prompts", None),
-            "brief_hash": getattr(plan, "brief_hash", None)}
+            "brief_hash": getattr(plan, "brief_hash", None),
+            "obligations": obligations}
+
+
+def _obligation_note(row: dict) -> str:
+    """Một dòng người đọc được: đã kiểm, chưa kiểm, hoặc bị chặn, kèm cách xử lý."""
+    label = {"proven": "đã kiểm", "failed": "bị chặn", "unproven": "chưa kiểm"}.get(
+        row.get("state") or "", row.get("state") or "")
+    reason = row.get("reason") or ""
+    hint = ""
+    if row.get("state") == "unproven":
+        hint = " Thêm tiền tố check: rồi chạy lại."
+    elif row.get("state") == "failed":
+        hint = " Sửa cho lệnh thoát 0 rồi chạy lại."
+    text = f"{label}: {row.get('criterion') or ''}"
+    if reason:
+        text += f" — {reason}."
+    return text + hint
 
 
 def _aggregate(res: dict) -> str:
@@ -947,6 +1098,9 @@ def _executor_write(out_dir: Path, plan: TeamPlan, result: dict) -> Path:
         f"# Kết quả\n\n**Yêu cầu:** {plan.task_text}\n\n"
         f"**Làn:** {plan.lane} · **sàn:** {plan.floor} · **cổng:** tầng {plan.gate_tier}\n\n"
         f"---\n\n{body}\n"
+        + ("" if not result.get("obligations") else
+           "\n**Tiêu chí:**\n" + "\n".join(
+               f"- {_obligation_note(row)}" for row in result["obligations"]) + "\n")
         + (("\n**Đã đưa vào cây:**\n" + "\n".join(f"- {p}" for p in (result.get("promoted") or [])) + "\n")
            if result.get("promoted") else ""),
         encoding="utf-8")
@@ -972,8 +1126,111 @@ def _worker_for_disk(task: str, text: str) -> str:
 
 
 # ------------------------------------------------------------------ CLI
+def resume_team(root: Path, run_id: str, **kw) -> tuple[int, dict]:
+    """Tiếp một run. Run withheld/error/blocked không gọi model thêm."""
+    root = Path(root)
+    try:
+        data = load_checkpoint(root, run_id)
+    except CheckpointError as exc:
+        return 2, {"status": "error", "error": exc.message, "fail_reason": exc.message}
+    new_brief = kw.pop("brief", None)
+    stored = data.get("brief")
+    if new_brief is not None and data.get("brief_hash"):
+        from .contract import contract_diff
+        from .intake import brief_hash, validate_brief
+        ok, why = validate_brief(new_brief)
+        if not ok:
+            return 2, {"status": "error", "error": why, "fail_reason": why}
+        if brief_hash(new_brief) != data.get("brief_hash"):
+            diff = contract_diff(stored or {}, new_brief)
+            if not diff["lines"]:
+                diff["lines"] = ["nội dung brief khác hash đã lưu"]
+            why = "yêu cầu đã đổi — không tiếp tục kế hoạch cũ"
+            return 2, {
+                "status": "error",
+                "error": why,
+                "fail_reason": why,
+                "contract_diff": diff,
+                "contract": data.get("contract"),
+            }
+    steps = list(data.get("steps") or [])
+    held = data.get("status") in ("withheld", "error", "blocked")
+    if held or any(step.get("error") or step.get("blocked") for step in steps):
+        return 3, data
+    hints = dict(data.get("hints") or {})
+    plan = build_plan(data.get("task") or "", **hints)
+    price = data.get("declared_price")
+    if price:
+        plan.declared_price = (float(price[0]), float(price[1]))
+    if new_brief is not None:
+        from .intake import brief_hash
+        plan.brief = new_brief
+        plan.brief_hash = brief_hash(new_brief)
+    elif stored:
+        plan.brief = stored
+        plan.brief_hash = data.get("brief_hash")
+    passed_flag = bool(kw.pop("require_evidence", False))
+    plan.require_evidence = bool(data.get("require_evidence")) or passed_flag
+    workers = int(data.get("workers") or 1)
+    if len(expand_roles(plan.roles, plan.lane, workers)) < int(data.get("next_index") or 0):
+        return 2, {"status": "error", "error": "checkpoint dài hơn kế hoạch",
+                   "fail_reason": "checkpoint dài hơn kế hoạch"}
+    staging = data.get("staging")
+    if staging:
+        path = Path(staging)
+        base = (root / ".mira" / "staging").resolve()
+        try:
+            path.resolve().relative_to(base)
+        except ValueError:
+            return 2, {"status": "error", "error": "staging của checkpoint thoát khỏi gốc",
+                       "fail_reason": "staging của checkpoint thoát khỏi gốc"}
+        if not path.exists():
+            return 2, {"status": "error", "error": "staging của checkpoint không còn",
+                       "fail_reason": "staging của checkpoint không còn"}
+    led = ledger_from_checkpoint(data["ledger"])
+    res = execute_plan(
+        plan, ledger=led, root=root, run_id=run_id, workers=workers,
+        resume_steps=steps, resume_staging=staging, **kw)
+    return (0 if res.get("status") == "ok" else 3), res
+
+
 def cmd_team(args) -> int:
     from . import ui
+
+    if getattr(args, "resume", None):
+        brief = None
+        if getattr(args, "brief", None):
+            from .intake import load_brief_file
+            brief, why = load_brief_file(Path(args.brief))
+            if brief is None:
+                ui.note(why, "bad")
+                return 2
+        code, res = resume_team(
+            Path.cwd(), args.resume,
+            provider_name=getattr(args, "provider", None),
+            model_override=getattr(args, "model", None),
+            base_url=getattr(args, "base_url", None),
+            api_key=getattr(args, "api_key", None),
+            max_tokens=int(getattr(args, "max_tokens", 4096) or 4096),
+            oracle=getattr(args, "oracle", None),
+            on_step=lambda m: print("  " + m),
+            brief=brief,
+            require_evidence=bool(getattr(args, "require_evidence", False)))
+        for row in res.get("obligations") or []:
+            ui.note(_obligation_note(row), "info")
+        if code == 2:
+            ui.note(res.get("error") or "không có checkpoint cho id này", "bad")
+            for line in (res.get("contract_diff") or {}).get("lines") or []:
+                ui.note(line, "warn")
+            return 2
+        if res.get("status") == "withheld":
+            ui.note(res.get("fail_reason") or "còn tiêu chí chưa có bằng chứng", "warn")
+            ui.note("GIỮ LẠI — không giao", "warn")
+            return 3
+        return code
+    if not getattr(args, "task", None):
+        ui.note("thiếu yêu cầu", "bad")
+        return 2
 
     labels = [x.strip() for x in (args.labels or "internal").split(",") if x.strip()]
     hints = dict(surface=args.surface, labels=labels, records=args.records,
@@ -1065,6 +1322,7 @@ def cmd_team(args) -> int:
             from_file = False
         plan.brief = obj
         plan.brief_hash = brief_hash(obj)
+        plan.require_evidence = bool(getattr(args, "require_evidence", False))
         print(canonical_brief(obj))
         if not from_file:
             try:
@@ -1082,6 +1340,16 @@ def cmd_team(args) -> int:
             ui.note(why, "bad")
             return 8
         plan.role_prompts = prompts
+    if getattr(args, "brief", None) and not getattr(plan, "brief", None):
+        from .intake import brief_hash, load_brief_file
+        obj, why = load_brief_file(Path(args.brief))
+        if obj is None:
+            ui.note(why, "bad")
+            return 8
+        plan.brief = obj
+        plan.brief_hash = brief_hash(obj)
+    if getattr(args, "require_evidence", False):
+        plan.require_evidence = True
     if plan.dual_approval and args.approve:
         print()
         ui.note("dual_approval không nhận --approve. Cần hai người khác tên.", "warn")
@@ -1097,9 +1365,9 @@ def cmd_team(args) -> int:
 
     ui.title("KẾT LUẬN")
     st = res["status"]
-    ui.kv("Trạng thái", {"ok": ui.c("ok", "green", "bold"),
-                         "withheld": ui.c("GIỮ LẠI — không giao", "yellow", "bold"),
-                         "blocked": ui.c("chặn — thiếu key", "yellow", "bold"),
+    ui.kv("Trạng thái", {"ok": ui.c("đã làm", "green", "bold"),
+                         "withheld": ui.c("bị chặn", "yellow", "bold"),
+                         "blocked": ui.c("bị chặn", "yellow", "bold"),
                          "error": ui.c("lỗi", "red", "bold"),
                          "stopped_budget": ui.c("dừng vì ngân sách", "yellow", "bold")}.get(st, st))
     if res["fail_reason"]:
@@ -1113,6 +1381,8 @@ def cmd_team(args) -> int:
           + ("" if led["all_priced"] else "  (có model chưa có giá trong bảng)"))
     for k, v in led["by_role"].items():
         ui.kv("  " + k, f"${v:.6f}")
+    for row in res.get("obligations") or []:
+        ui.note(_obligation_note(row), "info")
 
     # ---- cổng người + Executor ----
     if st != "ok":

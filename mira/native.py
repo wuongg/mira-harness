@@ -21,7 +21,7 @@ import urllib.error
 import urllib.request
 from typing import Callable, Iterator
 
-from .providers import BaseProvider, ProviderError
+from .providers import BaseProvider, ProviderError, retry_open
 
 # ------------------------------------------------------------------ schema công cụ
 SCHEMAS: dict[str, dict] = {
@@ -250,13 +250,17 @@ def _request(provider: BaseProvider, path: str, payload: dict, headers: dict, st
         req.add_header("accept", "text/event-stream")
     for k, v in headers.items():
         req.add_header(k, v)
+    rng = getattr(provider, "_rng", None)
+    if rng is None:
+        import random
+        rng = random.Random()
     try:
-        return urllib.request.urlopen(req, timeout=provider.timeout)
-    except urllib.error.HTTPError as e:
-        raise ProviderError(f"{provider.name}: HTTP {e.code} — "
-                            f"{e.read().decode('utf-8', 'replace')[:400]}") from None
-    except urllib.error.URLError as e:
-        raise ProviderError(f"{provider.name}: không kết nối được — {e.reason}") from None
+        resp, provider.attempts = retry_open(
+            req, provider.timeout, name=provider.name, rng=rng)
+    except ProviderError as e:
+        provider.attempts = e.attempts
+        raise
+    return resp
 
 
 def _converse_anthropic(p, system, msgs, tools, emit, stream_it) -> tuple[list[dict], dict]:
