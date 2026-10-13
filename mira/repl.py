@@ -23,7 +23,7 @@ from .tools import MODES, TOOL_SPECS, Session
 
 _hist: list[str] = []
 
-SESS_DIR = Path.home() / ".r0" / "sessions"
+SESS_DIR = Path.home() / ".mira" / "sessions"
 
 HELP = """
   /help                 trợ giúp

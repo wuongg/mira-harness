@@ -4,9 +4,8 @@ WORKDIR /app
 
 # Không có thư viện ngoài — chỉ copy mã nguồn
 COPY pyproject.toml README.md ./
-COPY r0 ./r0
+COPY mira ./mira
 COPY tests ./tests
-COPY labels.csv ./
 
 RUN pip install --no-cache-dir -e .
 

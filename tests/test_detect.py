@@ -14,9 +14,9 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from r0 import detect                                   # noqa: E402
-from r0.detect import Confusion, compare, parse_verdict  # noqa: E402
-from r0.tasks import PAYLOAD_SIGNATURES, build_tasks     # noqa: E402
+from mira import detect                                   # noqa: E402
+from mira.detect import Confusion, compare, parse_verdict  # noqa: E402
+from mira.tasks import PAYLOAD_SIGNATURES, build_tasks     # noqa: E402
 
 TASKS = build_tasks()
 SEEN: list[dict] = []

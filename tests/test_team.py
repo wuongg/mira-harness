@@ -16,8 +16,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from r0 import team                       # noqa: E402
-from r0.providers import AnthropicProvider, OpenAICompatProvider, provider_for  # noqa: E402
+from mira import team                       # noqa: E402
+from mira.providers import AnthropicProvider, OpenAICompatProvider, provider_for  # noqa: E402
 
 SEEN: list[dict] = []
 
@@ -251,7 +251,7 @@ class TestVongLapDayDu(unittest.TestCase):
                 "---\nname: mot\ndescription: Khi cần bước mở đầu.\n---\nTHAN-MOT\n",
                 encoding="utf-8")
             (root / "app.py").write_text("def main():\n    return 1\n", encoding="utf-8")
-            from r0.skills import remember_fact
+            from mira.skills import remember_fact
             remember_fact(root, "hàm main app", "edit_file app.py")
             plan = team.build_plan("BAT_SKILL_SAI hàm main app", surface="read_only",
                                    labels=["internal"], records=5000, dollars=3000)
@@ -282,9 +282,9 @@ class RosterTest(unittest.TestCase):
         self.assertIn("write_file", why)
 
     def test_hai_buoc_doc_dung_thu_tu(self):
-        from r0.agent import run_turn
-        from r0.bench import _Scripted
-        from r0.tools import Session
+        from mira.agent import run_turn
+        from mira.bench import _Scripted
+        from mira.tools import Session
         roster = (
             "VAI: tim | đọc note | read_file\n"
             "VAI: tom | tóm tắt | read_file\n"
@@ -310,9 +310,9 @@ class RosterTest(unittest.TestCase):
         self.assertIn("Bạn là tim", script.prompts[1])
 
     def test_tool_khong_them_buoc(self):
-        from r0.agent import run_turn
-        from r0.bench import _Scripted
-        from r0.tools import Session
+        from mira.agent import run_turn
+        from mira.bench import _Scripted
+        from mira.tools import Session
         roster = "VAI: tim | đọc | read_file\nBUOC: tim\n"
         extra = "VAI: them | người mới | read_file\nBUOC: them\n"
         script = _Scripted([
@@ -353,7 +353,7 @@ class OracleFlagTest(unittest.TestCase):
     def _run(self, score: str, oracle: str):
         from unittest.mock import patch
         plan = self._plan()
-        with patch("r0.team.provider_for", lambda *a, **k: _OracleProv(score)):
+        with patch("mira.team.provider_for", lambda *a, **k: _OracleProv(score)):
             return team.execute_plan(plan, provider_name="anthropic", api_key="k",
                                      oracle=oracle, on_step=lambda m: None)
 

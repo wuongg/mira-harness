@@ -3,9 +3,9 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from r0.bench import run_eval, run_one
-from r0.repl import save_session
-from r0.tools import Session
+from mira.bench import run_eval, run_one
+from mira.repl import save_session
+from mira.tools import Session
 
 
 class EvalTest(unittest.TestCase):
@@ -25,7 +25,7 @@ class EvalTest(unittest.TestCase):
         self.assertEqual(run_eval(root), 0)
 
     def test_so_su_kien_vao_jsonl(self):
-        from r0 import repl
+        from mira import repl
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             (root / "a.txt").write_text("xin chao\n", encoding="utf-8")

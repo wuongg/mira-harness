@@ -15,10 +15,10 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from r0 import agent, tools                     # noqa: E402
-from r0.providers import AnthropicProvider      # noqa: E402
-from r0.stream import stream                    # noqa: E402
-from r0.tools import Session                    # noqa: E402
+from mira import agent, tools                     # noqa: E402
+from mira.providers import AnthropicProvider      # noqa: E402
+from mira.stream import stream                    # noqa: E402
+from mira.tools import Session                    # noqa: E402
 
 SEEN: list[dict] = []
 

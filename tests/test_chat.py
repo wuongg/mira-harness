@@ -2,9 +2,9 @@ import os
 import tempfile
 import unittest
 
-import r0.native as N
-from r0.agent import run_turn
-from r0.tools import AGENT_SYSTEM, Session
+import mira.native as N
+from mira.agent import run_turn
+from mira.tools import AGENT_SYSTEM, Session
 
 
 class CasualChatTest(unittest.TestCase):
@@ -32,7 +32,7 @@ class CasualChatTest(unittest.TestCase):
         self.assertEqual(r["toolSummary"]["calls"], 0)
 
     def test_greeting_needs_no_tool_text(self):
-        from r0 import providers as P
+        from mira import providers as P
         orig = P.AnthropicProvider.call
         P.AnthropicProvider.call = lambda self, system, user: (
             "Chào bạn, mình giúp gì được?", {"in": 9, "out": 6})
@@ -46,7 +46,7 @@ class CasualChatTest(unittest.TestCase):
         self.assertEqual(r["toolSummary"]["calls"], 0)
 
     def test_text_protocol_accepts_new_tools(self):
-        from r0.agent import TOOL_NAMES
+        from mira.agent import TOOL_NAMES
         for t in ("edit_file", "multi_edit", "glob", "web_search", "task"):
             self.assertIn(t, TOOL_NAMES)
 

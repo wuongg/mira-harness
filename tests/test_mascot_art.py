@@ -1,7 +1,7 @@
 import unittest
 from pathlib import Path
 
-from r0.mascot_art import render
+from mira.mascot_art import render
 
 
 PNG = Path(__file__).resolve().parents[1] / "chon_dat_cutout.png"

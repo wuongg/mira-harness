@@ -12,7 +12,7 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from r0 import team  # noqa: E402
+from mira import team  # noqa: E402
 
 
 def _sha(path: Path) -> str:
@@ -64,8 +64,8 @@ class WtsTest(unittest.TestCase):
             plan = team.build_plan(
                 "Đổi x = 1 thành x = 2 trong app.py",
                 surface="write_external", labels=["internal"])
-            with patch("r0.agent.run_turn", _edit(root, "app.py", "x = 9\n")), \
-                 patch("r0.team.provider_for", lambda *a, **k: _Prov(True)):
+            with patch("mira.agent.run_turn", _edit(root, "app.py", "x = 9\n")), \
+                 patch("mira.team.provider_for", lambda *a, **k: _Prov(True)):
                 res = team.execute_plan(plan, provider_name="anthropic", api_key="k",
                                         root=root, on_step=lambda m: None)
             self.assertNotEqual(res["status"], "ok")
@@ -83,8 +83,8 @@ class WtsTest(unittest.TestCase):
             cwd = os.getcwd()
             os.chdir(root)
             try:
-                with patch("r0.agent.run_turn", _edit(root, "app.py", "x = 9\n")), \
-                     patch("r0.team.provider_for", lambda *a, **k: _Prov(False)), \
+                with patch("mira.agent.run_turn", _edit(root, "app.py", "x = 9\n")), \
+                     patch("mira.team.provider_for", lambda *a, **k: _Prov(False)), \
                      patch("builtins.input", lambda _p: "n"):
                     code = team.cmd_team(_args(
                         "Đổi x = 1 thành x = 2 trong app.py", str(out)))
@@ -104,8 +104,8 @@ class WtsTest(unittest.TestCase):
             cwd = os.getcwd()
             os.chdir(root)
             try:
-                with patch("r0.agent.run_turn", _edit(root, "app.py", "x = 2\n")), \
-                     patch("r0.team.provider_for", lambda *a, **k: _Prov(False)), \
+                with patch("mira.agent.run_turn", _edit(root, "app.py", "x = 2\n")), \
+                     patch("mira.team.provider_for", lambda *a, **k: _Prov(False)), \
                      patch("builtins.input", lambda _p: "y"):
                     code = team.cmd_team(_args(
                         "Đổi x = 1 thành x = 2 trong app.py", str(out)))

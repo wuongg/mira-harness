@@ -13,7 +13,7 @@ import urllib.request
 
 
 def _file_key(name: str) -> str | None:
-    """Khoá lưu trong ~/.r0/keys.json (do `r0-shadow keys` ghi)."""
+    """Khoá lưu trong ~/.mira/keys.json (do `mira keys` ghi)."""
     try:
         from . import keys
         return keys.get(name)

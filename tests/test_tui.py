@@ -11,8 +11,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from r0 import tui                                  # noqa: E402
-from r0.cli import cmd_run                          # noqa: E402
+from mira import tui                                  # noqa: E402
+from mira.cli import cmd_run                          # noqa: E402
 
 RUN = Path()
 

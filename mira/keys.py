@@ -1,9 +1,9 @@
-"""Cài khoá API cho từng nhà cung cấp — lưu ở ~/.r0/keys.json.
+"""Cài khoá API cho từng nhà cung cấp — lưu ở ~/.mira/keys.json.
 
 Thứ tự tìm khoá (cái nào có trước thì thắng):
   1. tham số --api-key truyền trực tiếp
   2. biến môi trường (OPENROUTER_API_KEY / ANTHROPIC_API_KEY / OPENAI_API_KEY / XAI_API_KEY)
-  3. tệp ~/.r0/keys.json (do lệnh `r0-shadow keys` ghi)
+  3. tệp ~/.mira/keys.json (do lệnh `mira keys` ghi)
 
 Khoá KHÔNG bao giờ in đầy đủ ra màn hình — chỉ 4 ký tự đầu … 4 ký tự cuối.
 """
@@ -11,11 +11,53 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
+import sys
 from pathlib import Path
 
 from . import ui
 
-KEYS_PATH = Path.home() / ".r0" / "keys.json"
+KEYS_PATH = Path.home() / ".mira" / "keys.json"
+
+
+def migrate_user_home(home: Path | None = None) -> None:
+    """Chép ~/.r0 sang ~/.mira khi đích chưa có. Không xóa bản cũ đang dùng."""
+    global KEYS_PATH
+    base = Path(home) if home is not None else Path.home()
+    old = base / ".r0"
+    new = base / ".mira"
+    if old.exists():
+        new.mkdir(parents=True, exist_ok=True)
+        src = old / "keys.json"
+        dst = new / "keys.json"
+        if src.is_file() and not dst.exists():
+            shutil.copy2(src, dst)
+            try:
+                os.replace(src, old / "keys.json.migrated")
+            except OSError:
+                print("Không đổi tên được khóa cũ sau khi đã chép sang ~/.mira.", file=sys.stderr)
+        elif src.is_file() and dst.exists():
+            print("Đã có ~/.mira/keys.json, giữ nguyên ~/.r0/keys.json.", file=sys.stderr)
+        sess_old = old / "sessions"
+        if sess_old.is_dir():
+            sess_new = new / "sessions"
+            sess_new.mkdir(parents=True, exist_ok=True)
+            for item in sess_old.glob("*.jsonl"):
+                dest = sess_new / item.name
+                if not dest.exists():
+                    shutil.copy2(item, dest)
+            marker = sess_old / ".migrated"
+            if not marker.exists():
+                try:
+                    marker.write_text("da chep sang ~/.mira/sessions\n", encoding="utf-8")
+                except OSError:
+                    pass
+    KEYS_PATH = new / "keys.json"
+    sessions = new / "sessions"
+    for mod_name in ("mira.repl", "mira.activity"):
+        mod = sys.modules.get(mod_name)
+        if mod is not None and hasattr(mod, "SESS_DIR"):
+            mod.SESS_DIR = sessions
 
 ENV = {"openrouter": "OPENROUTER_API_KEY",
        "anthropic": "ANTHROPIC_API_KEY",
@@ -47,7 +89,7 @@ def save(d: dict) -> Path:
     KEYS_PATH.write_text(json.dumps(d, indent=2, ensure_ascii=False) + "\n",
                          encoding="utf-8")
     if os.name == "nt":
-        print("Windows bỏ qua chmod 0600. Tệp khóa nằm plaintext ở ~/.r0/keys.json.")
+        print("Windows bỏ qua chmod 0600. Tệp khóa nằm plaintext ở ~/.mira/keys.json.")
     else:
         try:
             os.chmod(KEYS_PATH, 0o600)

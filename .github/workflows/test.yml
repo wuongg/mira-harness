@@ -30,4 +30,4 @@ jobs:
         with:
           python-version: "3.12"
       - name: Chạy shadow
-        run: python -m r0 run --out out --quiet
+        run: python -m mira run --out out --quiet

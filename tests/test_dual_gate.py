@@ -12,7 +12,7 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from r0 import team  # noqa: E402
+from mira import team  # noqa: E402
 
 
 CALLS: list[str] = []
@@ -81,8 +81,8 @@ class DualGateTest(unittest.TestCase):
         cwd = os.getcwd()
         os.chdir(root)
         try:
-            with patch("r0.agent.run_turn", _run_turn), \
-                 patch("r0.team.provider_for", lambda *a, **k: _Prov()), \
+            with patch("mira.agent.run_turn", _run_turn), \
+                 patch("mira.team.provider_for", lambda *a, **k: _Prov()), \
                  patch("builtins.input", _inputs(["an", "binh"])):
                 code = team.cmd_team(_args(out=str(out)))
             self.assertEqual(code, 0)
@@ -103,8 +103,8 @@ class DualGateTest(unittest.TestCase):
         cwd = os.getcwd()
         os.chdir(root)
         try:
-            with patch("r0.agent.run_turn", _run_turn), \
-                 patch("r0.team.provider_for", lambda *a, **k: _Prov()), \
+            with patch("mira.agent.run_turn", _run_turn), \
+                 patch("mira.team.provider_for", lambda *a, **k: _Prov()), \
                  patch("builtins.input", _inputs(["an", "an"])):
                 code = team.cmd_team(_args(out=str(out)))
         finally:
@@ -120,8 +120,8 @@ class DualGateTest(unittest.TestCase):
         cwd = os.getcwd()
         os.chdir(root)
         try:
-            with patch("r0.agent.run_turn", _run_turn), \
-                 patch("r0.team.provider_for", lambda *a, **k: _Prov()), \
+            with patch("mira.agent.run_turn", _run_turn), \
+                 patch("mira.team.provider_for", lambda *a, **k: _Prov()), \
                  patch("builtins.input", _inputs(["an", "binh"], wrong_second=True)):
                 code = team.cmd_team(_args(out=str(out)))
         finally:
@@ -136,8 +136,8 @@ class DualGateTest(unittest.TestCase):
         cwd = os.getcwd()
         os.chdir(root)
         try:
-            with patch("r0.agent.run_turn", _run_turn), \
-                 patch("r0.team.provider_for", lambda *a, **k: _Prov()):
+            with patch("mira.agent.run_turn", _run_turn), \
+                 patch("mira.team.provider_for", lambda *a, **k: _Prov()):
                 code = team.cmd_team(_args(approve=True, out=str(root / "ket")))
         finally:
             os.chdir(cwd)

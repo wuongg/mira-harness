@@ -2,7 +2,7 @@ import io
 import contextlib
 import unittest
 
-from r0 import repl
+from mira import repl
 
 
 class ReplUxTest(unittest.TestCase):
@@ -10,8 +10,8 @@ class ReplUxTest(unittest.TestCase):
         import io
         import contextlib
         from pathlib import Path
-        from r0 import ui
-        from r0.tools import Session
+        from mira import ui
+        from mira.tools import Session
         ui.set_color(False)
         buf = io.StringIO()
         try:

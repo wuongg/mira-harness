@@ -7,7 +7,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from r0 import team  # noqa: E402
+from mira import team  # noqa: E402
 
 
 class _Prov:
@@ -28,7 +28,7 @@ def _run(text: str) -> dict:
     plan = team.build_plan("soạn báo cáo nội bộ", surface="write_external",
                            labels=["internal"], records=20, dollars=0)
     from unittest.mock import patch
-    with patch("r0.team.provider_for", lambda *a, **k: _Prov(text)):
+    with patch("mira.team.provider_for", lambda *a, **k: _Prov(text)):
         return team.execute_plan(plan, provider_name="anthropic", api_key="k",
                                  on_step=lambda m: None)
 

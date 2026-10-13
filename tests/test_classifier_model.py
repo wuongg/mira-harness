@@ -1,7 +1,7 @@
 import unittest
 
-from r0 import config as C
-from r0.pipeline import classifier_cost
+from mira import config as C
+from mira.pipeline import classifier_cost
 
 
 class ClassifierModelTest(unittest.TestCase):
@@ -19,7 +19,7 @@ class ClassifierModelTest(unittest.TestCase):
         self.assertGreater(classifier_cost(C.CLASSIFIER_TOKENS), 0.0)
 
     def test_no_jev_symbol_anywhere(self):
-        import r0.pipeline as P
+        import mira.pipeline as P
         self.assertFalse(hasattr(P, "jev_cost"))
 
 

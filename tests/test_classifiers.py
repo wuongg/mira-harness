@@ -11,9 +11,9 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from r0.classifiers import KeywordClassifier, LLMClassifier, build_classifier  # noqa: E402
-from r0.pipeline import t1b_classifier                                          # noqa: E402
-from r0.tasks import PAYLOAD_SIGNATURES, build_tasks                             # noqa: E402
+from mira.classifiers import KeywordClassifier, LLMClassifier, build_classifier  # noqa: E402
+from mira.pipeline import t1b_classifier                                          # noqa: E402
+from mira.tasks import PAYLOAD_SIGNATURES, build_tasks                             # noqa: E402
 
 TASKS = build_tasks()
 SEEN: list[dict] = []
@@ -71,7 +71,7 @@ class TestLLM(unittest.TestCase):
         cls.srv.server_close()
 
     def _mk(self, cache=None):
-        from r0.detect import build_provider
+        from mira.detect import build_provider
         prov = build_provider("anthropic", "sonnet-5.5", self.base, "k")
         return LLMClassifier(prov, cache_dir=cache)
 
@@ -115,7 +115,7 @@ class TestLLM(unittest.TestCase):
             self.assertNotIn(bad, blob)
 
     def test_loi_mang_thi_ghi_nhan_khong_vo(self):
-        from r0.detect import build_provider
+        from mira.detect import build_provider
         prov = build_provider("anthropic", "sonnet-5.5", "http://127.0.0.1:1", "k")
         c = LLMClassifier(prov)
         r = c.classify(TASKS[0])
@@ -158,8 +158,8 @@ class TestChayVaoDuongOng(unittest.TestCase):
 
     def test_shadowrun_dung_classifier_cam_duoc(self):
         import random
-        from r0.pipeline import ShadowRun
-        from r0.detect import build_provider
+        from mira.pipeline import ShadowRun
+        from mira.detect import build_provider
         prov = build_provider("anthropic", "sonnet-5.5", self.base, "k")
         clf = LLMClassifier(prov)
         run = ShadowRun(tasks=TASKS[:25], rng=random.Random(1), classifier=clf)
@@ -170,7 +170,7 @@ class TestChayVaoDuongOng(unittest.TestCase):
 
     def test_shadowrun_mac_dinh_van_la_tu_khoa(self):
         import random
-        from r0.pipeline import ShadowRun
+        from mira.pipeline import ShadowRun
         run = ShadowRun(tasks=TASKS[:10], rng=random.Random(1))
         trace = run.run()
         self.assertTrue(all(r["classifier"]["decided_by"] == "content-scan" for r in trace))

@@ -2,7 +2,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from r0.tools import Session
+from mira.tools import Session
 
 
 class UndoDiffMemoryTest(unittest.TestCase):
@@ -58,7 +58,7 @@ class UndoDiffMemoryTest(unittest.TestCase):
         self.assertEqual(len(s.snapshots), 0)
 
     def test_mascot_and_caption(self):
-        from r0 import ui
+        from mira import ui
         self.assertGreaterEqual(len(ui.MASCOT), 4)
 
 

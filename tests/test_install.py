@@ -3,14 +3,14 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from r0.install_path import install, render_shim
+from mira.install_path import install, render_shim
 
 
 class InstallShimTest(unittest.TestCase):
     def test_shim_goi_module_khong_tao_exe(self):
         root = Path(r"C:\src\mira install")
         text = render_shim(root)
-        self.assertIn("python -m r0", text)
+        self.assertIn("python -m mira", text)
         self.assertIn("mira install", text)
         self.assertNotIn("mira.exe", text)
 
@@ -22,7 +22,7 @@ class InstallShimTest(unittest.TestCase):
             self.assertIn(name, ("mira.cmd", "mira"))
             self.assertNotIn(".exe", name)
             body = info["shim"].read_bytes()
-            self.assertIn(b"python -m r0", body)
+            self.assertIn(b"python -m mira", body)
             if os.name == "nt":
                 self.assertIn(b"\r\n", body)
 

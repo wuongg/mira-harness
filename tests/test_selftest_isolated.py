@@ -8,8 +8,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-import r0  # noqa: E402
-from r0 import stats  # noqa: E402
+import mira  # noqa: E402
+from mira import stats  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -38,11 +38,11 @@ class SelftestIsolatedTest(unittest.TestCase):
     def test_ba_nguon_version_khop(self):
         project = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
         readme = (ROOT / "README.md").read_text(encoding="utf-8")
-        self.assertIn('version = {attr = "r0.__version__"}', project)
-        self.assertIn(r0.__version__, readme)
-        self.assertEqual(r0.__version__, "2.5.0")
-        from r0.cli import VERSION
-        self.assertEqual(VERSION, r0.__version__)
+        self.assertIn('version = {attr = "mira.__version__"}', project)
+        self.assertIn(mira.__version__, readme)
+        self.assertEqual(mira.__version__, "2.5.0")
+        from mira.cli import VERSION
+        self.assertEqual(VERSION, mira.__version__)
 
 
 if __name__ == "__main__":

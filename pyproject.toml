@@ -12,11 +12,12 @@ dependencies = []
 license = { text = "MIT" }
 
 [project.scripts]
-mira = "r0.cli:main"
-r0-shadow = "r0.cli:main"
+mira = "mira.cli:main"
+r0 = "mira.cli:deprecated_main"
+r0-shadow = "mira.cli:deprecated_main"
 
 [tool.setuptools]
-packages = ["r0"]
+packages = ["mira"]
 
 [tool.setuptools.dynamic]
-version = {attr = "r0.__version__"}
+version = {attr = "mira.__version__"}

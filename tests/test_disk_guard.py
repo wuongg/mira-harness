@@ -4,10 +4,10 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from r0.agent import run_turn
-from r0.bench import _Scripted
-from r0.repl import condense_trace, view_for_model
-from r0.tools import Session
+from mira.agent import run_turn
+from mira.bench import _Scripted
+from mira.repl import condense_trace, view_for_model
+from mira.tools import Session
 
 
 class DiskGuardTest(unittest.TestCase):
@@ -127,8 +127,8 @@ class DiskGuardTest(unittest.TestCase):
     def test_lan_2_khong_co_checker_thi_khong_dung(self):
         import shlex
         import sys
-        from r0.agent import run_turn
-        from r0.bench import _Scripted
+        from mira.agent import run_turn
+        from mira.bench import _Scripted
         s = self._sess()
         cmd = shlex.join([sys.executable, "-c", "pass"])
         s.run_shell(cmd)

@@ -16,10 +16,10 @@ echo "==> cài gói (không có thư viện ngoài)"
 pip install -q -e .
 
 echo "==> chạy bộ kiểm tra bất biến"
-python -m r0 selftest
+python -m mira selftest
 
 echo "==> chạy shadow"
-python -m r0 run --out out
+python -m mira run --out out
 
 echo
 echo "Xong. Xem out/metrics.json và out/trace.jsonl"

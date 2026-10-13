@@ -1,6 +1,6 @@
 import unittest
 
-from r0 import lineedit as L
+from mira import lineedit as L
 
 
 class GhostTest(unittest.TestCase):

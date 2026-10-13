@@ -2,9 +2,9 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from r0.agent import _consider_finish
-from r0.skills import catalog_for_prompt, load_skills, remember_fact, repo_map, worker_skill_block
-from r0.tools import Session, shape_of
+from mira.agent import _consider_finish
+from mira.skills import catalog_for_prompt, load_skills, remember_fact, repo_map, worker_skill_block
+from mira.tools import Session, shape_of
 
 
 class SkillTest(unittest.TestCase):
@@ -146,7 +146,7 @@ class SkillTest(unittest.TestCase):
 
     def test_file_cham_va_fact_cu(self):
         import os
-        from r0.skills import memory_block, remember_fact
+        from mira.skills import memory_block, remember_fact
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             (root / "app.py").write_text("def main():\n    return 1\n", encoding="utf-8")
@@ -272,8 +272,8 @@ class SkillTest(unittest.TestCase):
             self.assertTrue(missing.startswith("LỖI"))
 
     def test_khong_ghi_skill_va_mint_tu_so(self):
-        from r0.agent import _consider_finish
-        from r0.skills import repo_map
+        from mira.agent import _consider_finish
+        from mira.skills import repo_map
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             (root / "app.py").write_text("x = 1\n", encoding="utf-8")
@@ -294,12 +294,12 @@ class SkillTest(unittest.TestCase):
             again.task_text = session.task_text
             again.shape = "sua"
             again.audit.append({"action": "edit_file", "path": "app.py"})
-            from r0.skills import mint_skill
+            from mira.skills import mint_skill
             mint_skill(root, again.task_text, again.audit)
             self.assertEqual(len(list((root / ".mira" / "skills").iterdir())), 1)
 
     def test_lenh_sai_chi_mot_vong_sua(self):
-        from r0.agent import _consider_finish
+        from mira.agent import _consider_finish
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             (root / "app.py").write_text("x = 1\n", encoding="utf-8")

@@ -161,7 +161,7 @@ TOOL_SPECS = {
     "finish": "kết thúc và trả lời",
 }
 
-# Bộ tìm kiếm web cắm được. Khoá đọc từ biến môi trường hoặc ~/.r0/keys.json.
+# Bộ tìm kiếm web cắm được. Khoá đọc từ biến môi trường hoặc ~/.mira/keys.json.
 SEARCH_ENV = {"tavily": "TAVILY_API_KEY", "brave": "BRAVE_API_KEY", "serper": "SERPER_API_KEY"}
 
 TOOL_BLOCK = re.compile(r"<tool>\s*(\{.*?\})\s*</tool>", re.S)

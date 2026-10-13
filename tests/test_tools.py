@@ -2,7 +2,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from r0.tools import TOOL_SPECS, Session
+from mira.tools import TOOL_SPECS, Session
 
 
 class ToolsTest(unittest.TestCase):
@@ -138,7 +138,7 @@ class ExtraToolsTest(unittest.TestCase):
 
     def test_web_search_no_key(self):
         import os
-        from r0 import keys
+        from mira import keys
         old = keys.KEYS_PATH
         keys.KEYS_PATH = self.root / "khong-co-keys.json"
         try:
@@ -151,7 +151,7 @@ class ExtraToolsTest(unittest.TestCase):
     def test_web_search_with_stub(self):
         import os
         os.environ["TAVILY_API_KEY"] = "x"
-        import r0.tools as T
+        import mira.tools as T
         orig = T._do_search
         T._do_search = lambda prov, key, q, n: [{"title": "T", "url": "u", "snippet": "s"}]
         try:
@@ -189,11 +189,11 @@ class ExtraToolsTest(unittest.TestCase):
         self.assertTrue(self._sess().task("x").startswith("LỖI"))
 
     def test_catalog_and_schemas_synced(self):
-        from r0.native import SCHEMAS
+        from mira.native import SCHEMAS
         self.assertEqual(set(TOOL_SPECS), set(SCHEMAS))
 
     def test_skill_mang_chi_mot_file(self):
-        import r0.tools as T
+        import mira.tools as T
         doc = "---\nname: tim-mua\ndescription: Khi cần tìm mưa.\n---\nchạy scripts/run.py\n"
         orig_block, orig_text = T._https_block_reason, T._https_text
         T._https_block_reason = lambda url: None
@@ -213,7 +213,7 @@ class ExtraToolsTest(unittest.TestCase):
             T._https_block_reason, T._https_text = orig_block, orig_text
 
     def test_tim_html_va_mcp_khong_them_tool(self):
-        from r0.tools import _mcp_payload, _mcp_text, parse_search_html
+        from mira.tools import _mcp_payload, _mcp_text, parse_search_html
         rows = parse_search_html(
             '<a href="https://duckduckgo.com/l/?uddg=https%3A%2F%2Fexample.com%2Fskill">mưa</a>', 3)
         self.assertEqual(rows[0]["url"], "https://example.com/skill")

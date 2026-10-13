@@ -17,11 +17,11 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from r0 import config as C                      # noqa: E402
-from r0.labels import export_labels             # noqa: E402
-from r0.metrics import compute                  # noqa: E402
-from r0.pipeline import ShadowRun               # noqa: E402
-from r0.tasks import load_tasks                 # noqa: E402
+from mira import config as C                      # noqa: E402
+from mira.labels import export_labels             # noqa: E402
+from mira.metrics import compute                  # noqa: E402
+from mira.pipeline import ShadowRun               # noqa: E402
+from mira.tasks import load_tasks                 # noqa: E402
 
 
 def _run(seed: int = C.SEED, cache: float = 0.90):

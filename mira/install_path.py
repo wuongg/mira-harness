@@ -1,8 +1,7 @@
 """Đặt lệnh `mira` vào PATH — gõ ở terminal nào cũng vào phiên.
 
 Giống Claude Code: cài một lần, mở terminal mới, gõ `mira` là vào.
-Trên Windows không tạo file .exe. AppLocker hay chặn `mira.exe` do pip sinh,
-nên launcher là `mira.cmd` gọi `python -m r0`.
+Launcher `.cmd` gọi module Python, không tạo file exe.
 """
 from __future__ import annotations
 
@@ -34,10 +33,10 @@ def render_shim(root: Path) -> str:
             "echo Python was not found. Install Python 3.9+ and turn on Add to PATH.\r\n"
             "exit /b 1\r\n"
             ":py\r\n"
-            "python -m r0 %*\r\n"
+            "python -m mira %*\r\n"
             "exit /b %ERRORLEVEL%\r\n"
             ":py_launcher\r\n"
-            "py -3 -m r0 %*\r\n"
+            "py -3 -m mira %*\r\n"
             "exit /b %ERRORLEVEL%\r\n"
         )
     escaped = root_s.replace("'", "'\\''")
@@ -45,10 +44,10 @@ def render_shim(root: Path) -> str:
         "#!/bin/sh\n"
         f"export PYTHONPATH='{escaped}'${{PYTHONPATH:+:$PYTHONPATH}}\n"
         "if command -v python3 >/dev/null 2>&1; then\n"
-        '  exec python3 -m r0 "$@"\n'
+        '  exec python3 -m mira "$@"\n'
         "fi\n"
         "if command -v python >/dev/null 2>&1; then\n"
-        '  exec python -m r0 "$@"\n'
+        '  exec python -m mira "$@"\n'
         "fi\n"
         'echo "Python was not found. Install Python 3.9+." >&2\n'
         "exit 1\n"

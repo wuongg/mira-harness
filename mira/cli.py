@@ -372,11 +372,13 @@ def cmd_doctor(args) -> int:
     ok &= good
     ui.note(f"Python {v.major}.{v.minor}.{v.micro}" + ("" if good else " — cần 3.9+"), "ok" if good else "bad")
     try:
-        import r0  # noqa
-        ui.note(f"gói r0 import được từ {Path(r0.__file__).parent}", "ok")
+        import mira  # noqa
+        ui.note(f"gói mira import được từ {Path(mira.__file__).parent}", "ok")
+        from .keys import KEYS_PATH
+        ui.note(f"khóa và phiên nằm ở {KEYS_PATH.parent}", "ok")
     except Exception as e:
         ok = False
-        ui.note(f"không import được gói r0: {e}", "bad")
+        ui.note(f"không import được gói mira: {e}", "bad")
     d = Path(args.out)
     try:
         d.mkdir(parents=True, exist_ok=True)
@@ -784,7 +786,7 @@ def build_parser() -> argparse.ArgumentParser:
     ch.add_argument("task", nargs="?", default=None, help="nếu có: chạy một lượt rồi thoát")
     ch.add_argument("--team", action="store_true", help="định tuyến qua làn + đội nhiều vai")
     ch.add_argument("--resume", default=None, help="mở lại phiên đã lưu")
-    ch.set_defaults(func=lambda a: __import__("r0.repl", fromlist=["repl"]).repl(a))
+    ch.set_defaults(func=lambda a: __import__("mira.repl", fromlist=["repl"]).repl(a))
 
     pn = sub.add_parser("panel", help="hội đồng phản biện đa agent soi một thiết kế đo")
     pn.add_argument("question", help="câu hỏi cho hội đồng")
@@ -795,7 +797,7 @@ def build_parser() -> argparse.ArgumentParser:
     pn.add_argument("--model", default=None)
     pn.add_argument("--base-url", dest="base_url", default=None)
     pn.add_argument("--out", default=None, help="ghi báo cáo markdown")
-    pn.set_defaults(func=lambda a: __import__("r0.panel", fromlist=["cmd_panel"]).cmd_panel(a))
+    pn.set_defaults(func=lambda a: __import__("mira.panel", fromlist=["cmd_panel"]).cmd_panel(a))
 
     sx = sub.add_parser("stats", help="bảng điều khiển số đo của một lần chạy")
     sx.add_argument("--run", default=DEFAULT_RUN, help="thư mục lần chạy")
@@ -822,6 +824,8 @@ def build_parser() -> argparse.ArgumentParser:
     dcp.set_defaults(func=cmd_detect_compare)
 
     dc = sub.add_parser("doctor", help="kiểm tra môi trường")
+    dc.add_argument("--out", default="out", help="thư mục thử ghi")
+    dc.set_defaults(func=cmd_doctor)
 
     st = sub.add_parser("selftest", help="kiểm tra bất biến")
     st.set_defaults(func=cmd_selftest)
@@ -896,7 +900,15 @@ def note_argv_key(args) -> list[dict]:
     return trace
 
 
+def deprecated_main(argv=None) -> int:
+    """Cửa vào của lệnh r0 và r0-shadow. In cảnh báo rồi gọi mira."""
+    print("r0 và r0-shadow sẽ bị gỡ sau phiên bản kế tiếp. Hãy gọi mira.", file=sys.stderr)
+    return main(argv)
+
+
 def main(argv=None) -> int:
+    from .keys import migrate_user_home
+    migrate_user_home()
     argv = list(sys.argv[1:] if argv is None else argv)
     if "--no-color" in argv:
         ui.set_color(False)
