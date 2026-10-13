@@ -252,7 +252,7 @@ OPENAI_API_KEY=...      # cho model gpt
 XAI_API_KEY=...         # cho model grok
 ```
 
-Key chỉ đọc từ môi trường — **không bao giờ** ghi ra tệp, không in ra màn hình.
+Thứ tự đọc khóa: tham số `--api-key`, rồi biến môi trường, rồi `~/.r0/keys.json` plaintext mode 0600. Windows bỏ qua chmod. Không in đầy đủ khóa ra màn hình.
 
 ### Fail-closed — điều quan trọng nhất
 

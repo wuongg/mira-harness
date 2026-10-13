@@ -27,6 +27,14 @@ from typing import Any, Callable
 
 MODES = ("plan", "default", "acceptEdits", "bypass")
 
+
+def _shell_env() -> dict:
+    """Bản sao môi trường đã bỏ khóa API. Process con không được thấy khóa."""
+    from .keys import ENV
+    banned = set(ENV.values())
+    return {name: value for name, value in os.environ.items()
+            if name not in banned and not name.endswith("_API_KEY")}
+
 _MEDIUM = {"write_file", "edit_file", "multi_edit"}
 _HIGH = {"delete_file", "run_shell", "fetch_url", "web_search", "task",
         "install_skill", "mcp_list", "mcp_call"}
@@ -1210,7 +1218,8 @@ class Session:
         try:
             shutil.copytree(self.root, work, dirs_exist_ok=True, ignore=_ignore_workspace)
             r = subprocess.run(_shell_argv(work, argv), shell=False, cwd=str(work),
-                               timeout=timeout, capture_output=True, text=True)
+                               timeout=timeout, capture_output=True, text=True,
+                               env=_shell_env())
             row["exit"] = r.returncode
             if not (r.stdout or "").strip() and not (r.stderr or "").strip():
                 body = "lệnh chạy xong, không có đầu ra."

@@ -46,10 +46,13 @@ def save(d: dict) -> Path:
     KEYS_PATH.parent.mkdir(parents=True, exist_ok=True)
     KEYS_PATH.write_text(json.dumps(d, indent=2, ensure_ascii=False) + "\n",
                          encoding="utf-8")
-    try:
-        os.chmod(KEYS_PATH, 0o600)      # chỉ chủ sở hữu đọc được (bỏ qua trên Windows)
-    except OSError:
-        pass
+    if os.name == "nt":
+        print("Windows bỏ qua chmod 0600. Tệp khóa nằm plaintext ở ~/.r0/keys.json.")
+    else:
+        try:
+            os.chmod(KEYS_PATH, 0o600)
+        except OSError:
+            pass
     return KEYS_PATH
 
 

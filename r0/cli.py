@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import random
 import subprocess
 import sys
@@ -681,6 +682,8 @@ def build_parser() -> argparse.ArgumentParser:
     r.add_argument("--model", default=None, help="model cho classifier (mặc định theo vai)")
     r.add_argument("--api-key", dest="api_key", default=None,
                    help="khoá API; bỏ trống thì đọc biến môi trường")
+    r.add_argument("--api-key-env", dest="api_key_env", default=None,
+                   help="tên biến môi trường chứa khóa")
     r.add_argument("--base-url", dest="base_url", default=None,
                    help="đổi endpoint (dùng cho server giả khi kiểm thử)")
     r.add_argument("--no-cache", dest="no_cache", action="store_true",
@@ -880,6 +883,19 @@ def _cmd_install(a) -> int:
     return 0
 
 
+def note_argv_key(args) -> list[dict]:
+    """Cảnh báo khi khóa đi qua argv. Trace không chứa giá trị khóa."""
+    trace: list[dict] = []
+    env_name = getattr(args, "api_key_env", None)
+    if env_name:
+        args.api_key = os.environ.get(env_name) or getattr(args, "api_key", None)
+    if getattr(args, "api_key", None):
+        print("Cảnh báo: khóa trên argv có thể lọt lịch sử shell. Dùng --api-key-env.")
+        trace.append({"kind": "argv_key_warning"})
+    args.argv_trace = trace
+    return trace
+
+
 def main(argv=None) -> int:
     argv = list(sys.argv[1:] if argv is None else argv)
     if "--no-color" in argv:
@@ -891,6 +907,7 @@ def main(argv=None) -> int:
         build_parser().print_help()
         return 0
     args = build_parser().parse_args(argv)
+    note_argv_key(args)
     if not getattr(args, "cmd", None):
         build_parser().print_help()
         return 0
