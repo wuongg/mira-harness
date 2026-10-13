@@ -334,6 +334,9 @@ class Ledger:
     total_out: int = 0
     subagent_runs: int = 0          # đếm đội con trong CẢ cây (chặn bùng nổ)
 
+    def __post_init__(self) -> None:
+        self._lock = threading.RLock()
+
     def charge(self, role: str, model: str, usage: dict, provider: str,
                *, price: dict | None = None, declared_by_user: bool = False,
                price_source: str = "") -> float:
@@ -348,11 +351,12 @@ class Ledger:
                "priced": bool(p), "price_source": price_source}
         if declared_by_user:
             row["declared_by_user"] = True
-        self.rows.append(row)
-        self.total_usd += usd
-        self.total_in += tin
-        self.total_out += tout
-        return usd
+        with self._lock:
+            self.rows.append(row)
+            self.total_usd += usd
+            self.total_in += tin
+            self.total_out += tout
+            return usd
 
     def summary(self) -> dict:
         by_role: dict[str, float] = {}
