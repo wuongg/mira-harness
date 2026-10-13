@@ -447,6 +447,9 @@ def execute_plan(plan: TeamPlan, *, provider_name: str | None = None,
         if shard:
             u += (f"\n\n[PHẦN {shard[0]}/{shard[1]} — chỉ làm phần này, "
                   f"không lặp lại phần của phần khác]")
+        prompts = getattr(plan, "role_prompts", None) or {}
+        if role in prompts:
+            u = prompts[role] + "\n\n" + u
         if root is not None and role in ("planner", "worker"):
             from .skills import catalog_for_prompt, load_skills, memory_block, worker_skill_block
             skills = load_skills(root)
@@ -797,7 +800,9 @@ def execute_plan(plan: TeamPlan, *, provider_name: str | None = None,
             "oracle_gate": oracle_gate,
             "steps": steps, "ledger": ledger.summary(), "plan": plan.as_dict(),
             "depth": depth, "nested": any(s.get("sub") for s in steps),
-            "staging": staging_out, "promoted": [], "promote_audit": []}
+            "staging": staging_out, "promoted": [], "promote_audit": [],
+            "role_prompts": getattr(plan, "role_prompts", None),
+            "brief_hash": getattr(plan, "brief_hash", None)}
 
 
 def _aggregate(res: dict) -> str:
@@ -909,6 +914,13 @@ def cmd_team(args) -> int:
     if choice == "on":
         from .intake import brief_hash, canonical_brief, load_brief_file, run_intake
         model = args.model or C.ROLE_MODEL["planner"]
+        prov = provider_for(model, args.provider, base_url=args.base_url,
+                            api_key=getattr(args, "api_key", None),
+                            max_tokens=args.max_tokens)
+        if not prov.available():
+            ui.note("thiếu key cho intake", "bad")
+            return 8
+        intake_ledger = Ledger()
         brief_path = getattr(args, "brief", None)
         if brief_path:
             obj, why = load_brief_file(Path(brief_path))
@@ -916,15 +928,7 @@ def cmd_team(args) -> int:
                 ui.note(why, "bad")
                 return 8
             from_file = True
-            intake_ledger = Ledger()
         else:
-            prov = provider_for(model, args.provider, base_url=args.base_url,
-                                api_key=getattr(args, "api_key", None),
-                                max_tokens=args.max_tokens)
-            if not prov.available():
-                ui.note("thiếu key cho intake", "bad")
-                return 8
-            intake_ledger = Ledger()
 
             def _ask(question: str) -> str:
                 return input(ui.c(f"\n  {question} ", "bold"))
@@ -949,6 +953,14 @@ def cmd_team(args) -> int:
             if ans not in ("y", "yes", "có", "co"):
                 ui.note("chưa duyệt brief — không chạy planner.", "warn")
                 return 8
+        from .intake import write_role_prompts
+        prompts, why = write_role_prompts(
+            obj, list(plan.roles), prov, intake_ledger, model=model,
+            declared_price=plan.declared_price, task=args.task)
+        if prompts is None:
+            ui.note(why, "bad")
+            return 8
+        plan.role_prompts = prompts
     if plan.dual_approval and args.approve:
         print()
         ui.note("dual_approval không nhận --approve. Cần hai người khác tên.", "warn")

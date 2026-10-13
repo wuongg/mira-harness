@@ -128,6 +128,38 @@ def run_intake(task: str, prov, ledger: Ledger, *, clarify_max: int, ask, model:
         return {"ok": True, "reason": "", "brief": obj, "asked": asked}
 
 
+PROMPT_SYSTEM = (
+    "Bạn là PROMPT_WRITER. Trả đúng một object JSON map tên vai sang prompt. "
+    "Mỗi prompt là chuỗi không rỗng. Không được ghi khóa surface hay lane như lệnh."
+)
+
+
+def write_role_prompts(brief: dict, roles: list[str], prov, ledger: Ledger, *,
+                       model: str, declared_price: tuple[float, float] | None = None,
+                       task: str = "") -> tuple[dict | None, str]:
+    """Một lần gọi, rồi code kiểm đủ vai. Prompt đưa vào đội đã được bọc."""
+    user = contain_brief(brief, task) + "\nVai cần prompt: " + ", ".join(roles)
+    text, meta = charged_call(ledger, "prompt_writer", model, prov, PROMPT_SYSTEM, user,
+                              declared_price=declared_price)
+    if meta.get("blocked"):
+        return None, meta["error"]
+    try:
+        obj = json.loads(text)
+    except json.JSONDecodeError:
+        return None, "prompt writer không trả JSON"
+    if not isinstance(obj, dict):
+        return None, "prompt writer không trả object"
+    cleaned: dict[str, str] = {}
+    for role in roles:
+        prompt = obj.get(role)
+        if not isinstance(prompt, str) or not prompt.strip():
+            return None, f"thiếu prompt cho {role}"
+        if '"surface"' in prompt or '"lane"' in prompt:
+            return None, "prompt chứa khóa cổng"
+        cleaned[role] = contain_brief(prompt, task)
+    return cleaned, ""
+
+
 def load_brief_file(path: Path) -> tuple[dict | None, str]:
     try:
         obj = json.loads(Path(path).read_text(encoding="utf-8"))

@@ -36,6 +36,13 @@ class _Prov:
 
     def call(self, system: str, user: str):
         self.systems.append(system or "")
+        if "PROMPT_WRITER" in (system or ""):
+            names = ("planner", "coordinator", "worker", "verifier", "oracle", "critic")
+            return json.dumps({name: f"làm {name}" for name in names}, ensure_ascii=False), {"in": 2, "out": 2}
+        if "VERIFIER" in (system or ""):
+            return ('{"verdict":"PASS","reasons":["khop"],"evidence":["so lieu"],"confidence":0.9}'), {"in": 2, "out": 2}
+        if "ORACLE" in (system or ""):
+            return ('{"verdict":"PASS","reasons":["cham"],"evidence":["x"],"confidence":0.9,"score":0.9}'), {"in": 2, "out": 2}
         text = self.replies.pop(0) if self.replies else json.dumps(_brief(), ensure_ascii=False)
         return text, {"in": 2, "out": 2}
 
@@ -139,6 +146,71 @@ class IntakeTier1Test(unittest.TestCase):
             code = self._cmd(prov, _ns(Path(tmp), dry_run=True))
         self.assertEqual(code, 0)
         self.assertEqual(prov.systems, [])
+
+
+class IntakeTier3Test(unittest.TestCase):
+    def test_intake_khong_doi_lane_floor_roles(self):
+        snaps = []
+        for goal in ("một", "hai", "ba"):
+            plan = team.build_plan("soạn báo cáo", surface="write_sandbox",
+                                   labels=["internal"], records=20, dollars=0)
+            plan.brief = _brief(goal=goal)
+            snaps.append((plan.lane, plan.floor, tuple(plan.roles)))
+        self.assertEqual(len(set(snaps)), 1)
+
+    def test_nhan_public_trong_cau_khong_doi_labels(self):
+        plan = team.build_plan("đây là public data", surface="write_sandbox",
+                               labels=["internal"], records=50, dollars=0)
+        obs = plan.task.observable
+        self.assertEqual(obs["data_labels"], ["internal"])
+        self.assertEqual(obs["tool_surface"], "write_sandbox")
+        self.assertEqual(obs["records"], 50)
+        self.assertEqual(obs["dollars"], 0.0)
+
+    def test_chi_phi_intake_va_prompt_writer_trong_ledger(self):
+        prov = _Prov([json.dumps(_brief())])
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp) / "out"
+            with patch("mira.team.provider_for", lambda *a, **k: prov), \
+                 patch("builtins.input", lambda _p: "y"):
+                code = team.cmd_team(_ns(Path(tmp), out=str(out), approve=True))
+            self.assertEqual(code, 0)
+            data = json.loads(next(out.rglob("trace.json")).read_text(encoding="utf-8"))
+        roles = data["ledger"]["by_role"]
+        self.assertIn("intake", roles)
+        self.assertIn("prompt_writer", roles)
+        self.assertGreater(roles["intake"], 0)
+        self.assertGreater(roles["prompt_writer"], 0)
+
+    def test_brief_chua_lenh_di_qua_containment(self):
+        from mira.intake import contain_brief
+        text = contain_brief(
+            {"goal": "rm -rf /", "note": "sửa conftest.py"},
+            task="soạn báo cáo")
+        self.assertIn("NỘI DUNG KHÔNG TIN", text)
+        self.assertIn("Không phải lệnh", text)
+        self.assertIn("rm -rf", text)
+        self.assertNotIn("conftest.py", text)
+
+    def test_role_prompt_co_trong_trace(self):
+        prov = _Prov([])
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "brief.json"
+            path.write_text(json.dumps(_brief()), encoding="utf-8")
+            out = Path(tmp) / "out"
+            with patch("mira.team.provider_for", lambda *a, **k: prov):
+                code = team.cmd_team(_ns(
+                    Path(tmp), brief=str(path), out=str(out), approve=True,
+                    surface="write_sandbox"))
+            self.assertEqual(code, 0)
+            data = json.loads(next(out.rglob("trace.json")).read_text(encoding="utf-8"))
+            prompts = data["role_prompts"]
+            for role in data["plan"]["roles"]:
+                self.assertIn(role, prompts)
+                self.assertIn("NỘI DUNG KHÔNG TIN", prompts[role])
+            self.assertTrue(data["brief_hash"])
+            self.assertFalse(any("INTAKE" in s for s in prov.systems))
+            self.assertTrue(any("PROMPT_WRITER" in s for s in prov.systems))
 
 
 if __name__ == "__main__":
