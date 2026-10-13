@@ -591,13 +591,15 @@ def execute_plan(plan: TeamPlan, *, provider_name: str | None = None,
             text, usage = prov.call(ROLE_SYSTEM[role], _user)
         except ProviderError as e:
             return {"role": role, "model": model, "shard": shard, "error": str(e),
-                    "context_policy": policy}
+                    "attempt": getattr(prov, "attempts", 1), "context_policy": policy}
         with lock:                                  # sổ cái phải nguyên tử (I8)
             usd = ledger.charge(role, model, usage, prov.name, price=rates,
                                 declared_by_user=source == "cli", price_source=source)
         return {"role": role, "model": model, "shard": shard, "provider": prov.name,
                 "text": text, "usage": usage, "usd": round(usd, 6),
-                "seconds": round(time.time() - t0, 2), "context_policy": policy}
+                "seconds": round(time.time() - t0, 2),
+                "attempt": getattr(prov, "attempts", 1),
+                "context_policy": policy}
 
     def _fanout(items: list[tuple[str, str, tuple[int, int] | None]]) -> list[dict]:
         """Chạy nhiều lần gọi SONG SONG; trả về ĐÚNG THỨ TỰ chỉ số."""
