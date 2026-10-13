@@ -16,8 +16,8 @@
 | Q2 | đạt | `21e7dd6` | https://github.com/wuongg/mira-harness/actions/runs/38430530807 success |
 | Q3 | đạt | `6b8eb79` | https://github.com/wuongg/mira-harness/actions/runs/38430813856 success |
 | Q4 | đạt | `e232212` | https://github.com/wuongg/mira-harness/actions/runs/38431738409 success, 11 job |
-| Q5 | đạt trên máy, CI của commit này là lần chạy sau khi push | commit báo cáo này | chưa có URL lúc viết |
-| Q6 | chưa làm | | |
+| Q5 | đạt | `8dd0118` | https://github.com/wuongg/mira-harness/actions/runs/38432585723 success |
+| Q6 | đạt trên máy, CI của commit này là lần chạy sau khi push | commit này | chưa có URL lúc viết |
 | Q7 | chưa làm | | |
 | Q8 | chưa làm | | |
 
@@ -86,6 +86,18 @@ Giới hạn còn lại, không phải mismatch của bản hiện tại:
 - R02/R03 dùng provider giả. Không phải điểm model thật.
 
 Selftest cùng lúc: `Ran 451 tests`, `OK (skipped=2)`. Mira không đổi ở Q5 nên số test không tăng.
+
+## 7b. Q6 — kiểm vận hành
+
+Đã chạy lại `test_retry.py` (4) và `test_key_leak.py` (6). Retry 429 rồi 200 chỉ charge một lần. 400 không thử lại. 503 đủ 3 lần thì không charge.
+
+Checkpoint: file `.json.tmp` đứt không đè bản đã `os.replace`. JSON cụt làm `resume_team` thoát 2, câu `checkpoint hỏng`, không traceback.
+
+Trần: hai đội con, giá $1/lần, trần $3. Trước sửa, planner và hai đội con làm đầy $3 rồi hai verifier cha vẫn chạy, tổng $5. Sửa: hết trần (`>=`) thì không mở pha sau. Sau sửa tổng `<= 3` và không có verifier cha. Lệnh trong cùng pha song song vẫn có thể cùng vượt nếu trần chưa đầy lúc pha đó bắt đầu. Chưa sửa chỗ đó vì không biết giá của lần gọi trước khi model trả về, và khóa cả lần gọi sẽ bỏ song song.
+
+Khóa `sk-test-EXPOSE-0123456789` không có trong dict kết quả và không có trong `checkpoint.json`. Process con vẫn theo test key-leak đã có.
+
+Selftest: `Ran 455 tests`, `OK (skipped=2)`.
 
 ## 8. Phương án đã loại
 

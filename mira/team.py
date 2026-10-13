@@ -343,7 +343,12 @@ def load_checkpoint(root: Path, run_id: str) -> dict:
     path = checkpoint_path(root, run_id)
     if not path.is_file():
         raise CheckpointError("không có checkpoint cho id này")
-    data = json.loads(path.read_text(encoding="utf-8"))
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError):
+        raise CheckpointError("checkpoint hỏng") from None
+    if not isinstance(data, dict):
+        raise CheckpointError("checkpoint hỏng")
     if int(data.get("version", 1)) != 1:
         raise CheckpointError("checkpoint version không đọc được")
     if not _ledger_ok(data.get("ledger") or {}):
@@ -825,7 +830,7 @@ def execute_plan(plan: TeamPlan, *, provider_name: str | None = None,
                 "context_policy": budget["policy"]}
 
     def _over_cap() -> bool:
-        return bool(plan.cap_usd) and ledger.total_usd > plan.cap_usd
+        return bool(plan.cap_usd) and ledger.total_usd >= plan.cap_usd
 
     oracle_gate = "disabled"
     if oracle == "on" and plan.lane == 2:
