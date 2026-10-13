@@ -4,7 +4,7 @@
 
 - SHA đầu vào: `bb587009da2b4d90edc6eeb0384114e5e83ba797`.
 - Nhánh: `agent/overnight-rd-2026-10-13`. Worktree `C:\Users\phamv\Downloads\mira-overnight`.
-- SHA cuối cùng đã có CI xanh ở thời điểm viết báo cáo này: `e232212` (Q4).
+- SHA cuối đã có CI xanh trước commit Q8: `462160f` (Q7).
 - Ba file markdown kế hoạch chưa commit ở checkout gốc không được đụng.
 - Pull request: chưa tạo. `gh` chưa đăng nhập. Link: https://github.com/wuongg/mira-harness/compare/main...agent/overnight-rd-2026-10-13?expand=1
 
@@ -18,8 +18,8 @@
 | Q4 | đạt | `e232212` | https://github.com/wuongg/mira-harness/actions/runs/38431738409 success, 11 job |
 | Q5 | đạt | `8dd0118` | https://github.com/wuongg/mira-harness/actions/runs/38432585723 success |
 | Q6 | đạt | `935c57d` | https://github.com/wuongg/mira-harness/actions/runs/38433405697 success |
-| Q7 | đạt trên máy, CI của commit này là lần chạy sau khi push | commit này | chưa có URL lúc viết |
-| Q8 | chưa làm | | |
+| Q7 | đạt | `462160f` | https://github.com/wuongg/mira-harness/actions/runs/38433762666 success |
+| Q8 | đạt trên máy, CI của commit này là lần chạy sau khi push | commit này | chưa có URL lúc viết |
 
 Q2 có thêm một run success trùng SHA: https://github.com/wuongg/mira-harness/actions/runs/38430528319
 
@@ -82,7 +82,7 @@ Giới hạn còn lại, không phải mismatch của bản hiện tại:
 
 - C07 câu hỏi và C08 giả định không làm `contract_diff` invalidates, nhưng hash khác nên resume vẫn thoát 2.
 - C09 khoảng trắng: diff sau khi cắt không hủy, hash thô vẫn khác.
-- E16 đường dẫn `C:\...` không được quote: `shlex` posix nuốt `\`, check thành `unproven`. Lệnh phải được quote kiểu `shlex.join`.
+- E16 đường dẫn `C:\nowhere\python.exe` không tồn tại nên vẫn `unproven`. Đường dẫn thật không quote được xử lý ở Q8.
 - R02/R03 dùng provider giả. Không phải điểm model thật.
 
 Selftest cùng lúc: `Ran 451 tests`, `OK (skipped=2)`. Mira không đổi ở Q5 nên số test không tăng.
@@ -108,6 +108,26 @@ Hai lệnh chạy thật trong README được chạy lại sau khi xóa `*_API_
 Tiêu chí trên CLI: `đã kiểm`, `chưa kiểm` (kèm “Thêm tiền tố check: rồi chạy lại.”), `bị chặn` (kèm “Sửa cho lệnh thoát 0 rồi chạy lại.”). Trạng thái giao được là `đã làm`.
 
 Selftest: `Ran 456 tests`, `OK (skipped=2)`.
+
+## 7d. Q8 — một cải tiến
+
+Ba hướng thấy trong Q5–Q7:
+
+1. Lệnh `check:` trên Windows mất `\` vì `shlex` POSIX. Tài liệu Python nói `shlex` mô phỏng shell Unix và `\` là escape ở chế độ POSIX: https://docs.python.org/3/library/shlex.html
+2. Một pha song song vẫn có thể chi quá trần nếu trần chưa đầy lúc pha bắt đầu.
+3. Đổi câu hỏi hoặc giả định không có dòng diff riêng, chỉ có câu hash khác.
+
+Đã chọn hướng 1.
+
+Giả thuyết: đường dẫn Windows không quote vẫn chạy được, và lệnh thoát khác 0 không bị coi là đã kiểm.
+
+Phép đo: `check:` với `sys.executable` viết thô, `-c` thoát 0 thì `proven`; cùng dạng thoát 2 thì `failed`. 29 tình huống đóng băng vẫn `current_mismatch 0`. Các check đã `shlex.join` vẫn `proven`.
+
+Điều kiện bác bỏ: thoát 2 mà thành `proven`, hoặc check đã quote bị hỏng. Lần đầu không cắt ngoặc kép: `python -c "raise SystemExit(2)"` thành một chuỗi Python và thoát 0. Đã bác lần đó. Lần sau chỉ bỏ một cặp ngoặc bao token ở nhánh Windows, và chỉ khi token POSIX không phải file. Đo lại thì đạt.
+
+Không chọn hướng 2: chưa biết giá trước khi model trả lời; khóa cả lần gọi thì bỏ song song. Không chọn hướng 3: nhỏ hơn lỗi bằng chứng sai trên Windows.
+
+Vẫn `shell=False`. Selftest: `Ran 457 tests`, `OK (skipped=2)`.
 
 ## 8. Phương án đã loại
 

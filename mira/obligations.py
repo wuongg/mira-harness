@@ -4,7 +4,9 @@ Chép nguyên câu tiêu chí vào evidence, hoặc file đổi byte, không ph�
 """
 from __future__ import annotations
 
+import os
 import shlex
+import shutil
 import subprocess
 from pathlib import Path
 
@@ -19,8 +21,29 @@ def _declared_check(criterion: str) -> str | None:
     return cmd or None
 
 
-def _run_check(cmd: str, cwd: Path) -> tuple[int | None, str]:
+def _can_run(token: str) -> bool:
+    return Path(token).is_file() or shutil.which(token) is not None
+
+
+def _argv(cmd: str) -> list[str]:
+    """POSIX trước. Trên Windows, đường dẫn có '\\' chỉ sống ở chế độ non-POSIX."""
     argv = shlex.split(cmd, posix=True)
+    if os.name != "nt" or not argv or _can_run(argv[0]):
+        return argv
+    alt = [_strip_quotes(token) for token in shlex.split(cmd, posix=False)]
+    if alt and _can_run(alt[0]):
+        return alt
+    return argv
+
+
+def _strip_quotes(token: str) -> str:
+    if len(token) >= 2 and token[0] == token[-1] and token[0] in "\"'":
+        return token[1:-1]
+    return token
+
+
+def _run_check(cmd: str, cwd: Path) -> tuple[int | None, str]:
+    argv = _argv(cmd)
     if not argv:
         return None, "lệnh check rỗng"
     from .tools import _shell_env

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import os
 import shlex
 import sys
 import tempfile
@@ -136,6 +137,20 @@ class ObligationTest(unittest.TestCase):
                 res = team.execute_plan(plan, api_key="k", root=root, on_step=lambda _m: None)
         self.assertEqual(res["obligations"][0]["state"], "unproven")
         self.assertEqual(res["status"], "withheld")
+
+    def test_duong_dan_tho_tren_windows_van_chay(self):
+        if os.name != "nt":
+            self.skipTest("backslash chỉ là escape trên Windows")
+        cmd = f'{sys.executable} -c "import sys; raise SystemExit(0)"'
+        with tempfile.TemporaryDirectory() as tmp:
+            rows = judge_obligations([f"check: {cmd}"], cwd=Path(tmp))
+        self.assertEqual(rows[0]["state"], "proven")
+        self.assertEqual(rows[0]["ref"]["exit"], 0)
+        bad = f'{sys.executable} -c "import sys; raise SystemExit(2)"'
+        with tempfile.TemporaryDirectory() as tmp:
+            rows = judge_obligations([f"check: {bad}"], cwd=Path(tmp))
+        self.assertEqual(rows[0]["state"], "failed")
+        self.assertEqual(rows[0]["ref"]["exit"], 2)
 
 
 if __name__ == "__main__":
