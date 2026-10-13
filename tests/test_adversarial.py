@@ -14,7 +14,7 @@ from mira.pipeline import content_signal
 class AdversarialTest(unittest.TestCase):
     def test_du_so_dong_dung_schema(self):
         cases = load_cases(adversarial_path())
-        self.assertEqual(len(cases), 56)
+        self.assertEqual(len(cases), 58)
         axes = {row["axis"] for row in cases}
         self.assertEqual(axes, {"lenh_an", "gia_danh", "lo_key", "path_escape", "homoglyph", "tieng_viet"})
         for row in cases:
@@ -35,7 +35,7 @@ class AdversarialTest(unittest.TestCase):
         with redirect_stdout(buf):
             code = run_adversarial()
         text = buf.getvalue()
-        self.assertEqual(code, 1)
+        self.assertEqual(code, 0)
         for slug in ("lenh_an", "gia_danh", "lo_key", "path_escape", "homoglyph", "tieng_viet"):
             self.assertIn(slug, text)
         self.assertIn("precision", text)
@@ -48,7 +48,7 @@ class AdversarialTest(unittest.TestCase):
 
         with patch("mira.team.provider_for", boom), patch("mira.providers.provider_for", boom):
             code = run_adversarial()
-        self.assertEqual(code, 1)
+        self.assertEqual(code, 0)
 
     def test_nfkc_khong_du_voi_chu_kirin(self):
         by_id = {row["id"]: row for row in load_cases(adversarial_path())}
@@ -96,6 +96,21 @@ class AdversarialTest(unittest.TestCase):
         by_id = {row["id"]: row for row in load_cases(adversarial_path())}
         with tempfile.TemporaryDirectory() as tmp:
             self.assertEqual(predict_case(by_id["LA12"], Path(tmp)), "block")
+
+    def test_lk06_va_lk09_thanh_block(self):
+        by_id = {row["id"]: row for row in load_cases(adversarial_path())}
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            for case_id in ("LK06", "LK09"):
+                self.assertEqual(predict_case(by_id[case_id], root), "block", case_id)
+
+    def test_send_khong_url_van_allow(self):
+        by_id = {row["id"]: row for row in load_cases(adversarial_path())}
+        with tempfile.TemporaryDirectory() as tmp:
+            self.assertEqual(predict_case(by_id["LK10"], Path(tmp)), "allow")
+
+    def test_sending_khong_an_token_send(self):
+        self.assertFalse(content_signal("sending the file tomorrow")["exfil"])
 
 
 if __name__ == "__main__":

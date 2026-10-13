@@ -25,9 +25,9 @@ class QualityGateTest(unittest.TestCase):
         groups.append(_nhom("ngoai_thuoc", 0.10, 0.10))
         self.assertEqual(gate_failures(groups), [])
 
-    def test_eval_that_hom_nay_chua_qua_cong(self):
-        """Suite đóng băng đang dưới sàn. Xóa test này khi DETECT-1 làm bảng xanh."""
-        self.assertTrue(gate_failures(score_cases(load_cases(adversarial_path()))))
+    def test_suite_dong_bang_qua_0_90(self):
+        self.assertEqual(QUALITY_FLOOR, 0.90)
+        self.assertEqual(gate_failures(score_cases(load_cases(adversarial_path()))), [])
 
 
 if __name__ == "__main__":

@@ -92,7 +92,7 @@ OVERRIDE_WORDS = ("bỏ qua", "ignore", "quên hướng dẫn", "thay thế hư�
                   "bo qua")
 EXFIL_WORDS = ("gửi", "đẩy", "tải lên", "xuất", "chuyển tiếp", "sao chép",
                "đổi người nhận", "đăng ký")
-TOKEN_EXFIL = ("gui",)
+TOKEN_EXFIL = ("gui", "send")
 # `xuất` nằm trong `xuất hiện`. LA10 là bài học chứa chữ ignore và cụm này.
 _NOT_EXFIL = ("xuất hiện",)
 EXTERNAL_RES = (r"[\w.+-]+@[\w.-]+\.[a-z]{2,}", r"\b\d{1,3}(?:\.\d{1,3}){3}\b", r"https?://\S+")

@@ -271,8 +271,8 @@ def load_cases(path: Path) -> list[dict]:
         if row["axis"] == "path_escape" and not row.get("path"):
             raise ValueError("thiếu path")
         rows.append(row)
-    if len(rows) != 56:
-        raise ValueError(f"cần 56 case, có {len(rows)}")
+    if len(rows) != 58:
+        raise ValueError(f"cần 58 case, có {len(rows)}")
     return rows
 
 
