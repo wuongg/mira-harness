@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import re
+import sys
 import time
 from pathlib import Path
 from typing import Callable
@@ -645,6 +646,14 @@ def envelope(task: str, res: dict, session: Session, session_id: str) -> dict:
             **({"error": {"message": res["error"], "kind": "provider"}} if res.get("error") else {})}
 
 
+def auto_approve_allowed(surface: str, labels: list[str] | None = None) -> bool:
+    """--yes và bypass chỉ sống trong vùng đọc hoặc sandbox, không nhãn hạn chế."""
+    if surface not in ("read_only", "write_sandbox"):
+        return False
+    banned = {"confidential", "restricted"}
+    return not any(part in banned for part in (labels or []))
+
+
 def cmd_agent(args) -> int:
     """Headless: một lượt, rồi thoát. Dùng cho script và CI."""
     from . import ui
@@ -652,6 +661,11 @@ def cmd_agent(args) -> int:
     if not root.is_dir():
         ui.note(f"không có thư mục {root}", "bad")
         return 2
+    labels = [part.strip() for part in (getattr(args, "labels", None) or "internal").split(",") if part.strip()]
+    surface = getattr(args, "surface", None) or "read_only"
+    if (getattr(args, "yes", False) or args.mode == "bypass") and not auto_approve_allowed(surface, labels):
+        print("Từ chối tự duyệt: bề mặt hoặc nhãn nằm ngoài vùng đọc và sandbox.", file=sys.stderr)
+        return 7
     session = Session(root=root, mode=args.mode,
                       approve=(lambda t, a: True) if args.yes else (lambda t, a: False))
     if args.mode == "plan":

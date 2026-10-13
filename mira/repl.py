@@ -525,7 +525,13 @@ def repl(args) -> int:
         history = view_for_model(loaded)
         ui.note(f"Mở lại phiên {args.resume}, {len(history)} lượt.", "ok")
 
-    session = Session(root=root, mode=args.mode, approve=_ask_approval)
+    mode = args.mode
+    if mode == "bypass":
+        from .agent import auto_approve_allowed
+        if not auto_approve_allowed("read_only", ["internal"]):
+            ui.note("bypass không hợp lệ với bề mặt này. Giữ default.", "warn")
+            mode = "default"
+    session = Session(root=root, mode=mode, approve=_ask_approval)
     session.trace.extend(loaded)
     from .providers import agent_binding
     model, args.provider = agent_binding(args.model or C.ROLE_MODEL["worker"], getattr(args, "provider", None))
@@ -561,9 +567,15 @@ def repl(args) -> int:
                 print(HELP.format(default=C.ROLE_MODEL["worker"]))
             elif cmd == "mode":
                 if arg in MODES:
-                    session.mode = arg
-                    ui.note(f"Quyền: {MODE_LABEL[arg]}.",
-                            "warn" if arg in ("plan", "bypass") else "ok")
+                    if arg == "bypass":
+                        from .agent import auto_approve_allowed
+                        if not auto_approve_allowed("read_only", ["internal"]):
+                            ui.note("bypass không hợp lệ với bề mặt này. Giữ quyền cũ.", "warn")
+                            arg = ""
+                    if arg in MODES:
+                        session.mode = arg
+                        ui.note(f"Quyền: {MODE_LABEL[arg]}.",
+                                "warn" if arg in ("plan", "bypass") else "ok")
                 else:
                     ui.note("Chọn plan, default, acceptEdits hoặc bypass.", "warn")
             elif cmd == "model":
