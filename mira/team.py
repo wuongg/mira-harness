@@ -621,6 +621,7 @@ def execute_plan(plan: TeamPlan, *, provider_name: str | None = None,
                 "hash": getattr(plan, "brief_hash", None),
                 "parent": None,
             },
+            "require_evidence": bool(getattr(plan, "require_evidence", False)),
         })
 
     def _note(st: dict) -> dict:
@@ -1147,7 +1148,8 @@ def resume_team(root: Path, run_id: str, **kw) -> tuple[int, dict]:
     elif stored:
         plan.brief = stored
         plan.brief_hash = data.get("brief_hash")
-    plan.require_evidence = bool(kw.pop("require_evidence", False))
+    passed_flag = bool(kw.pop("require_evidence", False))
+    plan.require_evidence = bool(data.get("require_evidence")) or passed_flag
     workers = int(data.get("workers") or 1)
     if len(expand_roles(plan.roles, plan.lane, workers)) < int(data.get("next_index") or 0):
         return 2, {"status": "error", "error": "checkpoint dài hơn kế hoạch",
