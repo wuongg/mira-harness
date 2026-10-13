@@ -17,8 +17,8 @@
 | Q3 | đạt | `6b8eb79` | https://github.com/wuongg/mira-harness/actions/runs/38430813856 success |
 | Q4 | đạt | `e232212` | https://github.com/wuongg/mira-harness/actions/runs/38431738409 success, 11 job |
 | Q5 | đạt | `8dd0118` | https://github.com/wuongg/mira-harness/actions/runs/38432585723 success |
-| Q6 | đạt trên máy, CI của commit này là lần chạy sau khi push | commit này | chưa có URL lúc viết |
-| Q7 | chưa làm | | |
+| Q6 | đạt | `935c57d` | https://github.com/wuongg/mira-harness/actions/runs/38433405697 success |
+| Q7 | đạt trên máy, CI của commit này là lần chạy sau khi push | commit này | chưa có URL lúc viết |
 | Q8 | chưa làm | | |
 
 Q2 có thêm một run success trùng SHA: https://github.com/wuongg/mira-harness/actions/runs/38430528319
@@ -98,6 +98,16 @@ Trần: hai đội con, giá $1/lần, trần $3. Trước sửa, planner và ha
 Khóa `sk-test-EXPOSE-0123456789` không có trong dict kết quả và không có trong `checkpoint.json`. Process con vẫn theo test key-leak đã có.
 
 Selftest: `Ran 455 tests`, `OK (skipped=2)`.
+
+## 7c. Q7 — lệnh trong tài liệu
+
+Đã chạy `py -3 -m mira team "soan bao cao tong ket quy" --dry-run`. Thoát 0, in kế hoạch, không gọi model.
+
+Hai lệnh chạy thật trong README được chạy lại sau khi xóa `*_API_KEY` khỏi môi trường, thêm `--intake off` để không hỏi stdin. Cả hai thoát 3. Dòng trạng thái là `bị chặn`. Dòng lý do là `thiếu key cho anthropic — đặt ANTHROPIC_API_KEY`. Không chỉ có chữ withheld.
+
+Tiêu chí trên CLI: `đã kiểm`, `chưa kiểm` (kèm “Thêm tiền tố check: rồi chạy lại.”), `bị chặn` (kèm “Sửa cho lệnh thoát 0 rồi chạy lại.”). Trạng thái giao được là `đã làm`.
+
+Selftest: `Ran 456 tests`, `OK (skipped=2)`.
 
 ## 8. Phương án đã loại
 

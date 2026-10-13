@@ -1059,6 +1059,22 @@ def execute_plan(plan: TeamPlan, *, provider_name: str | None = None,
             "obligations": obligations}
 
 
+def _obligation_note(row: dict) -> str:
+    """Một dòng người đọc được: đã kiểm, chưa kiểm, hoặc bị chặn, kèm cách xử lý."""
+    label = {"proven": "đã kiểm", "failed": "bị chặn", "unproven": "chưa kiểm"}.get(
+        row.get("state") or "", row.get("state") or "")
+    reason = row.get("reason") or ""
+    hint = ""
+    if row.get("state") == "unproven":
+        hint = " Thêm tiền tố check: rồi chạy lại."
+    elif row.get("state") == "failed":
+        hint = " Sửa cho lệnh thoát 0 rồi chạy lại."
+    text = f"{label}: {row.get('criterion') or ''}"
+    if reason:
+        text += f" — {reason}."
+    return text + hint
+
+
 def _aggregate(res: dict) -> str:
     """Gộp văn bản các bước của một đội thành kết quả để cha dùng tiếp."""
     return "\n\n".join(f"[{s['role']}] {s.get('text', '')}"
@@ -1084,7 +1100,7 @@ def _executor_write(out_dir: Path, plan: TeamPlan, result: dict) -> Path:
         f"---\n\n{body}\n"
         + ("" if not result.get("obligations") else
            "\n**Tiêu chí:**\n" + "\n".join(
-               f"- {row['state']}: {row['criterion']}" for row in result["obligations"]) + "\n")
+               f"- {_obligation_note(row)}" for row in result["obligations"]) + "\n")
         + (("\n**Đã đưa vào cây:**\n" + "\n".join(f"- {p}" for p in (result.get("promoted") or [])) + "\n")
            if result.get("promoted") else ""),
         encoding="utf-8")
@@ -1201,13 +1217,14 @@ def cmd_team(args) -> int:
             brief=brief,
             require_evidence=bool(getattr(args, "require_evidence", False)))
         for row in res.get("obligations") or []:
-            ui.note(f"{row['state']}: {row['criterion']}", "info")
+            ui.note(_obligation_note(row), "info")
         if code == 2:
             ui.note(res.get("error") or "không có checkpoint cho id này", "bad")
             for line in (res.get("contract_diff") or {}).get("lines") or []:
                 ui.note(line, "warn")
             return 2
         if res.get("status") == "withheld":
+            ui.note(res.get("fail_reason") or "còn tiêu chí chưa có bằng chứng", "warn")
             ui.note("GIỮ LẠI — không giao", "warn")
             return 3
         return code
@@ -1348,9 +1365,9 @@ def cmd_team(args) -> int:
 
     ui.title("KẾT LUẬN")
     st = res["status"]
-    ui.kv("Trạng thái", {"ok": ui.c("ok", "green", "bold"),
-                         "withheld": ui.c("GIỮ LẠI — không giao", "yellow", "bold"),
-                         "blocked": ui.c("chặn — thiếu key", "yellow", "bold"),
+    ui.kv("Trạng thái", {"ok": ui.c("đã làm", "green", "bold"),
+                         "withheld": ui.c("bị chặn", "yellow", "bold"),
+                         "blocked": ui.c("bị chặn", "yellow", "bold"),
                          "error": ui.c("lỗi", "red", "bold"),
                          "stopped_budget": ui.c("dừng vì ngân sách", "yellow", "bold")}.get(st, st))
     if res["fail_reason"]:
@@ -1365,7 +1382,7 @@ def cmd_team(args) -> int:
     for k, v in led["by_role"].items():
         ui.kv("  " + k, f"${v:.6f}")
     for row in res.get("obligations") or []:
-        ui.note(f"{row['state']}: {row['criterion']}", "info")
+        ui.note(_obligation_note(row), "info")
 
     # ---- cổng người + Executor ----
     if st != "ok":

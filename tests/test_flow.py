@@ -112,7 +112,7 @@ class FlowTest(unittest.TestCase):
                 code = cmd_team(_args(root, brief=str(path)))
             text = buf.getvalue()
             self.assertEqual(code, 0)
-            self.assertIn("proven:", text)
+            self.assertIn("đã kiểm:", text)
             self.assertTrue((root / "out").exists())
 
     def test_ngat_roi_resume_khong_goi_lai_buoc_dau(self):
@@ -176,6 +176,21 @@ class FlowTest(unittest.TestCase):
         self.assertIn("deliverable thêm", buf.getvalue())
         self.assertEqual(saved["brief"]["deliverables"], ["một đoạn"])
         self.assertEqual(_Talk.calls, [])
+
+    def test_tieu_chi_chu_noi_chua_kiem_va_cach_xu_ly(self):
+        brief = _brief(["doan van co nguon"])
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            path = root / "brief.json"
+            path.write_text(json.dumps(brief), encoding="utf-8")
+            buf = io.StringIO()
+            with _Here(root), redirect_stdout(buf), patch("mira.team.provider_for", _Talk):
+                code = cmd_team(_args(root, brief=str(path)))
+            text = buf.getvalue()
+        self.assertEqual(code, 3)
+        self.assertIn("chưa kiểm:", text)
+        self.assertIn("Thêm tiền tố check:", text)
+        self.assertIn("bị chặn", text)
 
     def test_provider_loi_khong_bao_xong(self):
         _Talk.fail = True

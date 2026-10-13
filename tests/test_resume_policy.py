@@ -86,7 +86,8 @@ class ResumePolicyTest(unittest.TestCase):
             _checkpoint(root)
             code, text = _resume(root)
         self.assertEqual(code, 3)
-        self.assertIn("failed:", text)
+        self.assertIn("bị chặn:", text)
+        self.assertIn("Sửa cho lệnh thoát 0", text)
         self.assertIn("GIỮ LẠI", text)
 
     def test_checkpoint_cu_khong_co_co_van_chay(self):
