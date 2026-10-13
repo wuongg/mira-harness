@@ -52,7 +52,7 @@ def _shell_ok(session: Session, cmd: str) -> bool:
 
 def _consider_finish(session: Session, summary: str, task: str = "") -> tuple[bool, str]:
     """True khi làn chấp nhận kết thúc. Từ chối thì trả lý do cho model."""
-    if getattr(session, "shape", "") == "sua":
+    if getattr(session, "shape", "") == "edit":
         cmd = _named_command(task or session.task_text)
         if cmd and not _shell_ok(session, cmd):
             out = session.run_shell(cmd)
@@ -112,7 +112,7 @@ def _recruit(session: Session, task: str, prov, model: str, provider_name, base_
     from .skills import worker_skill_block
     from .team import DIRECTOR_SYSTEM, ROLE_PROMPT, vet_roster
     from .tools import Session as ToolSession
-    if session.shape != "hoi" or session.recruited:
+    if session.shape != "ask" or session.recruited:
         return None, None
     text, usage = prov.call(DIRECTOR_SYSTEM, task)
     if "VAI:" not in text:

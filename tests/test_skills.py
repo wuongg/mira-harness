@@ -209,23 +209,23 @@ class SkillTest(unittest.TestCase):
             self.assertEqual(open_task.lane_seen, 0)
 
     def test_dang_viec_khoa_tool(self):
-        self.assertEqual(shape_of("Đổi x = 1 thành x = 2 trong app.py"), "sua")
-        self.assertEqual(shape_of("Chạy python .mira/skills/kem/scripts/run.py"), "chay")
-        self.assertEqual(shape_of("đọc app.py"), "doc")
-        self.assertEqual(shape_of("làm gì đó"), "hoi")
+        self.assertEqual(shape_of("Đổi x = 1 thành x = 2 trong app.py"), "edit")
+        self.assertEqual(shape_of("Chạy python .mira/skills/kem/scripts/run.py"), "run")
+        self.assertEqual(shape_of("đọc app.py"), "read")
+        self.assertEqual(shape_of("làm gì đó"), "ask")
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             (root / "app.py").write_text("x = 1\n", encoding="utf-8")
             doc = Session(root=root, mode="bypass", approve=lambda _t, _a: True)
             doc.task_text = "đọc app.py"
-            doc.shape = "doc"
+            doc.shape = "read"
             blocked = doc.edit_file("app.py", "x = 1", "x = 2")
             self.assertTrue(blocked.startswith("BỊ CHẶN"))
             self.assertEqual(doc.lane_seen, 0)
             self.assertIn("dòng", doc.read_file("app.py"))
             sua = Session(root=root, mode="bypass", approve=lambda _t, _a: True)
             sua.task_text = "Đổi x = 1 thành x = 2 trong app.py"
-            sua.shape = "sua"
+            sua.shape = "edit"
             shell = sua.run_shell('python -c "print(1)"')
             self.assertTrue(shell.startswith("BỊ CHẶN"))
             self.assertEqual(sua.lane_seen, 0)
@@ -240,7 +240,7 @@ class SkillTest(unittest.TestCase):
             (root / "app.py").write_text("x = 1\n", encoding="utf-8")
             session = Session(root=root, mode="bypass", approve=lambda _t, _a: True)
             session.task_text = "Đổi x = 1 thành x = 2 trong app.py"
-            session.shape = "sua"
+            session.shape = "edit"
             session.read_file("note.txt")
             blocked = session.edit_file("app.py", "x = 1", "x = 9")
             self.assertTrue(blocked.startswith("BỊ CHẶN"))
@@ -255,7 +255,7 @@ class SkillTest(unittest.TestCase):
             (root / "app.py").write_text("a = 1\na = 1\n", encoding="utf-8")
             session = Session(root=root, mode="bypass", approve=lambda _t, _a: True)
             session.task_text = "sửa app.py"
-            session.shape = "sua"
+            session.shape = "edit"
             out = session.edit_file("app.py", "a = 1", "a = 2")
             self.assertTrue(out.startswith("LỖI"))
             self.assertEqual((root / "app.py").read_text(encoding="utf-8"), "a = 1\na = 1\n")
@@ -281,7 +281,7 @@ class SkillTest(unittest.TestCase):
             self.assertIn("function chao", repo_map(root, "lib"))
             session = Session(root=root, mode="bypass", approve=lambda _t, _a: True)
             session.task_text = "Đổi x = 1 thành x = 2 trong app.py"
-            session.shape = "sua"
+            session.shape = "edit"
             blocked = session.write_file(".mira/skills/tu-viet/SKILL.md", "---\n")
             self.assertTrue(blocked.startswith("BỊ CHẶN"))
             session.edit_file("app.py", "x = 1", "x = 2")
@@ -292,7 +292,7 @@ class SkillTest(unittest.TestCase):
             self.assertIn("edit_file", skill.read_text(encoding="utf-8"))
             again = Session(root=root, mode="bypass", approve=lambda _t, _a: True)
             again.task_text = session.task_text
-            again.shape = "sua"
+            again.shape = "edit"
             again.audit.append({"action": "edit_file", "path": "app.py"})
             from mira.skills import mint_skill
             mint_skill(root, again.task_text, again.audit)
@@ -304,7 +304,7 @@ class SkillTest(unittest.TestCase):
             root = Path(tmp)
             (root / "app.py").write_text("x = 1\n", encoding="utf-8")
             session = Session(root=root, mode="bypass", approve=lambda _t, _a: True)
-            session.shape = "sua"
+            session.shape = "edit"
             session.task_text = 'Đổi app.py\npython -c "raise SystemExit(1)"'
             ok, why = _consider_finish(session, "xong", session.task_text)
             self.assertFalse(ok)

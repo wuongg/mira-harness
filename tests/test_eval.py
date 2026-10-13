@@ -12,15 +12,20 @@ class EvalTest(unittest.TestCase):
     def test_hai_viec_deu_qua(self):
         root = Path(__file__).resolve().parents[1] / "eval" / "tasks"
         rows = [run_one(p) for p in sorted(root.iterdir()) if (p / "task.json").is_file()]
+        names = [r["name"] for r in rows]
         self.assertEqual(
-            [r["name"] for r in rows],
-            ["doi_gia_tri", "dung_skill", "file_kem", "gioi_han_tool", "hai_skill", "lenh_la", "lenh_xong", "nho_fact", "nho_lan_sau", "noi_dung_la", "path_la", "plan_khong_ghi", "script_chua_mo", "tuyen_vai"])
-        self.assertEqual(rows[1]["skills"], "sua-gia-tri")
-        self.assertEqual(rows[2]["skills"], "kem")
-        self.assertEqual(rows[3]["skills"], "gioi-han")
-        self.assertEqual(rows[4]["skills"], "mot,hai")
+            names,
+            ["command_done", "forgot_fact", "missing_file", "plan_no_write",
+             "remember_next", "role_recruit", "script_unopened", "skill_deleted",
+             "stray_command", "stray_content", "stray_path", "swap_values",
+             "tool_limit", "use_skill"])
+        by = {r["name"]: r for r in rows}
+        self.assertEqual(by["use_skill"]["skills"], "sua-gia-tri")
+        self.assertEqual(by["missing_file"]["skills"], "kem")
+        self.assertEqual(by["tool_limit"]["skills"], "gioi-han")
+        self.assertEqual(by["skill_deleted"]["skills"], "mot,hai")
         self.assertTrue(all(r["ok"] for r in rows))
-        self.assertGreater(rows[0]["costUsd"], 0)
+        self.assertGreater(by["swap_values"]["costUsd"], 0)
         self.assertTrue(all(r["layer"] in ("governance", "verification", "context", "tool") for r in rows))
         self.assertEqual(run_eval(root), 0)
 

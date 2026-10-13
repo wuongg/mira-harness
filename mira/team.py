@@ -79,7 +79,7 @@ ROLE_USER = {
     "critic": "MỤC TIÊU:\n{task}\n\nKẾT QUẢ:\n{prev}\n\nTìm lỗ hổng.",
 }
 
-HOI_TOOLS = ("read_file", "list_dir", "grep", "glob", "web_search")
+READ_TOOLS = ("read_file", "list_dir", "grep", "glob", "web_search")
 WRITE_TOOLS = ("write_file", "edit_file", "multi_edit", "delete_file")
 DIRECTOR_SYSTEM = (
     "Bạn là GIÁM ĐỐC. Chỉ trả các dòng "
@@ -144,7 +144,7 @@ def vet_roster(text: str, root: Path | None, *, allow_write: bool = False) -> tu
                 if not allow_write:
                     return False, f"tool {tool} ngoài trần đọc", [], []
                 writers += 1
-            elif tool not in HOI_TOOLS:
+            elif tool not in READ_TOOLS:
                 return False, f"tool {tool} ngoài trần đọc", [], []
     if writers > 1:
         return False, "hai vai ghi", [], []
@@ -667,7 +667,7 @@ def execute_plan(plan: TeamPlan, *, provider_name: str | None = None,
             skill_at[0] = -1
         elif has_worker:
             from .tools import shape_of
-            if root is not None and shape_of(plan.task_text) == "sua":
+            if root is not None and shape_of(plan.task_text) == "edit":
                 worker_steps = [_worker_edit(prev)]
                 for st in worker_steps:
                     _log_step(st)

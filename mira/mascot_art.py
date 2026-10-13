@@ -585,7 +585,7 @@ def embed(cols: int = 14, rows: int = 8) -> tuple[str, int, int] | None:
         return None
 
 
-_IDX = Path(__file__).with_name("chon_dat_256.txt")
+_IDX = Path(__file__).with_name("tui_palette_256.txt")
 _GRID: list[list[int]] | None = None
 
 

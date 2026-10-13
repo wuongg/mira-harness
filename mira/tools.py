@@ -86,12 +86,12 @@ def shape_of(task: str) -> str:
     command = re.search(r"\b(?:python|pytest)\b", text) is not None
     read = re.search(r"đọc|tóm tắt|giải thích", text, re.IGNORECASE) is not None
     if write and named:
-        return "sua"
+        return "edit"
     if command and not write:
-        return "chay"
+        return "run"
     if read and named:
-        return "doc"
-    return "hoi"
+        return "read"
+    return "ask"
 
 
 def lane_for_tool(tool: str, untrusted: bool = False) -> int:
@@ -616,11 +616,11 @@ class Session:
         if not shape:
             return None
         writes = {"write_file", "edit_file", "multi_edit", "delete_file"}
-        if shape in ("doc", "hoi") and tool in writes | {"run_shell", "fetch_url"}:
+        if shape in ("read", "ask") and tool in writes | {"run_shell", "fetch_url"}:
             return f"BỊ CHẶN: dạng {shape} không làm {tool}."
-        if shape == "chay" and tool in writes | {"fetch_url", "web_search"}:
+        if shape == "run" and tool in writes | {"fetch_url", "web_search"}:
             return f"BỊ CHẶN: dạng chạy không làm {tool}."
-        if shape in ("sua", "chay") and tool == "run_shell":
+        if shape in ("edit", "run") and tool == "run_shell":
             cmd = str(args.get("cmd") or "")
             if not cmd or cmd not in (self.task_text or ""):
                 return "BỊ CHẶN: lệnh không có trong câu việc."

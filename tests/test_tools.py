@@ -200,7 +200,7 @@ class ExtraToolsTest(unittest.TestCase):
         T._https_text = lambda url, limit: doc
         try:
             session = self._sess(mode="bypass")
-            session.shape = "hoi"
+            session.shape = "ask"
             out = session.install_skill("https://example.com/SKILL.md")
             self.assertIn("đã cài skill tim-mua", out)
             base = self.root / ".mira" / "skills" / "tim-mua"
