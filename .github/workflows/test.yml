@@ -31,3 +31,28 @@ jobs:
           python-version: "3.12"
       - name: Chạy shadow
         run: python -m mira run --out out --quiet
+
+  commit-lint:
+    name: commit-lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Chọn range
+        id: range
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            echo "spec=${{ github.event.pull_request.base.sha }}..${{ github.sha }}" >> "$GITHUB_OUTPUT"
+          elif [ "${{ github.event.before }}" = "0000000000000000000000000000000000000000" ]; then
+            echo "skip=1" >> "$GITHUB_OUTPUT"
+          else
+            echo "spec=${{ github.event.before }}..${{ github.sha }}" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Lint tiêu đề
+        if: steps.range.outputs.skip != '1'
+        run: python tools/check_commits.py "${{ steps.range.outputs.spec }}"
