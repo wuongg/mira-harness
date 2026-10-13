@@ -21,7 +21,9 @@ import json
 import os
 import random
 import re
+import shlex
 import shutil
+import subprocess
 import threading
 import time
 import uuid
@@ -396,6 +398,36 @@ def _verdict_envelope(text: str, *, require_score: bool = False) -> dict | None:
         if isinstance(score, bool) or not isinstance(score, (int, float)) or not 0 <= float(score) <= 1:
             return None
     return obj
+
+
+def staging_evidence(root: Path, staging: Path, task: str, worker_text: str) -> dict:
+    """Chỉ chạy lệnh có tên trong câu của NGƯỜI. Lệnh do model bịa không được chạy."""
+    from .agent import _named_command
+    from .tools import _shell_env
+    root = Path(root).resolve()
+    staging = Path(staging).resolve()
+    diff = False
+    for path in staging.rglob("*"):
+        if not path.is_file():
+            continue
+        rel = path.relative_to(staging)
+        if _rel_skipped(rel):
+            continue
+        dest = root / rel
+        old = dest.read_bytes() if dest.is_file() else None
+        if old != path.read_bytes():
+            diff = True
+            break
+    claimed = bool(re.search(r"đã sửa|\bedited\b", worker_text or "", re.IGNORECASE))
+    cmd = _named_command(task)
+    exit_code = None
+    if cmd:
+        argv = shlex.split(cmd, posix=True)
+        if argv:
+            proc = subprocess.run(argv, shell=False, cwd=str(staging), timeout=60,
+                                  capture_output=True, text=True, env=_shell_env())
+            exit_code = proc.returncode
+    return {"empty_diff": not diff, "claimed": claimed, "cmd": cmd, "exit": exit_code}
 
 
 def execute_plan(plan: TeamPlan, *, provider_name: str | None = None,
@@ -776,6 +808,16 @@ def execute_plan(plan: TeamPlan, *, provider_name: str | None = None,
                     break
 
     # ---- fail-closed (I2) ----
+    evidence = None
+    if status == "ok" and staging_box[0] is not None and root is not None:
+        bits = [s.get("text") or "" for s in steps if s.get("role") == "worker"]
+        if any(s.get("edited") for s in steps if s.get("role") == "worker"):
+            bits.append("đã sửa")
+        evidence = staging_evidence(Path(root), staging_box[0], plan.task_text, "\n".join(bits))
+        if evidence["empty_diff"] and evidence["claimed"]:
+            status, fail_reason = "withheld", "diff trống dù worker nói đã sửa"
+        elif evidence["exit"] not in (None, 0):
+            status, fail_reason = "withheld", "lệnh trong câu việc không thoát 0"
     if status == "ok" and plan.lane >= 1:
         if verifier_verdict is None:
             status, fail_reason = "withheld", "verifier không theo giao thức, giữ lại"
@@ -800,7 +842,8 @@ def execute_plan(plan: TeamPlan, *, provider_name: str | None = None,
             "oracle_gate": oracle_gate,
             "steps": steps, "ledger": ledger.summary(), "plan": plan.as_dict(),
             "depth": depth, "nested": any(s.get("sub") for s in steps),
-            "staging": staging_out, "promoted": [], "promote_audit": [],
+            "staging": staging_out, "staging_evidence": evidence,
+            "promoted": [], "promote_audit": [],
             "role_prompts": getattr(plan, "role_prompts", None),
             "brief_hash": getattr(plan, "brief_hash", None)}
 
