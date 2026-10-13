@@ -29,9 +29,14 @@ def _fmt_tokens(u: dict) -> str:
     return f"{u.get('in', 0)}+{u.get('out', 0)} tok"
 
 
-def _price(model: str, u: dict) -> float:
-    """Luôn có số. Model lạ dùng giá ước lượng để trần tiền vẫn khóa được."""
-    p = C.PRICES.get(model) or C.UNKNOWN_PRICE
+def _price(model: str, u: dict, declared: tuple[float, float] | None = None) -> float:
+    """Giá đã biết. Model lạ không có giá khai thì ra 0, không dùng giá đoán."""
+    if declared is not None:
+        p = {"in": float(declared[0]), "out": float(declared[1])}
+    else:
+        p = C.PRICES.get(model)
+    if not p:
+        return 0.0
     return (u.get("in", 0) * p["in"] + u.get("out", 0) * p["out"]) / 1e6
 
 
@@ -82,7 +87,8 @@ PROMPT_CAP = 24000
 
 
 def _spent(model: str, usage_total: dict, session: Session) -> float:
-    return _price(model, usage_total) + float(getattr(session, "child_spent", 0) or 0)
+    declared = getattr(session, "declared_price", None)
+    return _price(model, usage_total, declared) + float(getattr(session, "child_spent", 0) or 0)
 
 
 def _shrink(convo: list[dict], audit: list[dict]) -> list[dict]:
@@ -125,7 +131,8 @@ def _recruit(session: Session, task: str, prov, model: str, provider_name, base_
                     "final": "TỪ CHỐI đội: " + why, "usage": usage, "turns": 2,
                     "toolSummary": {"calls": 0, "tools": []}, "protocol": "text",
                     "stopReason": "TỪ CHỐI đội", "audit": session.audit,
-                    "trace": list(session.trace), "costUsd": _price(model, usage),
+                    "trace": list(session.trace),
+                    "costUsd": _price(model, usage, getattr(session, "declared_price", None)),
                     "model": model, "provider": getattr(prov, "name", "")}, None
     session.recruited = True
     known = {role.name: role for role in roles}
@@ -148,7 +155,8 @@ def _recruit(session: Session, task: str, prov, model: str, provider_name, base_
         res = run_turn(task=job, session=child, model=model, provider_name=provider_name,
                        base_url=base_url, api_key=api_key, max_tokens=max_tokens,
                        no_stream=True, protocol="text", max_turns=max_turns,
-                       max_budget_usd=left, provider=prov)
+                       max_budget_usd=left, provider=prov,
+                       price_in=getattr(session, "declared_price", None))
         session.child_spent += float(res.get("costUsd") or 0)
         last = str(res.get("final") or "")
     from .team import _worker_for_disk
@@ -156,7 +164,7 @@ def _recruit(session: Session, task: str, prov, model: str, provider_name, base_
     return {"status": "ok", "error": None, "final": final, "usage": usage, "turns": len(ordered),
             "toolSummary": {"calls": 0, "tools": []}, "protocol": "text",
             "stopReason": None, "audit": session.audit, "trace": list(session.trace),
-            "costUsd": _price(model, usage) + session.child_spent,
+            "costUsd": _price(model, usage, getattr(session, "declared_price", None)) + session.child_spent,
             "model": model, "provider": getattr(prov, "name", "")}, None
 
 
@@ -203,13 +211,18 @@ def run_turn(*, task: str, session: Session, model: str,
              no_stream: bool = False, protocol: str = "auto",
              max_turns: int | None = None,
              max_budget_usd: float | None = None,
-             provider=None) -> dict:
+             provider=None, price_in: tuple[float, float] | None = None) -> dict:
     """Điểm vào duy nhất. `protocol` = auto | native | text.
 
     Hai van an toàn, đếm bằng CODE chứ không hỏi model (I8):
       `max_turns`       — trần số vòng gọi công cụ (mặc định 25)
       `max_budget_usd`  — dừng ngay khi chi phí lượt vượt mức này
     """
+    session.declared_price = price_in
+    if price_in is None and model not in C.PRICES:
+        return {"status": "blocked", "error": f"model {model} chưa có giá",
+                "final": "", "usage": {"in": 0, "out": 0}, "turns": 0,
+                "toolSummary": {"calls": 0, "tools": []}}
     inherited = getattr(session, "gate_task", "") or ""
     if inherited:
         session.task_text = inherited
@@ -652,9 +665,14 @@ def cmd_agent(args) -> int:
 
     if not args.json:
         print(ui.c(task_short(args.task), "bright", "bold"))
+    declared = None
+    raw_price = getattr(args, "price_in", None)
+    if raw_price:
+        left, right = [float(part) for part in str(raw_price).split(",")]
+        declared = (left, right)
     res = run_turn(task=args.task, session=session, model=model,
                    provider_name=args.provider, base_url=args.base_url,
-                   max_tokens=args.max_tokens, on_tool=show_tool,
+                   max_tokens=args.max_tokens, on_tool=show_tool, price_in=declared,
                    protocol=getattr(args, "protocol", "auto"),
                    no_stream=getattr(args, "no_stream", False),
                    max_turns=getattr(args, "max_turns", 0) or None,

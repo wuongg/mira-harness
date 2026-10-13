@@ -4,7 +4,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from r0.agent import _price
+from r0.agent import run_turn
+from r0.bench import _Scripted
 from r0.repl import condense_trace, view_for_model
 from r0.tools import Session
 
@@ -82,7 +83,12 @@ class DiskGuardTest(unittest.TestCase):
         self.assertEqual(seen, ["py -c 1"])
 
     def test_model_la_van_co_gia(self):
-        self.assertGreater(_price("khong-co-model", {"in": 1_000_000, "out": 0}), 0)
+        script = _Scripted(["xong"])
+        res = run_turn(task="chao", session=Session(root=self.root, mode="plan"),
+                       model="khong-co", protocol="text", provider=script)
+        self.assertEqual(res["status"], "blocked")
+        self.assertIn("chưa có giá", res["error"])
+        self.assertEqual(script.prompts, [])
 
     def test_compact_gop_tin_cu(self):
         trace = [{"kind": "message", "role": "user", "content": f"viec {i}"} for i in range(8)]
