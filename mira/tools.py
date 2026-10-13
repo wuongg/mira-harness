@@ -689,12 +689,18 @@ class Session:
     def _arg_outside(self, arg: str) -> bool:
         if not arg or arg.startswith("-") or "://" in arg:
             return False
-        looks_path = arg.startswith(".") or Path(arg).is_absolute() or "/" in arg or "\\" in arg
+        # Dấu \ cũng là thoát thư mục. Trên Linux Path không cắt \, nên PE02 lọt.
+        normalized = arg.replace("\\", "/")
+        looks_path = (
+            normalized.startswith(".")
+            or Path(normalized).is_absolute()
+            or "/" in normalized
+        )
         if not looks_path:
             return False
         try:
-            candidate = Path(arg)
-            p = candidate.resolve() if candidate.is_absolute() else (self.root / arg).resolve()
+            candidate = Path(normalized)
+            p = candidate.resolve() if candidate.is_absolute() else (self.root / normalized).resolve()
         except OSError:
             return True
         return p != self.root and self.root not in p.parents

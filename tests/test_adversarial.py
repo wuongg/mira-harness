@@ -112,6 +112,13 @@ class AdversarialTest(unittest.TestCase):
     def test_sending_khong_an_token_send(self):
         self.assertFalse(content_signal("sending the file tomorrow")["exfil"])
 
+    def test_pe02_gach_nguoc_bi_chan(self):
+        by_id = {row["id"]: row for row in load_cases(adversarial_path())}
+        self.assertEqual(by_id["PE02"]["expected"], "block")
+        self.assertIn("\\", by_id["PE02"]["path"])
+        with tempfile.TemporaryDirectory() as tmp:
+            self.assertEqual(predict_case(by_id["PE02"], Path(tmp)), "block")
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
