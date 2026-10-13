@@ -4,7 +4,7 @@
 
 - SHA đầu vào: `bb587009da2b4d90edc6eeb0384114e5e83ba797`.
 - Nhánh: `agent/overnight-rd-2026-10-13`. Worktree `C:\Users\phamv\Downloads\mira-overnight`.
-- SHA cuối đã có CI xanh trước commit Q8: `462160f` (Q7).
+- SHA cuối của mã: `38ed912`. CI: https://github.com/wuongg/mira-harness/actions/runs/38434179075 success.
 - Ba file markdown kế hoạch chưa commit ở checkout gốc không được đụng.
 - Pull request: chưa tạo. `gh` chưa đăng nhập. Link: https://github.com/wuongg/mira-harness/compare/main...agent/overnight-rd-2026-10-13?expand=1
 
@@ -19,7 +19,7 @@
 | Q5 | đạt | `8dd0118` | https://github.com/wuongg/mira-harness/actions/runs/38432585723 success |
 | Q6 | đạt | `935c57d` | https://github.com/wuongg/mira-harness/actions/runs/38433405697 success |
 | Q7 | đạt | `462160f` | https://github.com/wuongg/mira-harness/actions/runs/38433762666 success |
-| Q8 | đạt trên máy, CI của commit này là lần chạy sau khi push | commit này | chưa có URL lúc viết |
+| Q8 | đạt | `38ed912` | https://github.com/wuongg/mira-harness/actions/runs/38434179075 success |
 
 Q2 có thêm một run success trùng SHA: https://github.com/wuongg/mira-harness/actions/runs/38430528319
 
