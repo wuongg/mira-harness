@@ -1,0 +1,172 @@
+"""Tầng intake: brief là dữ liệu, không phải cổng. Làn vẫn do build_plan quyết."""
+from __future__ import annotations
+
+import hashlib
+import json
+from pathlib import Path
+
+from . import config as C
+from .team import Ledger, _worker_for_disk
+
+BRIEF_KEYS = (
+    "goal", "deliverables", "acceptance_criteria", "constraints",
+    "assumptions", "questions", "per_role_hints",
+)
+HINT_ROLES = ("planner", "worker", "verifier")
+FORBIDDEN = {"surface", "lane", "floor", "labels", "records", "dollars", "roles", "gate"}
+
+INTAKE_SYSTEM = (
+    "Bạn là INTAKE. Trả đúng một object JSON với các khóa goal, deliverables, "
+    "acceptance_criteria, constraints, assumptions, questions, per_role_hints. "
+    "Không được trả surface, lane, floor, labels, records, dollars, roles hay gate. "
+    "Nếu câu còn mơ hồ, đặt câu hỏi trong questions. Không tự bịa tiêu chí khi chưa đủ dữ liệu."
+)
+
+
+def canonical_brief(obj: dict) -> str:
+    return json.dumps(obj, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+
+
+def brief_hash(obj: dict) -> str:
+    return hashlib.sha256(canonical_brief(obj).encode("utf-8")).hexdigest()
+
+
+def _string_list(value, *, allow_empty: bool) -> bool:
+    if not isinstance(value, list) or not all(isinstance(item, str) for item in value):
+        return False
+    if allow_empty:
+        return True
+    return any(item.strip() for item in value)
+
+
+def validate_brief(obj) -> tuple[bool, str]:
+    """Schema do code giữ. Khóa cổng và khóa lạ đều hỏng."""
+    if not isinstance(obj, dict):
+        return False, "brief không phải object"
+    if FORBIDDEN & set(obj):
+        return False, "brief chứa khóa cổng"
+    if set(obj) != set(BRIEF_KEYS):
+        return False, "brief thiếu khóa hoặc có khóa lạ"
+    if not isinstance(obj["goal"], str) or not obj["goal"].strip():
+        return False, "brief thiếu goal"
+    if not _string_list(obj["deliverables"], allow_empty=True):
+        return False, "deliverables phải là danh sách chuỗi"
+    if not _string_list(obj["acceptance_criteria"], allow_empty=False):
+        return False, "brief thiếu acceptance_criteria"
+    if not _string_list(obj["constraints"], allow_empty=True):
+        return False, "constraints phải là danh sách chuỗi"
+    if not _string_list(obj["assumptions"], allow_empty=True):
+        return False, "assumptions phải là danh sách chuỗi"
+    if not _string_list(obj["questions"], allow_empty=True):
+        return False, "questions phải là danh sách chuỗi"
+    hints = obj["per_role_hints"]
+    if not isinstance(hints, dict) or set(hints) != set(HINT_ROLES):
+        return False, "per_role_hints phải đúng ba vai"
+    if not all(isinstance(hints[name], str) for name in HINT_ROLES):
+        return False, "gợi ý vai phải là chuỗi"
+    return True, ""
+
+
+def contain_brief(brief, task: str = "") -> str:
+    """Brief do model sinh đi cùng lối nội dung không tin."""
+    if isinstance(brief, str):
+        text = brief
+    else:
+        text = json.dumps(brief, ensure_ascii=False, indent=2)
+    return _worker_for_disk(task, text)
+
+
+def charged_call(ledger: Ledger, role: str, model: str, prov, system: str, user: str,
+                 *, declared_price: tuple[float, float] | None = None):
+    """Cùng cửa giá với đội. Không có giá thì không gọi model."""
+    if declared_price is not None:
+        rates = {"in": declared_price[0], "out": declared_price[1]}
+    else:
+        rates = C.PRICES.get(model)
+    if rates is None:
+        return "", {"blocked": True, "error": f"model {model} chưa có giá"}
+    text, usage = prov.call(system, user)
+    ledger.charge(role, model, usage or {}, getattr(prov, "name", "") or "",
+                  price=rates, declared_by_user=declared_price is not None)
+    return text, {"blocked": False, "usage": usage}
+
+
+def _questions(obj: dict) -> list[str]:
+    return [item.strip() for item in obj.get("questions") or [] if isinstance(item, str) and item.strip()]
+
+
+def run_intake(task: str, prov, ledger: Ledger, *, clarify_max: int, ask, model: str,
+               declared_price: tuple[float, float] | None = None) -> dict:
+    """Hỏi cho đến khi schema đủ hoặc hết trần. Hết trần mà schema hỏng thì dừng."""
+    user = task
+    asked = 0
+    while True:
+        text, meta = charged_call(ledger, "intake", model, prov, INTAKE_SYSTEM, user,
+                                  declared_price=declared_price)
+        if meta.get("blocked"):
+            return {"ok": False, "reason": meta["error"], "brief": None, "asked": asked}
+        try:
+            obj = json.loads(text)
+        except json.JSONDecodeError:
+            obj = None
+        if not isinstance(obj, dict):
+            return {"ok": False, "reason": "intake không trả JSON", "brief": None, "asked": asked}
+        ok, why = validate_brief(obj)
+        pending = _questions(obj) if isinstance(obj.get("questions"), list) else []
+        if pending and asked < clarify_max:
+            answer = ask(pending[0])
+            asked += 1
+            user = task + "\nNgười dùng trả lời: " + (answer or "")
+            continue
+        if not ok:
+            return {"ok": False, "reason": why, "brief": obj, "asked": asked}
+        if pending and asked >= clarify_max:
+            assumptions = list(obj["assumptions"])
+            assumptions.append("Hết trần hỏi. Dùng brief hiện có.")
+            obj = dict(obj)
+            obj["assumptions"] = assumptions
+        return {"ok": True, "reason": "", "brief": obj, "asked": asked}
+
+
+def load_brief_file(path: Path) -> tuple[dict | None, str]:
+    try:
+        obj = json.loads(Path(path).read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None, "không đọc được brief"
+    ok, why = validate_brief(obj)
+    if not ok:
+        return None, why
+    return obj, ""
+
+
+def copy_brief(src: Path, dest: Path) -> tuple[bool, str]:
+    obj, why = load_brief_file(src)
+    if obj is None:
+        return False, why
+    text = canonical_brief(obj) + "\n"
+    dest = Path(dest)
+    if dest.exists():
+        current = dest.read_text(encoding="utf-8")
+        if current != text and current.strip() != canonical_brief(obj):
+            return False, "đích đã có brief khác, không ghi đè"
+        return True, ""
+    dest.write_text(text, encoding="utf-8")
+    return True, ""
+
+
+def cmd_brief(args) -> int:
+    """validate in hash. save và load chỉ chép JSON đã đúng schema."""
+    from . import ui
+    if args.brief_cmd == "validate":
+        obj, why = load_brief_file(Path(args.path))
+        if obj is None:
+            ui.note(why, "bad")
+            return 8
+        print(brief_hash(obj))
+        return 0
+    ok, why = copy_brief(Path(args.src), Path(args.dest))
+    if not ok:
+        ui.note(why, "bad")
+        return 8
+    ui.note(f"đã chép brief sang {args.dest}", "ok")
+    return 0

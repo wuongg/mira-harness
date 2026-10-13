@@ -741,6 +741,11 @@ def build_parser() -> argparse.ArgumentParser:
     tm.add_argument("--max-tokens", dest="max_tokens", type=int, default=4096)
     tm.add_argument("--dry-run", dest="dry_run", action="store_true",
                     help="chỉ in kế hoạch phân vai, KHÔNG gọi model")
+    tm.add_argument("--intake", choices=["on", "off"], default=None,
+                    help="tuyến brief; mặc định bật khi làn từ 1")
+    tm.add_argument("--clarify-max", dest="clarify_max", type=int, default=3,
+                    help="trần vòng hỏi làm rõ brief")
+    tm.add_argument("--brief", default=None, help="brief JSON đã duyệt, bỏ tầng hỏi")
     tm.add_argument("--approve", action="store_true", help="duyệt cổng người trước khi ghi")
     tm.add_argument("--price-in", dest="price_in", default=None,
                     help="giá USD mỗi triệu token, dạng IN,OUT")
@@ -752,6 +757,18 @@ def build_parser() -> argparse.ArgumentParser:
                     help="số cấp đội con lồng nhau (0 = tắt; làn 2 mới mở được)")
     tm.add_argument("--out", default=None, help="thư mục Executor ghi kết quả")
     tm.set_defaults(func=cmd_team)
+
+    from .intake import cmd_brief
+    br = sub.add_parser("brief", help="kiểm tra hoặc chép brief JSON")
+    bsub = br.add_subparsers(dest="brief_cmd", required=True)
+    bv = bsub.add_parser("validate", help="kiểm schema và in hash")
+    bv.add_argument("path")
+    bv.set_defaults(func=cmd_brief)
+    for name in ("save", "load"):
+        bp = bsub.add_parser(name, help="chép brief đã đúng schema")
+        bp.add_argument("src")
+        bp.add_argument("dest")
+        bp.set_defaults(func=cmd_brief)
 
     # ---- agent CLI kiểu phiên làm việc ----
     def _agent_args(sp, positional):
@@ -778,6 +795,10 @@ def build_parser() -> argparse.ArgumentParser:
     _agent_args(ag, positional=True)
     ag.add_argument("--json", action="store_true", help="envelope JSON ra stdout")
     ag.add_argument("--yes", action="store_true", help="tự duyệt mọi cổng (CẨN THẬN)")
+    ag.add_argument("--surface", default="read_only",
+                    choices=["read_only", "write_sandbox", "write_external", "egress_new"])
+    ag.add_argument("--labels", default="internal",
+                    help="nhãn dữ liệu cách nhau dấu phẩy")
     ag.add_argument("--session-id", dest="session_id", default=None)
     ag.set_defaults(func=cmd_agent)
 

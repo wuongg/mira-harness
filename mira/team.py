@@ -886,12 +886,69 @@ def cmd_team(args) -> int:
     ui.title("Đội sẽ chạy")
     ui.table(["vai", "model"], [[r, C.ROLE_MODEL.get(r, "?")] for r in display], ["l", "l"])
 
+    choice = getattr(args, "intake", "off")
+    if choice is None:
+        choice = "on" if plan.lane >= 1 else "off"
+    intake_ledger = None
+
     if args.dry_run:
         print()
         ui.note("dry-run: chỉ in kế hoạch, KHÔNG gọi model, KHÔNG ghi gì", "info")
+        if choice == "on":
+            from .intake import canonical_brief
+            echo = {
+                "goal": args.task, "deliverables": [], "acceptance_criteria": [],
+                "constraints": [], "assumptions": [], "questions": [],
+                "per_role_hints": {"planner": "", "worker": "", "verifier": ""},
+            }
+            ui.note("khung brief chỉ echo câu người dùng, chưa duyệt.", "info")
+            print(canonical_brief(echo))
         execute_plan(plan, dry_run=True, workers=workers, oracle=oracle,
                      on_step=lambda m: print("  " + m))
         return 0
+    if choice == "on":
+        from .intake import brief_hash, canonical_brief, load_brief_file, run_intake
+        model = args.model or C.ROLE_MODEL["planner"]
+        brief_path = getattr(args, "brief", None)
+        if brief_path:
+            obj, why = load_brief_file(Path(brief_path))
+            if obj is None:
+                ui.note(why, "bad")
+                return 8
+            from_file = True
+            intake_ledger = Ledger()
+        else:
+            prov = provider_for(model, args.provider, base_url=args.base_url,
+                                api_key=getattr(args, "api_key", None),
+                                max_tokens=args.max_tokens)
+            if not prov.available():
+                ui.note("thiếu key cho intake", "bad")
+                return 8
+            intake_ledger = Ledger()
+
+            def _ask(question: str) -> str:
+                return input(ui.c(f"\n  {question} ", "bold"))
+
+            got = run_intake(
+                args.task, prov, intake_ledger,
+                clarify_max=max(0, int(getattr(args, "clarify_max", 3) or 0)),
+                ask=_ask, model=model, declared_price=plan.declared_price)
+            if not got["ok"] or got["brief"] is None:
+                ui.note(got["reason"] or "brief hỏng", "bad")
+                return 8
+            obj = got["brief"]
+            from_file = False
+        plan.brief = obj
+        plan.brief_hash = brief_hash(obj)
+        print(canonical_brief(obj))
+        if not from_file:
+            try:
+                ans = input(ui.c("\n  Duyệt brief này? [y/N] ", "bold")).strip().lower()
+            except (EOFError, KeyboardInterrupt):
+                ans = "n"
+            if ans not in ("y", "yes", "có", "co"):
+                ui.note("chưa duyệt brief — không chạy planner.", "warn")
+                return 8
     if plan.dual_approval and args.approve:
         print()
         ui.note("dual_approval không nhận --approve. Cần hai người khác tên.", "warn")
@@ -902,7 +959,8 @@ def cmd_team(args) -> int:
                        base_url=args.base_url, api_key=getattr(args, "api_key", None),
                        max_tokens=args.max_tokens,
                        workers=workers, depth=sub_depth, root=Path.cwd(),
-                       oracle=oracle, on_step=lambda m: print("  " + m))
+                       oracle=oracle, ledger=intake_ledger,
+                       on_step=lambda m: print("  " + m))
 
     ui.title("KẾT LUẬN")
     st = res["status"]
