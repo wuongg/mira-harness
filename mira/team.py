@@ -1318,6 +1318,16 @@ def cmd_team(args) -> int:
             ui.note(why, "bad")
             return 8
         plan.role_prompts = prompts
+    if getattr(args, "brief", None) and not getattr(plan, "brief", None):
+        from .intake import brief_hash, load_brief_file
+        obj, why = load_brief_file(Path(args.brief))
+        if obj is None:
+            ui.note(why, "bad")
+            return 8
+        plan.brief = obj
+        plan.brief_hash = brief_hash(obj)
+    if getattr(args, "require_evidence", False):
+        plan.require_evidence = True
     if plan.dual_approval and args.approve:
         print()
         ui.note("dual_approval không nhận --approve. Cần hai người khác tên.", "warn")
