@@ -238,3 +238,88 @@ def run_eval(root: Path | None = None) -> int:
         print(f"{row['name']}\t{mark}\t{row['turns']} vòng\t${row['costUsd']:.4f}\t{row['layer']}\t{row['skills']}")
     print(f"{passed}/{len(rows)} qua\t{turns} vòng\t${cost:.4f}")
     return 0 if passed == len(rows) else 1
+
+
+AXES = (
+    ("lenh_an", "mệnh lệnh ẩn"),
+    ("gia_danh", "giả danh hệ thống"),
+    ("lo_key", "dụ lộ key"),
+    ("path_escape", "../-escape"),
+    ("homoglyph", "homoglyph unicode"),
+    ("tieng_viet", "tiếng Việt có dấu"),
+)
+
+
+def adversarial_path() -> Path:
+    return Path(__file__).resolve().parents[1] / "eval" / "adversarial" / "cases.jsonl"
+
+
+def load_cases(path: Path) -> list[dict]:
+    rows = []
+    allowed = {slug for slug, _name in AXES}
+    for line in path.read_text(encoding="utf-8").splitlines():
+        if not line.strip():
+            continue
+        row = json.loads(line)
+        if not {"id", "axis", "expected", "input"} <= set(row):
+            raise ValueError("thiếu khóa")
+        if row["axis"] not in allowed or row["expected"] not in ("block", "allow"):
+            raise ValueError("axis hoặc expected lạ")
+        if row["axis"] == "path_escape" and not row.get("path"):
+            raise ValueError("thiếu path")
+        rows.append(row)
+    if len(rows) != 50:
+        raise ValueError(f"cần 50 case, có {len(rows)}")
+    return rows
+
+
+def predict_case(case: dict, root: Path) -> str:
+    if case["axis"] == "path_escape":
+        from .tools import Session, _denied_path
+        session = Session(root=root, mode="default", approve=lambda _t, _a: False)
+        raw = case["path"]
+        target = Path(raw)
+        if not target.is_absolute():
+            target = root / raw
+        blocked = session._arg_outside(raw) or _denied_path(root, target)
+        return "block" if blocked else "allow"
+    from .pipeline import content_signal
+    return "block" if content_signal(case["input"])["detected"] else "allow"
+
+
+def score_cases(cases: list[dict]) -> list[dict]:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        guesses = [predict_case(case, root) for case in cases]
+    groups = []
+    for slug, name in AXES:
+        chosen = [(case, guess) for case, guess in zip(cases, guesses) if case["axis"] == slug]
+        tp = sum(1 for case, guess in chosen if case["expected"] == "block" and guess == "block")
+        fp = sum(1 for case, guess in chosen if case["expected"] == "allow" and guess == "block")
+        fn = sum(1 for case, guess in chosen if case["expected"] == "block" and guess == "allow")
+        prec = tp / (tp + fp) if tp + fp else None
+        rec = tp / (tp + fn) if tp + fn else None
+        groups.append({"slug": slug, "name": name, "n": len(chosen),
+                       "tp": tp, "fp": fp, "fn": fn, "precision": prec, "recall": rec})
+    return groups
+
+
+def format_report(groups: list[dict]) -> str:
+    lines = ["nguồn: case viết tay, không phải shadow RNG",
+             "nhóm\tslug\tn\tprecision\trecall"]
+    for row in groups:
+        prec = "n/a" if row["precision"] is None else f"{row['precision']:.2f}"
+        rec = "n/a" if row["recall"] is None else f"{row['recall']:.2f}"
+        lines.append(f"{row['name']}\t{row['slug']}\t{row['n']}\t{prec}\t{rec}")
+    return "\n".join(lines)
+
+
+def run_adversarial(path: Path | None = None) -> int:
+    file = path or adversarial_path()
+    try:
+        cases = load_cases(file)
+    except (OSError, json.JSONDecodeError, ValueError) as exc:
+        print(f"suite adversarial hỏng: {exc}")
+        return 2
+    print(format_report(score_cases(cases)))
+    return 0

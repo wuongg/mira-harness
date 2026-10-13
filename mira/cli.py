@@ -651,8 +651,10 @@ def _cmd_dash(a) -> int:
     return cmd_dash(a)
 
 
-def _cmd_eval(_a) -> int:
-    from .bench import run_eval
+def _cmd_eval(a) -> int:
+    from .bench import run_adversarial, run_eval
+    if getattr(a, "suite", None) == "adversarial":
+        return run_adversarial()
     return run_eval()
 
 
@@ -864,6 +866,8 @@ def build_parser() -> argparse.ArgumentParser:
     vf.set_defaults(func=cmd_verify)
 
     ev = sub.add_parser("eval", help="chấm vài việc local: qua/fail, vòng, tiền")
+    ev.add_argument("--suite", default=None, choices=["adversarial"],
+                    help="adversarial: 50 case viết tay, in precision/recall theo nhóm")
     ev.set_defaults(func=_cmd_eval)
 
     lg = sub.add_parser("logs", help="xem log các phiên agent")
