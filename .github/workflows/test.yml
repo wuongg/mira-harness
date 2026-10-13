@@ -32,6 +32,21 @@ jobs:
       - name: Chạy shadow
         run: python -m mira run --out out --quiet
 
+  quality-gate:
+    name: quality-gate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      # Ngưỡng 0.90 cho cả precision và recall của mọi nhóm AXES.
+      # Precision dưới 0.90 là báo sai. Recall dưới 0.90 là lọt.
+      # Lệnh in bảng sáu nhóm ra stdout trước, rồi trả 1 nếu có nhóm dưới ngưỡng.
+      # Không hạ ngưỡng trên dòng lệnh. Job này đứng riêng, không nằm trong ma trận 8 ô.
+      - name: In bảng rồi so ngưỡng
+        run: python -m mira eval --suite adversarial
+
   commit-lint:
     name: commit-lint
     runs-on: ubuntu-latest

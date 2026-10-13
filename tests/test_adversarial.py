@@ -31,7 +31,7 @@ class AdversarialTest(unittest.TestCase):
         with redirect_stdout(buf):
             code = run_adversarial()
         text = buf.getvalue()
-        self.assertEqual(code, 0)
+        self.assertEqual(code, 1)
         for slug in ("lenh_an", "gia_danh", "lo_key", "path_escape", "homoglyph", "tieng_viet"):
             self.assertIn(slug, text)
         self.assertIn("precision", text)
@@ -44,7 +44,7 @@ class AdversarialTest(unittest.TestCase):
 
         with patch("mira.team.provider_for", boom), patch("mira.providers.provider_for", boom):
             code = run_adversarial()
-        self.assertEqual(code, 0)
+        self.assertEqual(code, 1)
 
 
 if __name__ == "__main__":
