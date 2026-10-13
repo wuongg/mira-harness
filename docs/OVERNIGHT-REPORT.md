@@ -2,89 +2,109 @@
 
 ## 1. Mốc
 
-- SHA đầu vào local: `bb587009da2b4d90edc6eeb0384114e5e83ba797` trên `main`, ahead origin 4 commit. Origin lúc bắt đầu là `4a30cfd`.
-- Nhánh làm việc: `agent/overnight-rd-2026-10-13`. Worktree `C:\Users\phamv\Downloads\mira-overnight`. Ba file markdown kế hoạch chưa commit ở checkout gốc được để nguyên, không đưa vào commit.
-- SHA mã đã kiểm CI: `c8461bb8a27f2ec9ca1c423fc91c7f999a8ae3b2`.
-- CI SHA đó: https://github.com/wuongg/mira-harness/actions/runs/38427243145 — `conclusion: success`. 11 job của workflow: 8 unittest (ubuntu và windows, Python 3.9–3.12), shadow, quality-gate, commit-lint. Không có job đỏ.
-- Commit báo cáo này nằm sau SHA trên. CI của commit báo cáo là lần chạy kế tiếp trên cùng nhánh.
-- Pull request: chưa tạo được. `gh auth status` báo chưa đăng nhập. Không lấy credential để gọi API. Link mở PR: https://github.com/wuongg/mira-harness/compare/main...agent/overnight-rd-2026-10-13?expand=1
+- SHA đầu vào: `bb587009da2b4d90edc6eeb0384114e5e83ba797`.
+- Nhánh: `agent/overnight-rd-2026-10-13`. Worktree `C:\Users\phamv\Downloads\mira-overnight`.
+- SHA cuối cùng đã có CI xanh ở thời điểm viết báo cáo này: `e232212` (Q4).
+- Ba file markdown kế hoạch chưa commit ở checkout gốc không được đụng.
+- Pull request: chưa tạo. `gh` chưa đăng nhập. Link: https://github.com/wuongg/mira-harness/compare/main...agent/overnight-rd-2026-10-13?expand=1
 
-## 2. Trạng thái
+## 2. Hàng đợi
 
-- Nền Windows CI: hoàn thành từ trước phiên này. Run `4a30cfd` đã success (https://github.com/wuongg/mira-harness/actions/runs/38422866084). Không sửa lại bản vá path 8.3.
-- Bốn commit P3 chưa có trên origin/main được đẩy trong nhánh này, không push `main`.
-- Hợp đồng brief và sổ tiêu chí: hoàn thành trên provider giả.
-- PR: bị chặn vì `gh` chưa đăng nhập.
+| Mục | Trạng thái | SHA | CI |
+| --- | --- | --- | --- |
+| Q1 | đạt | `5dc8b76` | https://github.com/wuongg/mira-harness/actions/runs/38430189312 success |
+| Q2 | đạt | `21e7dd6` | https://github.com/wuongg/mira-harness/actions/runs/38430530807 success |
+| Q3 | đạt | `6b8eb79` | https://github.com/wuongg/mira-harness/actions/runs/38430813856 success |
+| Q4 | đạt | `e232212` | https://github.com/wuongg/mira-harness/actions/runs/38431738409 success, 11 job |
+| Q5 | đạt trên máy, CI của commit này là lần chạy sau khi push | commit báo cáo này | chưa có URL lúc viết |
+| Q6 | chưa làm | | |
+| Q7 | chưa làm | | |
+| Q8 | chưa làm | | |
 
-## 3. Vấn đề đã chọn
+Q2 có thêm một run success trùng SHA: https://github.com/wuongg/mira-harness/actions/runs/38430528319
 
-Người dùng đổi ý giữa chừng, và đội vẫn có thể báo xong khi verifier chỉ nói PASS.
+## 3. Q1 — bằng chứng
 
-Mira trước thay đổi: brief đã có schema (`mira/intake.py`, khóa `acceptance_criteria` và `constraints`). Resume đọc checkpoint và chạy tiếp. Trạng thái `ok` khi verifier PASS và các cổng diff/lệnh đã có. Brief không bị so với lần chạy trước. PASS với `evidence: []` vẫn giao nếu không có brief, và cả khi có brief.
+Trước: tiêu chí `proven` nếu câu nằm trong `evidence` của verifier, hoặc mọi file có đuôi được nêu đều nằm trong diff staging. Đó là bản `c8461bb`.
 
-Nguồn đã đọc:
+Sau: chỉ lệnh bắt đầu bằng `check:` do harness tự chạy (`shell=False`, env đã bỏ key, timeout 30s, cwd là staging nếu có) và thoát 0 mới là `proven`. Thoát khác 0 là `failed`. Không có lệnh, lệnh rỗng, hết giờ hoặc không chạy được là `unproven`. `failed` cũng chặn giao. Cổng chỉ chạy khi `--require-evidence` và brief có tiêu chí.
 
-- OpenAI Codex, plan mode và goal: https://developers.openai.com/codex/learn/best-practices và https://developers.openai.com/cookbook/examples/codex/using_goals_in_codex — tài liệu nói completion phải đối chiếu evidence, không phải niềm tin của model. Đây là hướng thiết kế, chưa đo Codex trên cùng nhiệm vụ với Mira.
-- Aider, architect và ask: https://aider.chat/docs/usage/modes.html — architect đề xuất rồi editor sửa file. Tài liệu không mô tả sổ nghĩa vụ từng tiêu chí. Chưa đối chiếu hành vi thật.
-- Claude Code plan mode: các bài thứ cấp (không phải trang docs.anthropic.com mình đã mở) mô tả plan mode đọc code và không sửa file cho đến khi người duyệt. Không kết luận Anthropic không có sổ bằng chứng.
+Lệnh: `py -3 -m unittest discover -s tests -p "test_obligations.py" -v`
 
-Khoảng trống làm được trong Mira mà không gọi API trả phí: so hai brief bằng code, và chỉ giao khi từng tiêu chí có trích dẫn hoặc file nêu trong tiêu chí thực sự đổi.
+Selftest trước commit Q1: `Ran 441 tests`, `OK (skipped=2)`.
 
-## 4. Ý tưởng đã loại
+## 4. Q2 — hợp đồng
 
-- Critic thích ứng: Mira đã có verifier và oracle. Thêm call sẽ tốn ngân sách model. Phiên này không được gọi API trả phí, nên không đo được chất lượng critic.
-- Thử vài phương án trong sandbox: nhân số lần chạy, không có thước chất lượng độc lập khi provider là giả.
-- Bài học thất bại thành chính sách: lời model không được thành luật. Repo đã có case đối kháng cố định. Không thêm vòng học trong đêm.
-- Hai ý trên và critic đều thất bại phép thử “chứng minh bằng provider giả mà không đổi ngân sách hoặc không bịa điểm chất lượng”.
+`contract_diff` so goal, deliverables, acceptance_criteria, constraints. Resume có brief mới mà hash khác checkpoint thì thoát 2, câu `yêu cầu đã đổi — không tiếp tục kế hoạch cũ`, không gọi model, không ghi đè brief cũ. Đổi mỗi câu hỏi cũng bị chặn vì hash. Checkpoint giữ `contract.version`, `hash`, `parent`.
 
-## 5. Cách dùng
+Lệnh: `py -3 -m unittest discover -s tests -p "test_contract.py" -v`
 
-Hợp đồng. Brief là JSON đúng schema intake. `mira team --resume <id> --brief <file>` từ chối, thoát 2, câu `yêu cầu đã đổi — không tiếp tục kế hoạch cũ`, khi goal, tiêu chí hoặc constraints đổi. Không gọi model. Cùng nội dung thì không hủy.
+Selftest trước commit Q2: `Ran 444 tests`, `OK (skipped=2)`.
 
-Sổ tiêu chí, tắt mặc định để lần chạy cũ không đổi nghĩa. Bật bằng `mira team --require-evidence` khi đã có brief. Mỗi tiêu chí:
+## 5. Q3 — cờ sống qua resume
 
-- `proven` nếu `verdict_parsed.evidence` chứa đúng câu tiêu chí, hoặc mọi file có đuôi được nêu trong tiêu chí nằm trong `staging_evidence.changed`.
-- `unproven` thì trạng thái thành `withheld`, lý do `còn tiêu chí chưa có bằng chứng`.
+`require_evidence` nằm trong checkpoint. Resume không truyền cờ không tắt cổng đã bật. Checkpoint cũ thiếu khóa được đọc là tắt. Brief thiếu thì không crash, cổng không chạy.
 
-`result.md` có mục tiêu chí khi sổ được tính. Làn, nhãn và cổng người không đọc từ brief.
+Lệnh đi qua `cmd_team`: `py -3 -m unittest discover -s tests -p "test_resume_policy.py" -v`
 
-Ví dụ đo, provider giả, không mạng:
+Selftest trước commit Q3: `Ran 447 tests`, `OK (skipped=2)`.
 
-```
-py -3 -m unittest discover -s tests -p "test_contract.py" -v
-py -3 -m unittest discover -s tests -p "test_obligations.py" -v
-```
+## 6. Q4 — luồng
 
-## 6. So sánh
+`tests/test_flow.py`, provider giả, không mạng:
 
-Cùng plan làn 1, cùng provider giả, cùng giá khai báo, không brief: verifier PASS, `evidence` rỗng, trạng thái `ok`.
+- Intake trả brief, rồi `cmd_team` với `--brief` và `--require-evidence`: check thoát 0 thì in `proven:` và ghi `out`.
+- Cắt sau worker rồi resume: chỉ gọi verifier, không gọi lại worker.
+- Brief đổi deliverable: thoát 2, brief trong checkpoint giữ nguyên, không gọi provider.
+- Provider ném lỗi: thoát 3, không có câu đã ghi executor, checkpoint `status=error`, `total_usd=0`.
 
-Cùng plan, có brief một tiêu chí, `--require-evidence` (trong test là `plan.require_evidence = True`), verifier không trích tiêu chí và không có file đổi: trạng thái `withheld`, tiêu chí `unproven`.
+`--brief` khi intake tắt vẫn được nạp. Trước Q4, brief chỉ được đọc khi intake bật.
 
-Cùng cờ, file `app.py` trong tiêu chí được ghi khác trong staging: tiêu chí `proven`, trạng thái `ok`.
+Entry point và resource package không đổi, nên không cài từ artifact.
 
-Resume với brief đổi tiêu chí: 0 lần gọi provider.
+Selftest trước commit Q4: `Ran 451 tests`, `OK (skipped=2)`.
 
-Giới hạn phép đo: đây là đếm trạng thái trên fixture, không phải điểm chất lượng model thật. Chi phí model của hai nhánh bằng nhau vì cổng chạy sau khi đội đã gọi. Không có số liệu can thiệp của người dùng thật.
+## 7. Q5 — tập đánh giá tách
 
-## 7. Kiểm tra
+29 tình huống trong `eval/overnight/scenarios.jsonl`. Hash đóng băng `4f0423d7d76741f587b3ea18a089cdbab2bde0a161b87208bb91344ce79db6e5` trong `scenarios.sha256`. Runner từ chối chấm nếu hash lệch.
 
-- Selftest worktree, `py -3` (máy này không có `python3`): `Ran 438 tests`, `OK (skipped=2)`, thoát 0, trước commit `c8461bb`.
-- CI `c8461bb`: URL ở mục 1, success, gồm bốn ô Windows.
+Baseline là hàm bằng chứng chép từ `git show c8461bb:mira/obligations.py`, không phải process của cây cũ. Cùng file đáp án.
 
-## 8. Phản biện còn mở
+Lệnh: `py -3 tools/overnight_eval.py`
 
-- Khớp tiêu chí bằng chuỗi con. Tiêu chí ngắn có thể nằm tình cờ trong một trích dẫn khác.
-- Constraints chỉ làm hỏng kế hoạch cũ khi đổi văn bản. Không có kiểm “việc làm có vi phạm ràng buộc không”.
-- Cổng bằng chứng tắt mặc định. Người không truyền cờ vẫn nhận PASS như trước.
-- File được nêu nhưng diff chỉ cần file đó khác byte. Không đọc nội dung có đúng yêu cầu hay không.
+Kết quả: `scenarios 29`, `baseline_false_deliver 4`, `baseline_false_block 4`, `current_mismatch 0`.
 
-## 9. Chưa đủ bằng chứng để gọi là tốt hơn
+Bàn giao sai của baseline (coi là proven dù đáp án không phải proven): E01 chép câu, E02 file đổi đúng tên, E11 câu nằm trong trích dẫn dài hơn, E15 file `report.md` sau khi cắt khoảng trắng.
 
-Chưa chạy model thật. Chưa so Mira với Codex, Aider hay Claude Code trên cùng bộ nhiệm vụ. Chưa đo số lần người dùng phải sửa kết quả. Điểm quality-gate đối kháng không phải thước của hai tính năng này.
+Chặn sai của baseline (không proven dù check thoát 0): E03, E09, E13, E14.
+
+Giới hạn còn lại, không phải mismatch của bản hiện tại:
+
+- C07 câu hỏi và C08 giả định không làm `contract_diff` invalidates, nhưng hash khác nên resume vẫn thoát 2.
+- C09 khoảng trắng: diff sau khi cắt không hủy, hash thô vẫn khác.
+- E16 đường dẫn `C:\...` không được quote: `shlex` posix nuốt `\`, check thành `unproven`. Lệnh phải được quote kiểu `shlex.join`.
+- R02/R03 dùng provider giả. Không phải điểm model thật.
+
+Selftest cùng lúc: `Ran 451 tests`, `OK (skipped=2)`. Mira không đổi ở Q5 nên số test không tăng.
+
+## 8. Phương án đã loại
+
+- Critic thêm một lần gọi model: không có ngân sách API.
+- Chạy nhiều phương án sandbox rồi chấm bằng provider giả: không có thước độc lập.
+- Để lời model thành luật: đã loại từ đầu phiên.
+- Coi trích dẫn hoặc file đổi là proof: đã bỏ ở Q1 vì chính là bàn giao sai trong Q5.
+- Sửa đáp án Q5 sau khi runner đỏ: lần đỏ đầu là lệnh check chưa quote và checkpoint resume thiếu field log. Sửa runner, không sửa dòng đáp án cũ. E16 được thêm rồi hash lại trước lần chấm cuối.
+
+## 9. Chưa đủ bằng chứng
+
+- Chưa chạy model trả phí. Số 4 và 4 là đếm fixture, không phải chất lượng model.
+- Chưa so Mira với Codex, Aider, Claude Code trên cùng nhiệm vụ.
+- Baseline Q5 không được chạy bằng checkout `c8461bb` riêng. Hàm được chép từ blob đó.
+- Ngắt giữa chừng ở Q4 là ghi lại snapshot `next_index == 1`, không phải kill process.
+- `--require-evidence` vẫn tắt mặc định.
 
 ## 10. Cần quyết định
 
-- Đăng nhập `gh` rồi tạo PR từ nhánh `agent/overnight-rd-2026-10-13` vào `main`, hoặc bảo mình tạo khi đã có token.
-- Có bật `--require-evidence` mặc định cho lần chạy có brief hay không. Mặc định hiện tắt vì bật sẽ đổi các test intake đang chờ thoát 0.
-- Ngân sách API nếu muốn đo hai tính năng trên model thật.
+- Đăng nhập `gh` để mở PR. Không merge, không push `main`.
+- Có bật `--require-evidence` mặc định khi đã có brief hay không.
+- Ngân sách API nếu muốn đo trên model thật.
