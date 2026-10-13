@@ -1,9 +1,13 @@
-# R0 shadow — harness đo lường cho SPEC đội nhóm agent
+# Mira — harness đo lường cho SPEC đội nhóm agent
 
 Chạy toàn bộ đường ống của SPEC (**T1a → T1b → T2 → sàn động → cổng người →
 oracle/verifier → D1–D4 → sổ cái**) ở chế độ **shadow**: ghi log, **không hành động**.
 
 Bản này tương ứng **SPEC v1.2.1** · CLI v2.5.0.
+
+## Cấu trúc đặt tên
+
+Quy ước tên package, shape, file và commit nằm ở [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ---
 
@@ -16,11 +20,12 @@ Không cần kích hoạt môi trường ảo, không cần đứng trong thư m
 install.bat
 ```
 
-Linux / macOS: `python3 -m r0 install`
+Linux / macOS: `python3 -m mira install`
 
 Lệnh này ghi `mira` vào `%USERPROFILE%\.local\bin` và thêm thư mục đó vào PATH.
-Launcher là file `.cmd` gọi `python -m r0`, nên không dính file `mira.exe`
+Launcher là file `.cmd` gọi `python -m mira`, nên không dính file `mira.exe`
 mà AppLocker trên Windows hay chặn.
+Lệnh `r0-shadow` còn chạy được đến phiên bản kế tiếp, in cảnh báo, rồi bị gỡ.
 
 Mở **terminal mới**, gõ:
 
@@ -48,14 +53,14 @@ python3 -m venv .venv
 source .venv/bin/activate        # Linux/macOS
 .venv\Scripts\activate          # Windows
 pip install -e .
-mira                        # vào phiên — hoặc `python -m r0 install` để gõ được ở mọi terminal
+mira                        # vào phiên — hoặc `python -m mira install` để gõ được ở mọi terminal
 ```
 
 ### Cách 3 · không cài gì cả
 
 ```bash
-python3 -m r0                    # vào phiên, chạy thẳng từ mã nguồn
-python3 -m r0 selftest           # chạy bộ kiểm tra
+python3 -m mira                    # vào phiên, chạy thẳng từ mã nguồn
+python3 -m mira selftest           # chạy bộ kiểm tra
 ```
 
 ---
@@ -131,7 +136,7 @@ pip install -e .
 Xong. Kiểm tra: `mira doctor` — phải báo **môi trường OK**.
 Rồi `mira selftest` — selftest là unittest, phải PASS, không cần thư mục out.
 
-Không muốn cài? Chạy thẳng: `python3 -m r0 <lệnh>`
+Không muốn cài? Chạy thẳng: `python3 -m mira <lệnh>`
 Không có Python? `docker build -t mira . && docker run --rm -v "$PWD/out:/app/out" mira run`
 
 ---
@@ -252,7 +257,7 @@ OPENAI_API_KEY=...      # cho model gpt
 XAI_API_KEY=...         # cho model grok
 ```
 
-Thứ tự đọc khóa: tham số `--api-key`, rồi biến môi trường, rồi `~/.r0/keys.json` plaintext mode 0600. Windows bỏ qua chmod. Không in đầy đủ khóa ra màn hình.
+Thứ tự đọc khóa: tham số `--api-key`, rồi biến môi trường, rồi `~/.mira/keys.json` plaintext mode 0600. Windows bỏ qua chmod. Không in đầy đủ khóa ra màn hình.
 
 ### Fail-closed — điều quan trọng nhất
 
@@ -264,7 +269,7 @@ Thứ tự đọc khóa: tham số `--api-key`, rồi biến môi trường, r�
 | Thiếu API key | Dừng ngay, **không gọi** model nào |
 | Vượt trần ngân sách làn | Dừng, giữ phần đã làm |
 
-Cửa ghi duy nhất là hàm `_executor_write()` trong `r0/team.py` — không có đường
+Cửa ghi duy nhất là hàm `_executor_write()` trong `mira/team.py` — không có đường
 vòng nào khác (I1).
 
 ### Kiểm chứng không cần API key
@@ -445,7 +450,7 @@ Mã thoát: `0` xong · `1` lỗi/chặn · `2` đầu vào sai.
 
 ### Phiên lưu ở đâu
 
-`~/.r0/sessions/<id>.jsonl` — mỗi dòng một sự kiện. `/sessions` liệt kê, `/resume <id>` mở lại.
+`~/.mira/sessions/<id>.jsonl` — mỗi dòng một sự kiện. `/sessions` liệt kê, `/resume <id>` mở lại.
 
 ---
 
@@ -480,7 +485,7 @@ mira-install/
 ├── run.sh / run.bat        # chạy một phát, tự tạo venv
 ├── Dockerfile              # tự chạy selftest lúc build
 ├── labels.csv              # phiếu gán nhãn 320 dòng (bản mẫu)
-├── r0/
+├── mira/
 │   ├── cli.py              # dòng lệnh + menu tương tác
 │   ├── ui.py               # bảng, màu, thanh tiến độ (thuần thư viện chuẩn)
 │   ├── config.py           # ngưỡng, giá model, mô hình dùng lượng token
@@ -495,11 +500,11 @@ mira-install/
 
 | Muốn đổi | Sửa tệp |
 |---|---|
-| Ngưỡng, giá model, mô hình token | `r0/config.py` |
-| Bộ tác vụ mẫu | `r0/tasks.py` — hàm `load_tasks()` |
-| Logic đường ống | `r0/pipeline.py` |
-| Chỉ số báo cáo | `r0/metrics.py` |
-| Thêm lệnh CLI | `r0/cli.py` |
+| Ngưỡng, giá model, mô hình token | `mira/config.py` |
+| Bộ tác vụ mẫu | `mira/tasks.py` — hàm `load_tasks()` |
+| Logic đường ống | `mira/pipeline.py` |
+| Chỉ số báo cáo | `mira/metrics.py` |
+| Thêm lệnh CLI | `mira/cli.py` |
 
 ---
 

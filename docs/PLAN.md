@@ -1,3 +1,4 @@
+Tên module r0 trong tài liệu này nay là package mira.
 # Plan thực thi mira-harness (P0 đến P4)
 
 Sau khi duyệt, ghi nguyên văn tài liệu này vào [docs/PLAN.md](docs/PLAN.md). Chưa sửa code ở bước này. Nguồn sự thật là code vừa đọc, không phải số dòng trong [mira-harness_ke-hoach-cai-tien.md](mira-harness_ke-hoach-cai-tien.md). Phương án P0-03 khóa theo khuyến nghị B của MD. Không thêm dependency. Không nới I1, I2, I3, I5, I6, I8.
@@ -195,7 +196,7 @@ d. Commit: `[P0-06] Để selftest chạy trên clone sạch và một nguồn v
 
 a. Thay đổi code
 
-- README dòng 255 đổi thành thứ tự thật: tham số, biến môi trường, rồi `~/.r0/keys.json` plaintext mode 0600. Ghi rõ Windows bỏ qua chmod.
+- README dòng 255 đổi thành thứ tự thật: tham số, biến môi trường, rồi tệp khóa ở nhà người dùng, plaintext mode 0600. Ghi rõ Windows bỏ qua chmod.
 - `save()` khi `os.name=="nt"` in một dòng cảnh báo tiếng Việt, không nuốt im.
 - Thêm `--api-key-env TEN`. Giữ `--api-key` nhưng in cảnh báo và ghi trace `argv_key_warning` không kèm giá trị khóa. Parser không đưa giá trị khóa vào help example.
 - `run_shell`: `subprocess.run(..., env=cleaned)`. `cleaned` là bản sao môi trường đã xóa mọi tên trong `keys.ENV` và mọi biến kết thúc bằng `_API_KEY`.

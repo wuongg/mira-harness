@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+### Changed
+
+- Package Python là `mira`. Lệnh `r0` và `r0-shadow` còn là vỏ đến phiên bản kế tiếp.
+- Lần chạy đầu copy `~/.r0/keys.json` sang `~/.mira/keys.json` rồi đổi tên bản cũ thành `keys.json.migrated`.
+- Phiên thiếu được copy sang `~/.mira/sessions`. Thư mục phiên cũ được giữ.
+
 - Worker sửa trong staging và chỉ promote sau verifier cùng cổng người.
 - Hai người khác tên khi `dual_approval`. `--approve` không thay hai người.
 - Verifier chỉ nhận đúng `PASS` hoặc `FAIL`.
