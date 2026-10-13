@@ -448,11 +448,14 @@ Dài 40 ký tự.
 
 ## 7. Thứ tự sau khi duyệt
 
-1. `[P1-04]` rồi selftest. Dán dòng `Ran` và `OK`.
-2. `[P1-06]` rồi selftest. Dán dòng `Ran` và `OK`.
-3. `[P2-01]` rồi selftest, rồi nguyên bảng `py -3 -m mira eval --suite adversarial`.
-4. Nếu recall `lenh_an` nhỏ hơn 0,90: dừng, đưa bảng và phương án, không làm P2-02.
-5. `[P2-02]` rồi selftest. Đẩy. Dán URL run. Rồi lần đỏ có chủ đích và lần trả ngưỡng, mỗi lần một URL.
+Quyết định Pilot tính gọn: bỏ Pilot. Không có lệnh `mira pilot`, không có job CI tên pilot, không có thư mục kiểm riêng. Mọi bước kiểm của lát này gộp vào `py -3 -m mira selftest` (discover cả `tests/`, cùng cửa với job `unittest` trên CI) và, từ P2-02, vào job `quality-gate`. Không chạy một tập nhỏ hơn trước selftest.
+
+1. `[PRE-1]` `[PRE-2]` `[PRE-3]` ghi vào plan này, mỗi mục một commit, rồi selftest.
+2. `[P1-04]` rồi selftest. Dán dòng `Ran` và `OK`.
+3. `[P1-06]` rồi selftest. Dán dòng `Ran` và `OK`.
+4. `[P2-01]` rồi selftest, rồi nguyên bảng `py -3 -m mira eval --suite adversarial`.
+5. Nếu recall `lenh_an` nhỏ hơn 0,90: dừng, đưa bảng và phương án, không làm P2-02.
+6. `[P2-02]` rồi selftest. Đẩy. Dán URL run. Rồi lần đỏ có chủ đích và lần trả ngưỡng, mỗi lần một URL.
 
 Không push bốn commit sản phẩm cho đến khi người duyệt lát thực thi nói push. Plan này được commit chỉ khi người duyệt bảo commit plan. Bước lập plan không tự commit.
 
