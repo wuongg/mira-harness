@@ -95,6 +95,58 @@ DIRECTOR_SYSTEM = (
 ROLE_PROMPT = "Bạn là {name}. Việc được giao: {job}. Chỉ dùng công cụ đã được phép."
 
 
+def policy_of(step: dict) -> str:
+    """Trace cũ không có khóa. Đọc được, không bịa là đã cắt."""
+    value = step.get("context_policy") if isinstance(step, dict) else None
+    if value in ("full", "summarized", "truncated"):
+        return value
+    return "full"
+
+
+def budget_context(task: str, steps: list[str], *, limit: int = 12000) -> dict:
+    """Giữ câu việc và hai bước cuối. Bước cũ hơn được tóm tắt, không cắt im lặng."""
+    task = task or ""
+    kept = [s for s in (steps or []) if s]
+
+    def joined(parts: list[str]) -> str:
+        return "\n\n".join(p for p in parts if p)
+
+    if len(kept) <= 2 and len(task) + len(joined(kept)) <= limit:
+        return {"task": task, "prev": joined(kept), "policy": "full"}
+
+    recent = kept[-2:]
+    older = []
+    for index, step in enumerate(kept[:-2], start=1):
+        first = ((step.splitlines() or [""])[0])[:180]
+        older.append(f"bước {index}: {first} … [đã tóm tắt]")
+    policy = "summarized"
+    notice = "đã tóm tắt"
+
+    def body() -> str:
+        return joined([notice, *older, *recent])
+
+    while older and len(task) + len(body()) > limit:
+        older.pop(0)
+        policy = "truncated"
+        notice = "đã cắt theo chính sách"
+    if len(task) + len(body()) > limit:
+        policy = "truncated"
+        notice = "đã cắt theo chính sách"
+        room = limit - len(task) - len(notice) - 4
+        recent = [step[: max(0, room)] for step in recent[:1]]
+        if recent and recent[0] and "đã cắt theo chính sách" not in recent[0]:
+            recent[0] = recent[0] + "\nđã cắt theo chính sách"
+    return {"task": task, "prev": body(), "policy": policy}
+
+
+def role_prompt(role: str, task: str, steps: list[str], fields: dict, *, limit: int = 12000) -> tuple[str, str]:
+    budget = budget_context(task, steps, limit=limit)
+    text = ROLE_USER[role].format(task=budget["task"], prev=budget["prev"], **fields)
+    if role == "planner" and budget["prev"]:
+        text += "\n\nKẾ HOẠCH TRƯỚC:\n" + budget["prev"]
+    return text, budget["policy"]
+
+
 @dataclass
 class Role:
     name: str
@@ -475,13 +527,24 @@ def execute_plan(plan: TeamPlan, *, provider_name: str | None = None,
     def _model_of(role: str) -> str:
         return model_override or C.ROLE_MODEL.get(role, "sonnet-5.5")
 
-    def _user_of(role: str, pv: str, shard: tuple[int, int] | None) -> str:
-        u = ROLE_USER[role].format(
-            task=plan.task_text, prev=(pv or "")[:12000],
-            records=plan.task.observable["records"],
-            dollars=plan.task.observable["dollars"],
-            reversibility=plan.task.observable["reversibility"],
-            floor=plan.floor)
+    def _prior() -> list[str]:
+        return [s["text"] for s in steps if isinstance(s, dict) and s.get("text")]
+
+    def _as_steps(prior) -> list[str]:
+        if prior is None:
+            return []
+        if isinstance(prior, str):
+            return [prior] if prior else []
+        return [s for s in prior if isinstance(s, str) and s]
+
+    def _user_of(role: str, prior, shard: tuple[int, int] | None) -> tuple[str, str]:
+        fields = {
+            "records": plan.task.observable["records"],
+            "dollars": plan.task.observable["dollars"],
+            "reversibility": plan.task.observable["reversibility"],
+            "floor": plan.floor,
+        }
+        u, policy = role_prompt(role, plan.task_text, _as_steps(prior), fields)
         if shard:
             u += (f"\n\n[PHẦN {shard[0]}/{shard[1]} — chỉ làm phần này, "
                   f"không lặp lại phần của phần khác]")
@@ -502,38 +565,39 @@ def execute_plan(plan: TeamPlan, *, provider_name: str | None = None,
                 u += "\nNếu cần skill, dòng cuối đúng dạng: SKILLS: ten, ten"
             elif 0 <= skill_at[0] < len(skill_names):
                 u += "\n\n" + worker_skill_block(root, skill_names[skill_at[0]])
-        if role == "planner" and pv:
-            u += "\n\nKẾ HOẠCH TRƯỚC:\n" + (pv or "")[:4000]
-        return u
+        return u, policy
 
     def _rates(model: str) -> tuple[dict | None, str]:
         from .prices import resolve_price
         return resolve_price(model, plan.declared_price)
 
-    def _call(role: str, pv: str = "", shard: tuple[int, int] | None = None) -> dict:
+    def _call(role: str, prior=None, shard: tuple[int, int] | None = None) -> dict:
         """Một lần gọi model. An toàn khi chạy trong nhiều luồng."""
+        _user, policy = _user_of(role, prior, shard)
         model = _model_of(role)
         rates, source = _rates(model)
         if rates is None:
             return {"role": role, "model": model, "shard": shard, "blocked": True,
-                    "error": f"model {model} chưa có giá"}
+                    "error": f"model {model} chưa có giá", "context_policy": policy}
         prov = provider_for(model, provider_name, base_url=base_url,
                             api_key=api_key, max_tokens=max_tokens)
         if not prov.available():
             key = "ANTHROPIC_API_KEY" if prov.name == "anthropic" else "OPENAI_API_KEY"
             return {"role": role, "model": model, "shard": shard, "blocked": True,
-                    "error": f"thiếu key cho {prov.name} — đặt {key}"}
+                    "error": f"thiếu key cho {prov.name} — đặt {key}",
+                    "context_policy": policy}
         t0 = time.time()
         try:
-            text, usage = prov.call(ROLE_SYSTEM[role], _user_of(role, pv, shard))
+            text, usage = prov.call(ROLE_SYSTEM[role], _user)
         except ProviderError as e:
-            return {"role": role, "model": model, "shard": shard, "error": str(e)}
+            return {"role": role, "model": model, "shard": shard, "error": str(e),
+                    "context_policy": policy}
         with lock:                                  # sổ cái phải nguyên tử (I8)
             usd = ledger.charge(role, model, usage, prov.name, price=rates,
                                 declared_by_user=source == "cli", price_source=source)
         return {"role": role, "model": model, "shard": shard, "provider": prov.name,
                 "text": text, "usage": usage, "usd": round(usd, 6),
-                "seconds": round(time.time() - t0, 2)}
+                "seconds": round(time.time() - t0, 2), "context_policy": policy}
 
     def _fanout(items: list[tuple[str, str, tuple[int, int] | None]]) -> list[dict]:
         """Chạy nhiều lần gọi SONG SONG; trả về ĐÚNG THỨ TỰ chỉ số."""
@@ -575,7 +639,7 @@ def execute_plan(plan: TeamPlan, *, provider_name: str | None = None,
         verifier riêng, nhưng rẻ hơn).
         """
         if depth <= 0 or plan.lane < 2:
-            return _call("worker", pv=pv, shard=shard)
+            return _call("worker", prior=pv, shard=shard)
 
         # --- đội con: chia phần trần CÒN LẠI, không cấp trần mới (I8) ---
         with lock:
@@ -621,14 +685,19 @@ def execute_plan(plan: TeamPlan, *, provider_name: str | None = None,
         from .tools import Session
         model = _model_of("worker")
         rates, source = _rates(model)
+        budget = budget_context(plan.task_text, _as_steps(pv))
+        shown = budget["prev"] or plan.task_text
+        if budget["policy"] != "full":
+            shown = plan.task_text + "\n\n" + budget["prev"]
         if rates is None:
             return {"role": "worker", "model": model, "blocked": True,
-                    "error": f"model {model} chưa có giá", "edited": False}
+                    "error": f"model {model} chưa có giá", "edited": False,
+                    "context_policy": budget["policy"]}
         staging_box[0] = prepare_staging(Path(root))
         child = Session(root=staging_box[0], mode="acceptEdits", approve=lambda _t, _a: True)
         child.gate_task = plan.task_text
         child.recruited = True
-        res = run_turn(task=pv or plan.task_text, session=child, model=model,
+        res = run_turn(task=shown, session=child, model=model,
                        provider_name=provider_name, base_url=base_url, api_key=api_key,
                        max_tokens=max_tokens, protocol="text", no_stream=True,
                        price_in=plan.declared_price)
@@ -638,7 +707,8 @@ def execute_plan(plan: TeamPlan, *, provider_name: str | None = None,
         return {"role": "worker", "model": _model_of("worker"), "provider": "run_turn",
                 "text": res.get("final") or "", "usage": usage,
                 "usd": usd, "seconds": float(res.get("seconds") or 0),
-                "edited": True, "audit": list(child.audit), "error": res.get("error")}
+                "edited": True, "audit": list(child.audit), "error": res.get("error"),
+                "context_policy": budget["policy"]}
 
     def _over_cap() -> bool:
         return bool(plan.cap_usd) and ledger.total_usd > plan.cap_usd
@@ -673,7 +743,7 @@ def execute_plan(plan: TeamPlan, *, provider_name: str | None = None,
 
     # --- pha 1: planner → coordinator (tuần tự, có phụ thuộc dữ liệu) ---
     for role in head:
-        st = _call(role, pv=prev)
+        st = _call(role, prior=_prior())
         _log_step(st)
         steps.append(st)
         if st.get("error") or st.get("blocked"):
@@ -689,7 +759,7 @@ def execute_plan(plan: TeamPlan, *, provider_name: str | None = None,
                 if refused and not skill_retried[0] and not st.get("error"):
                     skill_retried[0] = True
                     prev += "\nTỪ CHỐI skill: " + ", ".join(refused)
-                    st2 = _call("planner", pv=prev)
+                    st2 = _call("planner", prior=_prior() + [f"TỪ CHỐI skill: {', '.join(refused)}"])
                     _log_step(st2)
                     steps.append(st2)
                     if st2.get("error") or st2.get("blocked"):
@@ -711,7 +781,7 @@ def execute_plan(plan: TeamPlan, *, provider_name: str | None = None,
             texts: list[str] = []
             for index, _name in enumerate(skill_names):
                 skill_at[0] = index
-                st = _call("worker", pv=prev)
+                st = _call("worker", prior=_prior())
                 _log_step(st)
                 steps.append(st)
                 worker_steps.append(st)
@@ -729,7 +799,7 @@ def execute_plan(plan: TeamPlan, *, provider_name: str | None = None,
         elif has_worker:
             from .tools import shape_of
             if root is not None and shape_of(plan.task_text) == "edit":
-                worker_steps = [_worker_edit(prev)]
+                worker_steps = [_worker_edit(_prior())]
                 for st in worker_steps:
                     _log_step(st)
                     steps.append(st)
@@ -742,9 +812,9 @@ def execute_plan(plan: TeamPlan, *, provider_name: str | None = None,
                 prev = worker_steps[0].get("text") or ""
             else:
                 if fanout:
-                    items = [(prev, (i + 1, workers)) for i in range(workers)]
+                    items = [(_prior(), (i + 1, workers)) for i in range(workers)]
                 else:
-                    items = [(prev, None)]
+                    items = [(_prior(), None)]
                 worker_steps = _parallel(_worker_step, items)
                 for st in worker_steps:
                     _log_step(st)
@@ -761,11 +831,11 @@ def execute_plan(plan: TeamPlan, *, provider_name: str | None = None,
         # --- pha 3: verifier (song song, mỗi worker một verifier) ---
         if status == "ok" and has_verifier:
             if fanout and worker_steps:
-                ver_steps = _fanout([("verifier", worker_steps[i].get("text", ""),
+                ver_steps = _fanout([("verifier", _prior(),
                                       (i + 1, len(worker_steps)))
                                      for i in range(len(worker_steps))])
             else:
-                ver_steps = [_call("verifier", pv=prev)]
+                ver_steps = [_call("verifier", prior=_prior())]
             for st in ver_steps:
                 env = _verdict_envelope(st.get("text", ""))
                 st["verdict_raw"] = st.get("text", "")
@@ -794,7 +864,7 @@ def execute_plan(plan: TeamPlan, *, provider_name: str | None = None,
         # --- pha 4: oracle → critic (tổng hợp) ---
         if status == "ok":
             for role in tail:
-                st = _call(role, pv=prev)
+                st = _call(role, prior=_prior())
                 _log_step(st)
                 steps.append(st)
                 if st.get("error") or st.get("blocked"):
