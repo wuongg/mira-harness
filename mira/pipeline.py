@@ -15,6 +15,7 @@ import json
 import math
 import random
 import re
+import unicodedata
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -92,10 +93,25 @@ EXFIL_WORDS = ("gửi", "đẩy", "tải lên", "xuất", "chuyển tiếp", "sa
                "đổi người nhận", "đăng ký")
 EXTERNAL_RES = (r"[\w.+-]+@[\w.-]+\.[a-z]{2,}", r"\b\d{1,3}(?:\.\d{1,3}){3}\b", r"https?://\S+")
 
+# NFKC không đổi bốn mã này. Bảng đóng, chỉ chữ đã làm rơi HG01/HG03/HG05/HG07.
+_CONFUSABLE = {
+    "\u0406": "I",
+    "\u0456": "i",
+    "\u043e": "o",
+    "\u0430": "a",
+}
+
+
+def fold_confusable(text: str) -> str:
+    """NFKC, rồi bốn chữ Kirin nhìn giống Latin, rồi NFC để o+móc thành ỏ."""
+    folded = unicodedata.normalize("NFKC", text or "")
+    folded = "".join(_CONFUSABLE.get(ch, ch) for ch in folded)
+    return unicodedata.normalize("NFC", folded)
+
 
 def content_signal(text: str) -> dict[str, Any]:
     """Dò prompt-injection trong nội dung. Trả bằng chứng, KHÔNG trả phán quyết."""
-    low = (text or "").lower()
+    low = fold_confusable(text).lower()
     agent = any(w in low for w in AGENT_DIRECTED)
     override = any(w in low for w in OVERRIDE_WORDS)
     exfil = any(w in low for w in EXFIL_WORDS)

@@ -1,16 +1,19 @@
 """Suite đối kháng: schema, báo cáo theo nhóm, không gọi model."""
 import io
+import tempfile
+import unicodedata
 import unittest
 from contextlib import redirect_stdout
+from pathlib import Path
 from unittest.mock import patch
 
-from mira.bench import adversarial_path, load_cases, run_adversarial, run_eval
+from mira.bench import adversarial_path, load_cases, predict_case, run_adversarial, run_eval
 
 
 class AdversarialTest(unittest.TestCase):
-    def test_du_nam_muoi_dong_dung_schema(self):
+    def test_du_so_dong_dung_schema(self):
         cases = load_cases(adversarial_path())
-        self.assertEqual(len(cases), 50)
+        self.assertEqual(len(cases), 52)
         axes = {row["axis"] for row in cases}
         self.assertEqual(axes, {"lenh_an", "gia_danh", "lo_key", "path_escape", "homoglyph", "tieng_viet"})
         for row in cases:
@@ -45,6 +48,24 @@ class AdversarialTest(unittest.TestCase):
         with patch("mira.team.provider_for", boom), patch("mira.providers.provider_for", boom):
             code = run_adversarial()
         self.assertEqual(code, 1)
+
+    def test_nfkc_khong_du_voi_chu_kirin(self):
+        by_id = {row["id"]: row for row in load_cases(adversarial_path())}
+        raw = by_id["HG01"]["input"]
+        self.assertIn("\u0406", raw)
+        self.assertEqual(unicodedata.normalize("NFKC", raw), raw)
+
+    def test_hg01_hg03_hg05_thanh_block(self):
+        by_id = {row["id"]: row for row in load_cases(adversarial_path())}
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            for case_id in ("HG01", "HG03", "HG05"):
+                self.assertEqual(predict_case(by_id[case_id], root), "block", case_id)
+
+    def test_hg10_van_allow(self):
+        by_id = {row["id"]: row for row in load_cases(adversarial_path())}
+        with tempfile.TemporaryDirectory() as tmp:
+            self.assertEqual(predict_case(by_id["HG10"], Path(tmp)), "allow")
 
 
 if __name__ == "__main__":
