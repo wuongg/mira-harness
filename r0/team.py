@@ -167,6 +167,7 @@ class TeamPlan:
     task: Task | None = None
     cap_usd: float = 0.0
     plan_hash: str = ""
+    declared_price: tuple[float, float] | None = None
 
     def as_dict(self) -> dict:
         d = {k: v for k, v in self.__dict__.items() if k != "task"}
@@ -328,16 +329,20 @@ class Ledger:
     total_out: int = 0
     subagent_runs: int = 0          # đếm đội con trong CẢ cây (chặn bùng nổ)
 
-    def charge(self, role: str, model: str, usage: dict, provider: str) -> float:
+    def charge(self, role: str, model: str, usage: dict, provider: str,
+               *, price: dict | None = None, declared_by_user: bool = False) -> float:
         tin, tout = usage.get("in", 0), usage.get("out", 0)
-        p = C.PRICES.get(model)
+        p = price if price is not None else C.PRICES.get(model)
         if p:
             usd = (tin * p["in"] + tout * p["out"]) / 1e6
         else:
-            usd = 0.0                     # model lạ: đếm token, không đoán giá
-        self.rows.append({"role": role, "model": model, "provider": provider,
-                          "in": tin, "out": tout, "usd": round(usd, 6),
-                          "priced": bool(p)})
+            usd = 0.0
+        row = {"role": role, "model": model, "provider": provider,
+               "in": tin, "out": tout, "usd": round(usd, 6),
+               "priced": bool(p)}
+        if declared_by_user:
+            row["declared_by_user"] = True
+        self.rows.append(row)
         self.total_usd += usd
         self.total_in += tin
         self.total_out += tout
@@ -350,7 +355,8 @@ class Ledger:
         return {"total_usd": round(self.total_usd, 6), "by_role": by_role,
                 "tokens_in": self.total_in, "tokens_out": self.total_out,
                 "subagent_runs": self.subagent_runs,
-                "all_priced": all(r["priced"] for r in self.rows)}
+                "all_priced": all(r["priced"] for r in self.rows) if self.rows else True,
+                "declared_by_user": any(r.get("declared_by_user") for r in self.rows)}
 
 
 # ------------------------------------------------------------- thực thi
@@ -383,7 +389,8 @@ def execute_plan(plan: TeamPlan, *, provider_name: str | None = None,
                  ledger: "Ledger | None" = None,
                  on_step: Callable[[str], None] | None = None,
                  dry_run: bool = False,
-                 root: Path | None = None) -> dict:
+                 root: Path | None = None,
+                 oracle: str | None = None) -> dict:
     """Chạy kế hoạch. Trả về bản ghi đầy đủ. KHÔNG tự ghi ra đĩa.
 
     `workers > 1` + làn 2: N worker chạy SONG SONG, rồi N verifier chạy song song.
@@ -439,9 +446,18 @@ def execute_plan(plan: TeamPlan, *, provider_name: str | None = None,
             u += "\n\nKẾ HOẠCH TRƯỚC:\n" + (pv or "")[:4000]
         return u
 
+    def _rates(model: str) -> dict | None:
+        if plan.declared_price is not None:
+            return {"in": plan.declared_price[0], "out": plan.declared_price[1]}
+        return C.PRICES.get(model)
+
     def _call(role: str, pv: str = "", shard: tuple[int, int] | None = None) -> dict:
         """Một lần gọi model. An toàn khi chạy trong nhiều luồng."""
         model = _model_of(role)
+        rates = _rates(model)
+        if rates is None:
+            return {"role": role, "model": model, "shard": shard, "blocked": True,
+                    "error": f"model {model} chưa có giá"}
         prov = provider_for(model, provider_name, base_url=base_url,
                             api_key=api_key, max_tokens=max_tokens)
         if not prov.available():
@@ -454,7 +470,8 @@ def execute_plan(plan: TeamPlan, *, provider_name: str | None = None,
         except ProviderError as e:
             return {"role": role, "model": model, "shard": shard, "error": str(e)}
         with lock:                                  # sổ cái phải nguyên tử (I8)
-            usd = ledger.charge(role, model, usage, prov.name)
+            usd = ledger.charge(role, model, usage, prov.name, price=rates,
+                                declared_by_user=plan.declared_price is not None)
         return {"role": role, "model": model, "shard": shard, "provider": prov.name,
                 "text": text, "usage": usage, "usd": round(usd, 6),
                 "seconds": round(time.time() - t0, 2)}
@@ -543,15 +560,21 @@ def execute_plan(plan: TeamPlan, *, provider_name: str | None = None,
         """Một worker sửa trong staging. Không mở worker thứ hai trên cùng một cây."""
         from .agent import run_turn
         from .tools import Session
+        model = _model_of("worker")
+        if _rates(model) is None:
+            return {"role": "worker", "model": model, "blocked": True,
+                    "error": f"model {model} chưa có giá", "edited": False}
         staging_box[0] = prepare_staging(Path(root))
         child = Session(root=staging_box[0], mode="acceptEdits", approve=lambda _t, _a: True)
         child.gate_task = plan.task_text
         child.recruited = True
-        res = run_turn(task=pv or plan.task_text, session=child, model=_model_of("worker"),
+        res = run_turn(task=pv or plan.task_text, session=child, model=model,
                        provider_name=provider_name, base_url=base_url, api_key=api_key,
-                       max_tokens=max_tokens, protocol="text", no_stream=True)
+                       max_tokens=max_tokens, protocol="text", no_stream=True,
+                       price_in=plan.declared_price)
         usage = res.get("usage") or {"in": 0, "out": 0}
-        usd = ledger.charge("worker", _model_of("worker"), usage, "run_turn")
+        usd = ledger.charge("worker", model, usage, "run_turn", price=_rates(model),
+                            declared_by_user=plan.declared_price is not None)
         return {"role": "worker", "model": _model_of("worker"), "provider": "run_turn",
                 "text": res.get("final") or "", "usage": usage,
                 "usd": usd, "seconds": float(res.get("seconds") or 0),
@@ -560,6 +583,13 @@ def execute_plan(plan: TeamPlan, *, provider_name: str | None = None,
     def _over_cap() -> bool:
         return bool(plan.cap_usd) and ledger.total_usd > plan.cap_usd
 
+    oracle_gate = "disabled"
+    if oracle == "on" and plan.lane == 2:
+        oracle_gate = "on"
+        if "oracle" not in plan.roles:
+            plan.roles = list(plan.roles) + ["oracle"]
+    run_tail = ("oracle",) if oracle_gate == "on" else ()
+
     # ------------------------------------------------------------- dry-run
     if dry_run:
         for role in expand_roles(plan.roles, plan.lane, workers):
@@ -567,11 +597,11 @@ def execute_plan(plan: TeamPlan, *, provider_name: str | None = None,
                           "system": ROLE_SYSTEM[role], "user_len": None})
             log(f"{role:<12} {_model_of(role):<16} (dry-run, không gọi)")
         return {"status": "ok", "fail_reason": None, "verifier_verdict": None,
-                "oracle_score": None, "steps": steps,
+                "oracle_score": None, "oracle_gate": oracle_gate, "steps": steps,
                 "ledger": ledger.summary(), "plan": plan.as_dict()}
 
     head = [r for r in plan.roles if r in HEAD_ROLES]
-    tail = [r for r in plan.roles if r in TAIL_ROLES]
+    tail = [r for r in plan.roles if r in run_tail]
     has_worker = "worker" in plan.roles
     has_verifier = "verifier" in plan.roles
 
@@ -731,6 +761,7 @@ def execute_plan(plan: TeamPlan, *, provider_name: str | None = None,
 
     return {"status": status, "fail_reason": fail_reason,
             "verifier_verdict": verifier_verdict, "oracle_score": oracle_score,
+            "oracle_gate": oracle_gate,
             "steps": steps, "ledger": ledger.summary(), "plan": plan.as_dict(),
             "depth": depth, "nested": any(s.get("sub") for s in steps),
             "staging": staging_out, "promoted": [], "promote_audit": []}
@@ -790,10 +821,19 @@ def cmd_team(args) -> int:
                  dollars=args.dollars, reversibility=args.reversibility,
                  output_type=args.output_type)
     plan = build_plan(args.task, **hints)
+    raw_price = getattr(args, "price_in", None)
+    if raw_price:
+        left, right = [float(part) for part in str(raw_price).split(",")]
+        plan.declared_price = (left, right)
     workers = max(1, int(getattr(args, "workers", 1) or 1))
     sub_depth = max(0, int(getattr(args, "sub_depth", 0) or 0))
     if plan.lane < 2:
         sub_depth = 0
+    oracle = getattr(args, "oracle", None)
+    if oracle not in ("on", "off"):
+        oracle = "off" if plan.lane < 2 or args.surface == "read_only" else "on"
+    if oracle == "on" and plan.lane == 2 and "oracle" not in plan.roles:
+        plan.roles = list(plan.roles) + ["oracle"]
     display = expand_roles(plan.roles, plan.lane, workers)
 
     ui.title("PHÂN VAI")
@@ -816,7 +856,8 @@ def cmd_team(args) -> int:
     if args.dry_run:
         print()
         ui.note("dry-run: chỉ in kế hoạch, KHÔNG gọi model, KHÔNG ghi gì", "info")
-        execute_plan(plan, dry_run=True, workers=workers, on_step=lambda m: print("  " + m))
+        execute_plan(plan, dry_run=True, workers=workers, oracle=oracle,
+                     on_step=lambda m: print("  " + m))
         return 0
     if plan.dual_approval and args.approve:
         print()
@@ -828,7 +869,7 @@ def cmd_team(args) -> int:
                        base_url=args.base_url, api_key=getattr(args, "api_key", None),
                        max_tokens=args.max_tokens,
                        workers=workers, depth=sub_depth, root=Path.cwd(),
-                       on_step=lambda m: print("  " + m))
+                       oracle=oracle, on_step=lambda m: print("  " + m))
 
     ui.title("KẾT LUẬN")
     st = res["status"]

@@ -259,7 +259,7 @@ Key chỉ đọc từ môi trường — **không bao giờ** ghi ra tệp, khô
 | Tình huống | Kết quả |
 |---|---|
 | Verifier trả `FAIL` | **Không ghi gì.** Hồ sơ lưu vào `withheld.json` |
-| Oracle chấm < 0,70 | **Không ghi gì** |
+| Oracle chấm < 0,70 | **Không ghi gì.** Cổng 0,70 chỉ chạy khi oracle bật |
 | Cổng tầng 2/3 chưa duyệt | **Không ghi gì** |
 | Thiếu API key | Dừng ngay, **không gọi** model nào |
 | Vượt trần ngân sách làn | Dừng, giữ phần đã làm |

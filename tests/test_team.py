@@ -327,5 +327,50 @@ class RosterTest(unittest.TestCase):
         self.assertIn("xong mot", res["final"])
 
 
+class _OracleProv:
+    def __init__(self, score: str):
+        self.score = score
+        self.name = "anthropic"
+
+    def available(self) -> bool:
+        return True
+
+    def call(self, system: str, user: str):
+        if "ORACLE" in (system or ""):
+            return self.score, {"in": 1, "out": 1}
+        if "VERIFIER" in (system or ""):
+            return "PASS", {"in": 1, "out": 1}
+        return "ke hoach", {"in": 1, "out": 1}
+
+
+class OracleFlagTest(unittest.TestCase):
+    def _plan(self):
+        return team.build_plan("soạn báo cáo nội bộ", surface="write_external",
+                               labels=["internal"], records=5000, dollars=3000)
+
+    def _run(self, score: str, oracle: str):
+        from unittest.mock import patch
+        plan = self._plan()
+        with patch("r0.team.provider_for", lambda *a, **k: _OracleProv(score)):
+            return team.execute_plan(plan, provider_name="anthropic", api_key="k",
+                                     oracle=oracle, on_step=lambda m: None)
+
+    def test_oracle_cham_0_4_thi_withheld(self):
+        res = self._run("SCORE: 0.4", "on")
+        self.assertEqual(res["status"], "withheld")
+
+    def test_oracle_cham_0_9_thi_ok(self):
+        res = self._run("SCORE: 0.9", "on")
+        self.assertEqual(res["status"], "ok")
+        self.assertGreaterEqual(res["oracle_score"], 0.9)
+
+    def test_oracle_tat_khong_gia_da_cham(self):
+        res = self._run("SCORE: 0.1", "off")
+        self.assertNotIn("oracle", [s["role"] for s in res["steps"]])
+        self.assertEqual(res["oracle_gate"], "disabled")
+        self.assertIsNone(res["oracle_score"])
+        self.assertEqual(res["status"], "ok")
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

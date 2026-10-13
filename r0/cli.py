@@ -737,6 +737,10 @@ def build_parser() -> argparse.ArgumentParser:
     tm.add_argument("--dry-run", dest="dry_run", action="store_true",
                     help="chỉ in kế hoạch phân vai, KHÔNG gọi model")
     tm.add_argument("--approve", action="store_true", help="duyệt cổng người trước khi ghi")
+    tm.add_argument("--price-in", dest="price_in", default=None,
+                    help="giá USD mỗi triệu token, dạng IN,OUT")
+    tm.add_argument("--oracle", choices=["on", "off"], default=None,
+                    help="cổng oracle ở làn 2; mặc định on trừ bề mặt read_only")
     tm.add_argument("--workers", type=int, default=1,
                     help="số worker song song ở làn 2 (mặc định 1)")
     tm.add_argument("--sub-depth", dest="sub_depth", type=int, default=0,
@@ -757,6 +761,8 @@ def build_parser() -> argparse.ArgumentParser:
                         help="auto (mặc định) · native (native tool-calling) · text (giao thức văn bản)")
         sp.add_argument("--max-turns", dest="max_turns", type=int, default=0,
                         help="trần vòng gọi công cụ (0 = mặc định 25)")
+        sp.add_argument("--price-in", dest="price_in", default=None,
+                        help="giá USD mỗi triệu token, dạng IN,OUT")
         sp.add_argument("--max-budget-usd", dest="max_budget_usd", type=float, default=None,
                         help="dừng ngay khi chi phí lượt vượt mức này (USD)")
         if positional:
