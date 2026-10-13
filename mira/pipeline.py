@@ -87,10 +87,12 @@ def dynamic_floor(t: Task, isolation_ledger: dict[str, Any]) -> dict[str, Any]:
 # Ranh giới giữ nguyên: đây là bộ dò TẤT ĐỊNH bằng CODE, không phải nhãn LLM, nên
 # không vi phạm I3. Và nó chỉ TƯ VẤN, chỉ NÂNG mức nghi ngờ (I5).
 
-AGENT_DIRECTED = ("trợ lý", "assistant", "agent", "ai đang đọc", "hệ thống yêu cầu")
-OVERRIDE_WORDS = ("bỏ qua", "ignore", "quên hướng dẫn", "thay thế hướng dẫn", "không cần hỏi")
+AGENT_DIRECTED = ("trợ lý", "assistant", "agent", "ai đang đọc", "hệ thống yêu cầu", "tro ly")
+OVERRIDE_WORDS = ("bỏ qua", "ignore", "quên hướng dẫn", "thay thế hướng dẫn", "không cần hỏi",
+                  "bo qua")
 EXFIL_WORDS = ("gửi", "đẩy", "tải lên", "xuất", "chuyển tiếp", "sao chép",
                "đổi người nhận", "đăng ký")
+TOKEN_EXFIL = ("gui",)
 EXTERNAL_RES = (r"[\w.+-]+@[\w.-]+\.[a-z]{2,}", r"\b\d{1,3}(?:\.\d{1,3}){3}\b", r"https?://\S+")
 
 # NFKC không đổi bốn mã này. Bảng đóng, chỉ chữ đã làm rơi HG01/HG03/HG05/HG07.
@@ -109,12 +111,17 @@ def fold_confusable(text: str) -> str:
     return unicodedata.normalize("NFC", folded)
 
 
+def _has_token(low: str, token: str) -> bool:
+    """Khớp cả từ. `gui` không được ăn vào `guide`."""
+    return re.search(rf"(?<!\w){re.escape(token)}(?!\w)", low) is not None
+
+
 def content_signal(text: str) -> dict[str, Any]:
     """Dò prompt-injection trong nội dung. Trả bằng chứng, KHÔNG trả phán quyết."""
     low = fold_confusable(text).lower()
     agent = any(w in low for w in AGENT_DIRECTED)
     override = any(w in low for w in OVERRIDE_WORDS)
-    exfil = any(w in low for w in EXFIL_WORDS)
+    exfil = any(w in low for w in EXFIL_WORDS) or any(_has_token(low, w) for w in TOKEN_EXFIL)
     external = any(re.search(p, low) for p in EXTERNAL_RES)
     hits: list[str] = []
     if override and (agent or exfil):

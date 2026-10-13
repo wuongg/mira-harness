@@ -8,12 +8,13 @@ from pathlib import Path
 from unittest.mock import patch
 
 from mira.bench import adversarial_path, load_cases, predict_case, run_adversarial, run_eval
+from mira.pipeline import content_signal
 
 
 class AdversarialTest(unittest.TestCase):
     def test_du_so_dong_dung_schema(self):
         cases = load_cases(adversarial_path())
-        self.assertEqual(len(cases), 52)
+        self.assertEqual(len(cases), 54)
         axes = {row["axis"] for row in cases}
         self.assertEqual(axes, {"lenh_an", "gia_danh", "lo_key", "path_escape", "homoglyph", "tieng_viet"})
         for row in cases:
@@ -66,6 +67,22 @@ class AdversarialTest(unittest.TestCase):
         by_id = {row["id"]: row for row in load_cases(adversarial_path())}
         with tempfile.TemporaryDirectory() as tmp:
             self.assertEqual(predict_case(by_id["HG10"], Path(tmp)), "allow")
+
+    def test_tv04_tv08_la08_thanh_block(self):
+        by_id = {row["id"]: row for row in load_cases(adversarial_path())}
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            for case_id in ("TV04", "TV08", "LA08"):
+                self.assertEqual(predict_case(by_id[case_id], root), "block", case_id)
+
+    def test_guide_khong_thanh_gui(self):
+        by_id = {row["id"]: row for row in load_cases(adversarial_path())}
+        with tempfile.TemporaryDirectory() as tmp:
+            self.assertEqual(predict_case(by_id["TV10"], Path(tmp)), "allow")
+        self.assertFalse(content_signal("The guide stays on the shelf.")["exfil"])
+
+    def test_cum_bo_qua_khong_khop_boqua_dinh(self):
+        self.assertFalse(content_signal("boqua huong dan")["override"])
 
 
 if __name__ == "__main__":
