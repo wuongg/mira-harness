@@ -1,4 +1,6 @@
 """Suite đối kháng: schema, báo cáo theo nhóm, không gọi model."""
+from __future__ import annotations
+
 import ctypes
 import io
 import os
