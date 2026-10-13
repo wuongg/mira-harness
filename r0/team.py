@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import json
 import os
+import random
 import re
 import shutil
 import threading
@@ -165,6 +166,7 @@ class TeamPlan:
     roles_reason: str
     task: Task | None = None
     cap_usd: float = 0.0
+    plan_hash: str = ""
 
     def as_dict(self) -> dict:
         d = {k: v for k, v in self.__dict__.items() if k != "task"}
@@ -216,7 +218,8 @@ def build_plan(task_text: str, **hints) -> TeamPlan:
                     gate_tier=gate["tier"], gate_minutes=gate["minutes"],
                     dual_approval=gate["dual_approval"], roles=roles,
                     roles_reason=reason, task=t,
-                    cap_usd=C.BUDGET.get(lane, {}).get("cap", 0.0))
+                    cap_usd=C.BUDGET.get(lane, {}).get("cap", 0.0),
+                    plan_hash=gate["plan_hash"])
 
 
 _COPY_SKIP = {".git", "__pycache__", ".env"}
@@ -256,6 +259,20 @@ def withhold_staging(staging: Path) -> Path:
         shutil.rmtree(dest)
     staging.rename(dest)
     return dest
+
+
+_PHRASE_WORDS = (
+    "cửa", "sổ", "trăng", "non", "gió", "lúa",
+    "đồi", "sông", "mây", "đá", "nắng", "rừng",
+)
+
+
+def two_phrases(seed: str) -> tuple[str, str]:
+    """Hai cụm bốn từ tiếng Việt, khác nhau, cùng một plan_hash."""
+    rng = random.Random(seed or "mira")
+    words = list(_PHRASE_WORDS)
+    rng.shuffle(words)
+    return " ".join(words[:4]), " ".join(words[4:8])
 
 
 def _rel_skipped(rel: Path) -> bool:
@@ -795,6 +812,10 @@ def cmd_team(args) -> int:
         ui.note("dry-run: chỉ in kế hoạch, KHÔNG gọi model, KHÔNG ghi gì", "info")
         execute_plan(plan, dry_run=True, workers=workers, on_step=lambda m: print("  " + m))
         return 0
+    if plan.dual_approval and args.approve:
+        print()
+        ui.note("dual_approval không nhận --approve. Cần hai người khác tên.", "warn")
+        return 6
     print()
     ui.title("THỰC THI")
     res = execute_plan(plan, provider_name=args.provider, model_override=args.model,
@@ -834,9 +855,41 @@ def cmd_team(args) -> int:
             ui.note(f"hồ sơ giữ lại: {d}/withheld.json", "info")
         return 3
 
+    def _hold() -> None:
+        if res.get("staging"):
+            held = withhold_staging(Path(res["staging"]))
+            res["staging"] = str(held)
+
     need = plan.gate_tier >= 2
     approved = True
-    if need and not args.approve:
+    if need and plan.dual_approval:
+        phrases = two_phrases(plan.plan_hash)
+        seen: list[str] = []
+        people: list[dict] = []
+        reject = 0
+        for index, phrase in enumerate(phrases, 1):
+            try:
+                name = input(ui.c(f"\n  Người {index} — tên: ", "bold")).strip()
+                got = input(ui.c(f"  Nhập cụm: {phrase} ", "bold")).strip()
+            except (EOFError, KeyboardInterrupt):
+                name, got = "", ""
+            if name and name in seen:
+                reject = 5
+                break
+            if not name or got != phrase:
+                reject = 4
+                break
+            seen.append(name)
+            people.append({"name": name, "time": time.strftime("%Y-%m-%dT%H:%M:%S"),
+                           "plan_hash": plan.plan_hash})
+        if reject:
+            print()
+            ui.note("hai người chưa duyệt — Executor không ghi.", "warn")
+            _hold()
+            return reject
+        res["gate_person"] = people
+        approved = True
+    elif need and not args.approve:
         try:
             ans = input(ui.c(f"\n  Cổng tầng {plan.gate_tier} — duyệt để ghi? [y/N] ", "bold")).strip().lower()
         except (EOFError, KeyboardInterrupt):
@@ -845,9 +898,7 @@ def cmd_team(args) -> int:
     if need and not approved:
         print()
         ui.note("chưa duyệt — Executor không ghi (đúng I1/I2).", "warn")
-        if res.get("staging"):
-            held = withhold_staging(Path(res["staging"]))
-            res["staging"] = str(held)
+        _hold()
         return 4
 
     if res.get("staging"):
