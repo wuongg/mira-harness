@@ -344,6 +344,8 @@ def load_checkpoint(root: Path, run_id: str) -> dict:
     if not path.is_file():
         raise CheckpointError("không có checkpoint cho id này")
     data = json.loads(path.read_text(encoding="utf-8"))
+    if int(data.get("version", 1)) != 1:
+        raise CheckpointError("checkpoint version không đọc được")
     if not _ledger_ok(data.get("ledger") or {}):
         raise CheckpointError("checkpoint lệch sổ cái")
     return data
@@ -513,6 +515,7 @@ def staging_evidence(root: Path, staging: Path, task: str, worker_text: str) -> 
     root = Path(root).resolve()
     staging = Path(staging).resolve()
     diff = False
+    changed: list[str] = []
     for path in staging.rglob("*"):
         if not path.is_file():
             continue
@@ -523,7 +526,7 @@ def staging_evidence(root: Path, staging: Path, task: str, worker_text: str) -> 
         old = dest.read_bytes() if dest.is_file() else None
         if old != path.read_bytes():
             diff = True
-            break
+            changed.append(rel.as_posix())
     claimed = bool(re.search(r"đã sửa|\bedited\b", worker_text or "", re.IGNORECASE))
     cmd = _named_command(task)
     exit_code = None
@@ -533,7 +536,8 @@ def staging_evidence(root: Path, staging: Path, task: str, worker_text: str) -> 
             proc = subprocess.run(argv, shell=False, cwd=str(staging), timeout=60,
                                   capture_output=True, text=True, env=_shell_env())
             exit_code = proc.returncode
-    return {"empty_diff": not diff, "claimed": claimed, "cmd": cmd, "exit": exit_code}
+    return {"empty_diff": not diff, "claimed": claimed, "cmd": cmd,
+            "exit": exit_code, "changed": changed}
 
 
 def execute_plan(plan: TeamPlan, *, provider_name: str | None = None,
@@ -609,6 +613,9 @@ def execute_plan(plan: TeamPlan, *, provider_name: str | None = None,
             },
             "declared_price": list(price) if price else None,
             "workers": workers,
+            "version": 1,
+            "brief": getattr(plan, "brief", None),
+            "brief_hash": getattr(plan, "brief_hash", None),
         })
 
     def _note(st: dict) -> dict:
@@ -1008,6 +1015,15 @@ def execute_plan(plan: TeamPlan, *, provider_name: str | None = None,
     # đội con không qua kiểm -> làm bẩn cả lượt, KHÔNG giao (đọc chặt của I2)
     if status == "ok" and any(s.get("degraded") for s in steps):
         status, fail_reason = "withheld", "có đội con không qua kiểm"
+    obligations = None
+    brief = getattr(plan, "brief", None)
+    if (getattr(plan, "require_evidence", False) and isinstance(brief, dict)
+            and brief.get("acceptance_criteria")):
+        from .obligations import judge_obligations, unproven
+        obligations = judge_obligations(list(brief["acceptance_criteria"]), steps, evidence)
+        missing = unproven(obligations)
+        if status == "ok" and missing:
+            status, fail_reason = "withheld", "còn tiêu chí chưa có bằng chứng"
 
     staging_out = None
     if staging_box[0] is not None:
@@ -1026,7 +1042,8 @@ def execute_plan(plan: TeamPlan, *, provider_name: str | None = None,
             "staging": staging_out, "staging_evidence": evidence,
             "promoted": [], "promote_audit": [],
             "role_prompts": getattr(plan, "role_prompts", None),
-            "brief_hash": getattr(plan, "brief_hash", None)}
+            "brief_hash": getattr(plan, "brief_hash", None),
+            "obligations": obligations}
 
 
 def _aggregate(res: dict) -> str:
@@ -1052,6 +1069,9 @@ def _executor_write(out_dir: Path, plan: TeamPlan, result: dict) -> Path:
         f"# Kết quả\n\n**Yêu cầu:** {plan.task_text}\n\n"
         f"**Làn:** {plan.lane} · **sàn:** {plan.floor} · **cổng:** tầng {plan.gate_tier}\n\n"
         f"---\n\n{body}\n"
+        + ("" if not result.get("obligations") else
+           "\n**Tiêu chí:**\n" + "\n".join(
+               f"- {row['state']}: {row['criterion']}" for row in result["obligations"]) + "\n")
         + (("\n**Đã đưa vào cây:**\n" + "\n".join(f"- {p}" for p in (result.get("promoted") or [])) + "\n")
            if result.get("promoted") else ""),
         encoding="utf-8")
@@ -1084,6 +1104,23 @@ def resume_team(root: Path, run_id: str, **kw) -> tuple[int, dict]:
         data = load_checkpoint(root, run_id)
     except CheckpointError as exc:
         return 2, {"status": "error", "error": exc.message, "fail_reason": exc.message}
+    new_brief = kw.pop("brief", None)
+    stored = data.get("brief")
+    if new_brief is not None and data.get("brief_hash"):
+        from .contract import contract_diff
+        from .intake import brief_hash, validate_brief
+        ok, why = validate_brief(new_brief)
+        if not ok:
+            return 2, {"status": "error", "error": why, "fail_reason": why}
+        if brief_hash(new_brief) != data.get("brief_hash"):
+            diff = contract_diff(stored or {}, new_brief)
+            if diff["invalidates"]:
+                return 2, {
+                    "status": "error",
+                    "error": "yêu cầu đã đổi — không tiếp tục kế hoạch cũ",
+                    "fail_reason": "yêu cầu đã đổi — không tiếp tục kế hoạch cũ",
+                    "contract_diff": diff,
+                }
     steps = list(data.get("steps") or [])
     held = data.get("status") in ("withheld", "error", "blocked")
     if held or any(step.get("error") or step.get("blocked") for step in steps):
@@ -1093,6 +1130,14 @@ def resume_team(root: Path, run_id: str, **kw) -> tuple[int, dict]:
     price = data.get("declared_price")
     if price:
         plan.declared_price = (float(price[0]), float(price[1]))
+    if new_brief is not None:
+        from .intake import brief_hash
+        plan.brief = new_brief
+        plan.brief_hash = brief_hash(new_brief)
+    elif stored:
+        plan.brief = stored
+        plan.brief_hash = data.get("brief_hash")
+    plan.require_evidence = bool(kw.pop("require_evidence", False))
     workers = int(data.get("workers") or 1)
     if len(expand_roles(plan.roles, plan.lane, workers)) < int(data.get("next_index") or 0):
         return 2, {"status": "error", "error": "checkpoint dài hơn kế hoạch",
@@ -1120,6 +1165,13 @@ def cmd_team(args) -> int:
     from . import ui
 
     if getattr(args, "resume", None):
+        brief = None
+        if getattr(args, "brief", None):
+            from .intake import load_brief_file
+            brief, why = load_brief_file(Path(args.brief))
+            if brief is None:
+                ui.note(why, "bad")
+                return 2
         code, res = resume_team(
             Path.cwd(), args.resume,
             provider_name=getattr(args, "provider", None),
@@ -1128,7 +1180,11 @@ def cmd_team(args) -> int:
             api_key=getattr(args, "api_key", None),
             max_tokens=int(getattr(args, "max_tokens", 4096) or 4096),
             oracle=getattr(args, "oracle", None),
-            on_step=lambda m: print("  " + m))
+            on_step=lambda m: print("  " + m),
+            brief=brief,
+            require_evidence=bool(getattr(args, "require_evidence", False)))
+        for row in res.get("obligations") or []:
+            ui.note(f"{row['state']}: {row['criterion']}", "info")
         if code == 2:
             ui.note(res.get("error") or "không có checkpoint cho id này", "bad")
             return 2
@@ -1230,6 +1286,7 @@ def cmd_team(args) -> int:
             from_file = False
         plan.brief = obj
         plan.brief_hash = brief_hash(obj)
+        plan.require_evidence = bool(getattr(args, "require_evidence", False))
         print(canonical_brief(obj))
         if not from_file:
             try:
@@ -1278,6 +1335,8 @@ def cmd_team(args) -> int:
           + ("" if led["all_priced"] else "  (có model chưa có giá trong bảng)"))
     for k, v in led["by_role"].items():
         ui.kv("  " + k, f"${v:.6f}")
+    for row in res.get("obligations") or []:
+        ui.note(f"{row['state']}: {row['criterion']}", "info")
 
     # ---- cổng người + Executor ----
     if st != "ok":
