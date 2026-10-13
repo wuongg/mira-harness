@@ -149,9 +149,12 @@ class FakeProvider:
                     cls.verifier_calls += 1
                     first = cls.verifier_calls == 1
                 fail = cls.fail_verifier or (cls.fail_first_verifier and first)
-                return ("FAIL\nthiếu bằng chứng" if fail else "PASS\nổn"), {"in": 10, "out": 5}
+                return (('{"verdict":"FAIL","reasons":["thieu"],"evidence":[],"confidence":0.2}'
+                         if fail else
+                         '{"verdict":"PASS","reasons":["khop"],"evidence":["so lieu"],"confidence":0.9}'),
+                        {"in": 10, "out": 5})
             if "ORACLE" in system:
-                return "SCORE: 0.9\nđạt", {"in": 10, "out": 5}
+                return ('{"verdict":"PASS","reasons":["cham"],"evidence":["x"],"confidence":0.9,"score":0.9}'), {"in": 10, "out": 5}
             if "CRITIC" in system:
                 return "rủi ro: giả định chưa kiểm", {"in": 10, "out": 5}
             return "x", {"in": 1, "out": 1}

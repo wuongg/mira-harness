@@ -36,11 +36,11 @@ class _Stub(BaseHTTPRequestHandler):
         # trả lời khác nhau theo vai để kiểm được cả nhánh PASS lẫn FAIL
         blob = json.dumps(req, ensure_ascii=False)
         if "FAIL_MODE" in blob:
-            text = "FAIL\nThiếu bằng chứng cho tiêu chí 2."
+            text = '{"verdict":"FAIL","reasons":["thieu"],"evidence":[],"confidence":0.2}'
         elif "VERIFIER" in blob:
-            text = "PASS\nBằng chứng: số liệu khớp, không thấy thiếu sót."
+            text = '{"verdict":"PASS","reasons":["khop"],"evidence":["so lieu"],"confidence":0.9}'
         elif "ORACLE" in blob:
-            text = "SCORE: 0.85\nTiêu chí 1 đạt; tiêu chí 2 đạt."
+            text = '{"verdict":"PASS","reasons":["cham"],"evidence":["tieu chi"],"confidence":0.9,"score":0.85}'
         elif "CRITIC" in blob:
             text = "Rủi ro: giả định về nguồn dữ liệu chưa được kiểm."
         elif "PLANNER" in blob:
@@ -341,7 +341,7 @@ class _OracleProv:
         if "ORACLE" in (system or ""):
             return self.score, {"in": 1, "out": 1}
         if "VERIFIER" in (system or ""):
-            return "PASS", {"in": 1, "out": 1}
+            return ('{"verdict":"PASS","reasons":["khop"],"evidence":["so lieu"],"confidence":0.9}'), {"in": 1, "out": 1}
         return "ke hoach", {"in": 1, "out": 1}
 
 
@@ -358,11 +358,13 @@ class OracleFlagTest(unittest.TestCase):
                                      oracle=oracle, on_step=lambda m: None)
 
     def test_oracle_cham_0_4_thi_withheld(self):
-        res = self._run("SCORE: 0.4", "on")
+        body = '{"verdict":"PASS","reasons":["cham"],"evidence":["x"],"confidence":0.4,"score":0.4}'
+        res = self._run(body, "on")
         self.assertEqual(res["status"], "withheld")
 
     def test_oracle_cham_0_9_thi_ok(self):
-        res = self._run("SCORE: 0.9", "on")
+        body = '{"verdict":"PASS","reasons":["cham"],"evidence":["x"],"confidence":0.9,"score":0.9}'
+        res = self._run(body, "on")
         self.assertEqual(res["status"], "ok")
         self.assertGreaterEqual(res["oracle_score"], 0.9)
 

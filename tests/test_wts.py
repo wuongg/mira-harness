@@ -29,9 +29,9 @@ class _Prov:
 
     def call(self, system: str, user: str):
         if self.fail and "VERIFIER" in (system or ""):
-            return "FAIL\nthieu bang chung", {"in": 1, "out": 1}
+            return '{"verdict":"FAIL","reasons":["thieu"],"evidence":[],"confidence":0.2}', {"in": 1, "out": 1}
         if "VERIFIER" in (system or ""):
-            return "PASS", {"in": 1, "out": 1}
+            return '{"verdict":"PASS","reasons":["khop"],"evidence":["so lieu"],"confidence":0.9}', {"in": 1, "out": 1}
         return "ke hoach", {"in": 1, "out": 1}
 
 

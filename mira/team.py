@@ -61,11 +61,15 @@ ROLE_SYSTEM = {
                "Bạn chỉ ĐỀ XUẤT — mọi thay đổi thật do Executor thực hiện sau khi có duyệt. "
                "Nêu rõ giả định và chỗ còn thiếu dữ liệu."),
     "verifier": ("Bạn là VERIFIER độc lập. Kiểm tra kết quả của worker. "
-                 "Dòng ĐẦU TIÊN phải là đúng một từ: PASS hoặc FAIL. "
-                 "Sau đó nêu lý do và bằng chứng cụ thể. Không khen, không viết lại kết quả."),
+                 "Trả đúng một object JSON, không chữ nào khác, với các khóa "
+                 "verdict, reasons, evidence, confidence. "
+                 "verdict chỉ là PASS hoặc FAIL. reasons là danh sách lý do, không rỗng. "
+                 "evidence là danh sách bằng chứng. confidence là số từ 0 đến 1."),
     "oracle": ("Bạn là ORACLE. Chấm kết quả theo các tiêu chí nghiệm thu. "
-               "Dòng ĐẦU TIÊN phải là SCORE: <số 0..1>. Sau đó nêu tiêu chí nào đạt, "
-               "tiêu chí nào không. Không đề xuất cải tiến."),
+               "Trả đúng một object JSON, không chữ nào khác, với các khóa "
+               "verdict, reasons, evidence, confidence, score. "
+               "verdict chỉ là PASS hoặc FAIL. score là số từ 0 đến 1. "
+               "Không đề xuất cải tiến."),
     "critic": ("Bạn là CRITIC. Tìm lỗ hổng, giả định sai, và chỗ có thể thất bại của "
                "kế hoạch và kết quả. Ưu tiên rủi ro an toàn. Không khen."),
 }
@@ -359,25 +363,39 @@ class Ledger:
 
 
 # ------------------------------------------------------------- thực thi
-def _verdict_token(text: str) -> str | None:
-    """Chỉ nhận đúng PASS hoặc FAIL ở dòng đầu, sau khi strip."""
-    lines = (text or "").splitlines()
-    if not lines:
-        return None
-    token = lines[0].strip()
-    if token in ("PASS", "FAIL"):
-        return token
-    return None
-
-
-def _score(text: str) -> float | None:
-    m = re.search(r"SCORE\s*[:：]?\s*([01](?:[.,]\d+)?)", text or "", re.I)
-    if not m:
+def _verdict_envelope(text: str, *, require_score: bool = False) -> dict | None:
+    """Chỉ nhận một object JSON. Sai kiểu, thiếu khóa, hoặc khóa lạ thì bỏ."""
+    raw = (text or "").strip()
+    if not raw:
         return None
     try:
-        return max(0.0, min(1.0, float(m.group(1).replace(",", "."))))
-    except ValueError:
+        obj = json.loads(raw)
+    except json.JSONDecodeError:
         return None
+    if not isinstance(obj, dict):
+        return None
+    allowed = {"verdict", "reasons", "evidence", "confidence"}
+    if require_score:
+        allowed = allowed | {"score"}
+    if set(obj) != allowed:
+        return None
+    if obj.get("verdict") not in ("PASS", "FAIL"):
+        return None
+    reasons = obj.get("reasons")
+    if (not isinstance(reasons, list) or not reasons
+            or not all(isinstance(item, str) and item.strip() for item in reasons)):
+        return None
+    evidence = obj.get("evidence")
+    if not isinstance(evidence, list) or not all(isinstance(item, str) for item in evidence):
+        return None
+    conf = obj.get("confidence")
+    if isinstance(conf, bool) or not isinstance(conf, (int, float)) or not 0 <= float(conf) <= 1:
+        return None
+    if require_score:
+        score = obj.get("score")
+        if isinstance(score, bool) or not isinstance(score, (int, float)) or not 0 <= float(score) <= 1:
+            return None
+    return obj
 
 
 def execute_plan(plan: TeamPlan, *, provider_name: str | None = None,
@@ -409,6 +427,8 @@ def execute_plan(plan: TeamPlan, *, provider_name: str | None = None,
     status = "ok"
     fail_reason = None
     verifier_verdict = None
+    verifier_raw = ""
+    verifier_parsed = None
     oracle_score = None
     staging_box: list[Path | None] = [None]
     lock = threading.Lock()
@@ -706,9 +726,16 @@ def execute_plan(plan: TeamPlan, *, provider_name: str | None = None,
             else:
                 ver_steps = [_call("verifier", pv=prev)]
             for st in ver_steps:
+                env = _verdict_envelope(st.get("text", ""))
+                st["verdict_raw"] = st.get("text", "")
+                st["verdict_parsed"] = env
                 _log_step(st)
                 steps.append(st)
-            verdicts = [_verdict_token(s.get("text", "")) for s in ver_steps]
+            parsed = [s.get("verdict_parsed") for s in ver_steps]
+            if ver_steps:
+                verifier_raw = ver_steps[-1].get("text", "")
+                verifier_parsed = parsed[-1]
+            verdicts = [None if env is None else env["verdict"] for env in parsed]
             if not verdicts or any(v is None for v in verdicts):
                 verifier_verdict = None
             elif all(v == "PASS" for v in verdicts):
@@ -733,8 +760,14 @@ def execute_plan(plan: TeamPlan, *, provider_name: str | None = None,
                     status = "blocked" if st.get("blocked") else "error"
                     fail_reason = st["error"]
                     break
-                if role == "oracle":
-                    oracle_score = _score(st.get("text", ""))
+                if role == "oracle" and oracle_gate == "on":
+                    env = _verdict_envelope(st.get("text", ""), require_score=True)
+                    st["verdict_raw"] = st.get("text", "")
+                    st["verdict_parsed"] = env
+                    if env is None:
+                        status, fail_reason = "withheld", "oracle không theo giao thức, giữ lại"
+                    else:
+                        oracle_score = float(env["score"])
                 if _over_cap():
                     _stop_budget()
                     break
@@ -760,6 +793,7 @@ def execute_plan(plan: TeamPlan, *, provider_name: str | None = None,
 
     return {"status": status, "fail_reason": fail_reason,
             "verifier_verdict": verifier_verdict, "oracle_score": oracle_score,
+            "verdict_raw": verifier_raw, "verdict_parsed": verifier_parsed,
             "oracle_gate": oracle_gate,
             "steps": steps, "ledger": ledger.summary(), "plan": plan.as_dict(),
             "depth": depth, "nested": any(s.get("sub") for s in steps),

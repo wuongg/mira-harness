@@ -36,8 +36,8 @@ def _run(text: str) -> dict:
 class VerdictTest(unittest.TestCase):
     def test_pass_dung_tung_chu(self):
         res = _run("PASS")
-        self.assertEqual(res["verifier_verdict"], "PASS")
-        self.assertEqual(res["status"], "ok")
+        self.assertIsNone(res["verifier_verdict"])
+        self.assertEqual(res["status"], "withheld")
 
     def test_ket_luan_pass_bi_withheld(self):
         res = _run("Kết luận: PASS")

@@ -27,7 +27,9 @@ class _Prov:
     def call(self, system: str, user: str):
         CALLS.append(system[:24])
         if "VERIFIER" in (system or ""):
-            return "PASS", {"in": 1, "out": 1}
+            return '{"verdict":"PASS","reasons":["khop"],"evidence":["so lieu"],"confidence":0.9}', {"in": 1, "out": 1}
+        if "ORACLE" in (system or ""):
+            return '{"verdict":"PASS","reasons":["cham"],"evidence":["x"],"confidence":0.9,"score":0.9}', {"in": 1, "out": 1}
         return "1. buoc", {"in": 1, "out": 1}
 
 
