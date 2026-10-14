@@ -22,7 +22,8 @@ Thứ tự: R1 quyền chạy check, R2 tiêu chí gắn phép kiểm và artifa
 | R4 | đạt | `8780d42` | https://github.com/wuongg/mira-harness/actions/runs/38490734366 success |
 | R5 | đạt | `863c27b` | https://github.com/wuongg/mira-harness/actions/runs/38491474015 success |
 | S1 | đạt | `cb37bb0` | https://github.com/wuongg/mira-harness/actions/runs/38508067848 success |
-| S2 | đạt trên máy; CI sau khi push | | |
+| S2 | đạt | `61300af` | https://github.com/wuongg/mira-harness/actions/runs/38508501239 success |
+| S3 | đạt trên máy; CI sau khi push | | |
 
 ### R1
 
@@ -118,6 +119,18 @@ T-WRONG: file `return 4`, claim trùng câu, hash khớp. Kết quả `unverifie
 Lệnh: `py -3 -m unittest discover -s tests -p "test_validators.py" -v`
 
 Selftest: `Ran 490 tests`, `OK (skipped=2)`.
+
+### S3
+
+Mỗi request có `id` và trạng thái `reserved`, `dispatched`, `settled` hoặc `uncertain`. Checkpoint ghi `dispatched` trước `prov.call`. Kill giữa call rồi resume vẫn thấy request đó ở `uncertain` và `uncertain_usd`; không xóa và không coi là chưa gửi. Usage thật lớn hơn ước lượng thì vẫn ghi đủ và đặt `exceeded`.
+
+Ước lượng là heuristic 4 ký tự/token và `max_tokens`. Không phải tokenizer và không phải trần trên. Trần làn không được tuyên bố là tuyệt đối khi usage vượt ước lượng.
+
+Cùng `tracked_call` cho `_call`, intake, prompt writer, và worker sửa file qua `_priced_call`. Đội con đi qua `_call`. Đường stream của chat không ghi request này.
+
+Lệnh: `py -3 -m unittest discover -s tests -p "test_request_ledger.py" -v`
+
+Selftest: `Ran 495 tests`, `OK (skipped=2)`.
 
 ## 1. Mốc
 

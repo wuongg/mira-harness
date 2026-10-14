@@ -337,14 +337,18 @@ def _test_pause(name: str) -> None:
     time.sleep(20)
 
 
+_CHECKPOINT_LOCK = threading.Lock()
+
+
 def write_checkpoint(root: Path, payload: dict) -> None:
     """Ghi nguyên tử. File tạm cùng thư mục rồi os.replace."""
     dest = checkpoint_path(root, payload["id"])
-    dest.parent.mkdir(parents=True, exist_ok=True)
-    tmp = dest.with_suffix(".json.tmp")
-    tmp.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
-    _test_pause("checkpoint")
-    os.replace(tmp, dest)
+    with _CHECKPOINT_LOCK:
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        tmp = dest.with_suffix(".json.tmp")
+        tmp.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+        _test_pause("checkpoint")
+        os.replace(tmp, dest)
 
 
 def _ledger_ok(blob: dict) -> bool:
@@ -364,6 +368,7 @@ def ledger_from_checkpoint(blob: dict) -> Ledger:
     led.reserved = float(blob.get("reserved", 0.0))
     led.uncertain_usd = float(blob.get("uncertain_usd", 0.0))
     led.uncertain = list(blob.get("uncertain") or [])
+    led.requests = list(blob.get("requests") or [])
     return led
 
 
@@ -447,12 +452,14 @@ def promote_staging(real_root: Path, staging: Path, audit: list) -> list[str]:
     return promoted
 
 
-def estimate_hold(rates: dict, system: str, user: str, max_out: int) -> float:
-    """Trần giữ chỗ, không phải hóa đơn.
+ESTIMATE_METHOD = (
+    "heuristic: khoảng 4 ký tự một token cho đầu vào, max_tokens cho đầu ra; "
+    "không phải tokenizer và không phải trần trên"
+)
 
-    Đầu vào ước lượng 4 ký tự một token, có thể thấp hơn tokenizer của hãng.
-    Đầu ra lấy max_tokens, không phải số token sẽ sinh.
-    """
+
+def estimate_hold(rates: dict, system: str, user: str, max_out: int) -> float:
+    """Ước lượng để giữ chỗ. Có thể thấp hơn hoặc cao hơn usage thật."""
     tin = max(1, (len(system) + len(user)) // 4)
     tout = max(1, int(max_out or 1))
     return (tin * float(rates["in"]) + tout * float(rates["out"])) / 1e6
@@ -482,9 +489,90 @@ class Ledger:
     reserved: float = 0.0            # tiền đang giữ chỗ, chưa phải usage thật
     uncertain_usd: float = 0.0       # request có thể đã được xử lý, không coi là miễn phí
     uncertain: list[dict] = field(default_factory=list)
+    requests: list[dict] = field(default_factory=list)
 
     def __post_init__(self) -> None:
         self._lock = threading.RLock()
+        self.on_persist = None
+
+    def _flush(self) -> None:
+        hook = self.on_persist
+        if hook is not None:
+            hook()
+
+    def begin_request(self, role: str, model: str, hold: float) -> str:
+        rid = uuid.uuid4().hex[:12]
+        with self._lock:
+            self.requests.append({
+                "id": rid, "role": role, "model": model, "state": "reserved",
+                "hold": round(float(hold), 6), "usd": 0.0, "exceeded": False,
+                "estimate": ESTIMATE_METHOD,
+            })
+            self.reserved += float(hold)
+        return rid
+
+    def mark_request(self, rid: str, state: str) -> None:
+        with self._lock:
+            for req in self.requests:
+                if req["id"] == rid:
+                    req["state"] = state
+
+    def settle_request(self, rid: str, usd: float) -> None:
+        with self._lock:
+            for req in self.requests:
+                if req["id"] != rid or req["state"] == "settled":
+                    continue
+                self.reserved = max(0.0, self.reserved - float(req["hold"]))
+                req["state"] = "settled"
+                req["usd"] = round(float(usd), 6)
+                req["exceeded"] = float(usd) > float(req["hold"]) + 1e-9
+
+    def lose_request(self, rid: str, reason: str) -> None:
+        with self._lock:
+            for req in self.requests:
+                if req["id"] != rid or req["state"] not in ("reserved", "dispatched"):
+                    continue
+                self.reserved = max(0.0, self.reserved - float(req["hold"]))
+                self.uncertain_usd += float(req["hold"])
+                req["state"] = "uncertain"
+                req["reason"] = reason
+                self.uncertain.append({
+                    "id": rid, "role": req["role"], "model": req["model"],
+                    "usd": round(float(req["hold"]), 6), "reason": reason,
+                })
+
+    def reconcile_interrupted(self) -> int:
+        """Request còn reserved hoặc dispatched sau khi tiến trình chết không được xóa."""
+        changed = 0
+        with self._lock:
+            open_ids = [req["id"] for req in self.requests
+                        if req["state"] in ("reserved", "dispatched")]
+        for rid in open_ids:
+            self.lose_request(rid, "gián đoạn trước khi đối soát")
+            changed += 1
+        return changed
+
+    def tracked_call(self, role: str, model: str, prov, system: str, user: str,
+                     rates: dict, *, source: str, max_out: int,
+                     declared_by_user: bool = False):
+        """Ghi dispatched trước khi gửi. Usage vượt ước lượng vẫn bị tính."""
+        from .providers import ProviderError
+        hold = estimate_hold(rates, system, user, max_out)
+        rid = self.begin_request(role, model, hold)
+        self._flush()
+        self.mark_request(rid, "dispatched")
+        self._flush()
+        try:
+            text, usage = prov.call(system, user)
+        except ProviderError as exc:
+            self.lose_request(rid, "request có thể đã được xử lý")
+            self._flush()
+            raise exc
+        usd = self.charge(role, model, usage or {}, getattr(prov, "name", "") or "",
+                          price=rates, declared_by_user=declared_by_user,
+                          price_source=source)
+        self.settle_request(rid, usd)
+        return text, usage, usd, rid
 
     def committed(self) -> float:
         """Đã chi, đang giữ chỗ, và khoản chưa chắc. Không chỉ total_usd."""
@@ -519,6 +607,7 @@ class Ledger:
                 "reserved": round(self.reserved, 6),
                 "uncertain_usd": round(self.uncertain_usd, 6),
                 "uncertain": list(self.uncertain),
+                "requests": list(self.requests),
                 "by_role": by_role,
                 "tokens_in": self.total_in, "tokens_out": self.total_out,
                 "subagent_runs": self.subagent_runs,
@@ -657,6 +746,7 @@ def execute_plan(plan: TeamPlan, *, provider_name: str | None = None,
                 "reserved": round(ledger.reserved, 6),
                 "uncertain_usd": round(ledger.uncertain_usd, 6),
                 "uncertain": list(ledger.uncertain),
+                "requests": list(ledger.requests),
             },
             "staging": str(staging_box[0]) if staging_box[0] is not None else None,
             "staging_hash": tree_hash(staging_box[0]) if staging_box[0] is not None else None,
@@ -683,6 +773,17 @@ def execute_plan(plan: TeamPlan, *, provider_name: str | None = None,
             "require_evidence": bool(getattr(plan, "require_evidence", False)),
             "criteria_origin": getattr(plan, "criteria_origin", None) or "model",
         })
+
+    previous_persist = ledger.on_persist
+
+    def _flush_ledger() -> None:
+        _snapshot()
+        if previous_persist is not None:
+            previous_persist()
+
+    ledger.on_persist = _flush_ledger
+    if resume_steps is not None and ledger.reconcile_interrupted():
+        _snapshot()
 
     def _note(st: dict) -> dict:
         steps.append(st)
@@ -764,28 +865,18 @@ def execute_plan(plan: TeamPlan, *, provider_name: str | None = None,
                 return {"role": role, "model": model, "shard": shard, "blocked": True,
                         "budget": True, "error": "không đủ ngân sách để giữ chỗ",
                         "context_policy": policy}
-            ledger.reserved += hold
         t0 = time.time()
         try:
-            text, usage = prov.call(ROLE_SYSTEM[role], _user)
+            text, usage, usd, rid = ledger.tracked_call(
+                role, model, prov, ROLE_SYSTEM[role], _user, rates,
+                source=source, max_out=max_tokens, declared_by_user=source == "cli")
         except ProviderError as e:
-            with lock:
-                ledger.reserved = max(0.0, ledger.reserved - hold)
-                ledger.uncertain_usd += hold
-                ledger.uncertain.append({
-                    "role": role, "model": model, "usd": round(hold, 6),
-                    "reason": "request có thể đã được xử lý",
-                })
             return {"role": role, "model": model, "shard": shard, "error": str(e),
                     "uncertain": True, "usd": round(hold, 6),
                     "attempt": getattr(prov, "attempts", 1), "context_policy": policy}
-        with lock:
-            ledger.reserved = max(0.0, ledger.reserved - hold)
-            usd = ledger.charge(role, model, usage, prov.name, price=rates,
-                                declared_by_user=source == "cli", price_source=source)
         return {"role": role, "model": model, "shard": shard, "provider": prov.name,
                 "text": text, "usage": usage, "usd": round(usd, 6),
-                "hold": round(hold, 6),
+                "hold": round(hold, 6), "request_id": rid,
                 "seconds": round(time.time() - t0, 2),
                 "attempt": getattr(prov, "attempts", 1),
                 "context_policy": policy}
@@ -888,13 +979,14 @@ def execute_plan(plan: TeamPlan, *, provider_name: str | None = None,
         child = Session(root=staging_box[0], mode="acceptEdits", approve=lambda _t, _a: True)
         child.gate_task = plan.task_text
         child.recruited = True
+        child.ledger = ledger
+        before_edit = ledger.total_usd
         res = run_turn(task=shown, session=child, model=model,
                        provider_name=provider_name, base_url=base_url, api_key=api_key,
                        max_tokens=max_tokens, protocol="text", no_stream=True,
                        price_in=plan.declared_price)
         usage = res.get("usage") or {"in": 0, "out": 0}
-        usd = ledger.charge("worker", model, usage, "run_turn", price=rates,
-                            declared_by_user=source == "cli", price_source=source)
+        usd = round(ledger.total_usd - before_edit, 6)
         return {"role": "worker", "model": _model_of("worker"), "provider": "run_turn",
                 "text": res.get("final") or "", "usage": usage,
                 "usd": usd, "seconds": float(res.get("seconds") or 0),
@@ -1149,6 +1241,7 @@ def execute_plan(plan: TeamPlan, *, provider_name: str | None = None,
             staging_out = str(staging_box[0])
 
     _snapshot()
+    ledger.on_persist = previous_persist
     return {"id": run_id, "status": status, "fail_reason": fail_reason,
             "verifier_verdict": verifier_verdict, "oracle_score": oracle_score,
             "verdict_raw": verifier_raw, "verdict_parsed": verifier_parsed,

@@ -85,10 +85,15 @@ def charged_call(ledger: Ledger, role: str, model: str, prov, system: str, user:
     rates, source = resolve_price(model, declared_price)
     if rates is None:
         return "", {"blocked": True, "error": f"model {model} chưa có giá"}
-    text, usage = prov.call(system, user)
-    ledger.charge(role, model, usage or {}, getattr(prov, "name", "") or "",
-                  price=rates, declared_by_user=source == "cli", price_source=source)
-    return text, {"blocked": False, "usage": usage}
+    from .providers import ProviderError
+    max_out = int(getattr(prov, "max_tokens", None) or 4096)
+    try:
+        text, usage, _usd, rid = ledger.tracked_call(
+            role, model, prov, system, user, rates, source=source, max_out=max_out,
+            declared_by_user=source == "cli")
+    except ProviderError as exc:
+        return "", {"blocked": False, "error": str(exc), "uncertain": True}
+    return text, {"blocked": False, "usage": usage, "request_id": rid}
 
 
 def _questions(obj: dict) -> list[str]:
