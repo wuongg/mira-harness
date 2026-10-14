@@ -365,10 +365,108 @@ def _apply_validator(spec: dict, root: Path | None, allowed: set[str]) -> dict:
             "reason": "không có validator phù hợp", "proves": "", "does_not_prove": ""}
 
 
+def _validator_sha(spec: dict) -> str:
+    blob = json.dumps(spec, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(blob.encode("utf-8")).hexdigest()
+
+
+def _manifest(root: Path) -> list[dict]:
+    rows = []
+    for item in sorted(path for path in root.rglob("*") if path.is_file()):
+        rel = item.relative_to(root).as_posix()
+        rows.append({"path": rel, "sha256": hashlib.sha256(item.read_bytes()).hexdigest()})
+    return rows
+
+
+def bind_evidence(spec: dict, root: Path, brief_hash: str) -> dict:
+    """Hash đúng phần đã kiểm. Behavior là manifest của cả cây, không phải một file."""
+    record = {
+        "brief_hash": brief_hash,
+        "validator_sha256": _validator_sha(spec),
+        "scope": "file",
+        "paths": [],
+        "tree_sha256": "",
+    }
+    if spec.get("kind") == "behavior":
+        from .team import tree_hash
+        record["scope"] = "tree"
+        record["paths"] = _manifest(root)
+        record["tree_sha256"] = tree_hash(root)
+        return record
+    rel = str(spec.get("path") or "")
+    digest = ""
+    path, _why = _read_inside(root, rel) if rel else (None, "")
+    if path is not None:
+        digest = hashlib.sha256(path.read_bytes()).hexdigest()
+    record["paths"] = [{"path": rel, "sha256": digest}]
+    return record
+
+
+def _paths_match(stored_paths: list, cwd: Path) -> bool:
+    if not stored_paths:
+        return False
+    for item in stored_paths:
+        rel = str(item.get("path") or "")
+        digest = str(item.get("sha256") or "")
+        file = cwd / rel
+        if not digest or not file.is_file():
+            return False
+        if hashlib.sha256(file.read_bytes()).hexdigest() != digest:
+            return False
+    return True
+
+
+def _evidence_matches(stored: dict, current: dict, cwd: Path, exact_tree: bool) -> bool:
+    if stored.get("brief_hash") != current.get("brief_hash"):
+        return False
+    if stored.get("validator_sha256") != current.get("validator_sha256"):
+        return False
+    if stored.get("scope") != current.get("scope"):
+        return False
+    if stored.get("scope") == "tree":
+        if exact_tree:
+            return bool(stored.get("tree_sha256")) and stored.get("tree_sha256") == current.get("tree_sha256")
+        return _paths_match(list(stored.get("paths") or []), cwd)
+    stored_paths = {(item.get("path"), item.get("sha256")) for item in stored.get("paths") or []}
+    current_paths = {(item.get("path"), item.get("sha256")) for item in current.get("paths") or []}
+    return bool(stored_paths) and stored_paths == current_paths and all(item[1] for item in stored_paths)
+
+
+def refresh_evidence(rows: list[dict], cwd: Path, brief_hash: str, criteria: list,
+                     exact_tree: bool = True) -> list[dict]:
+    """Đối chiếu hash đã lưu. Không chạy lại lệnh."""
+    parsed, _why = validate_criteria(criteria)
+    by_id = {item["id"]: item for item in parsed or []}
+    root = Path(cwd)
+    for row in rows:
+        if not row.get("criterion_verified"):
+            continue
+        spec = (by_id.get(row.get("criterion_id")) or {}).get("validator")
+        stored = row.get("evidence")
+        if not isinstance(stored, dict) or not spec or not root.is_dir():
+            row["evidence_status"] = "chưa kiểm lại"
+            row["criterion_verified"] = False
+            row["state"] = "chưa kiểm lại"
+            row["reason"] = "chưa kiểm lại kết quả tự động"
+            row["does_not_prove"] = row["reason"]
+            continue
+        current = bind_evidence(spec, root, brief_hash)
+        if _evidence_matches(stored, current, root, exact_tree):
+            row["evidence_status"] = "còn hiệu lực"
+            continue
+        row["evidence_status"] = "hết hiệu lực"
+        row["criterion_verified"] = False
+        row["state"] = "hết hiệu lực"
+        row["reason"] = "artifact đã đổi, kết quả tự động hết hiệu lực"
+        row["does_not_prove"] = row["reason"]
+    return rows
+
+
 def judge_obligations(criteria: list, steps: list[dict] | None = None,
                       evidence: dict | None = None, *, cwd: Path | None = None,
                       granted: set[str] | None = None, run_id: str | None = None,
-                      artifacts: dict | None = None, validators: bool = True) -> list[dict]:
+                      artifacts: dict | None = None, validators: bool = True,
+                      brief_hash: str = "") -> list[dict]:
     """steps và diff không phải proof. Hash chỉ là danh tính file. proves trùng câu là khai báo."""
     del steps, evidence
     allowed = set(granted or ())
@@ -438,6 +536,12 @@ def judge_obligations(criteria: list, steps: list[dict] | None = None,
             state = "unverified"
             reason = "không có validator phù hợp"
         proves = (applied or {}).get("proves") or (_EXIT_ONLY if command_passed else "")
+        bound_evidence = None
+        evidence_status = ""
+        if validator and root is not None and root.is_dir():
+            bound_evidence = bind_evidence(validator, root, brief_hash)
+            if verified:
+                evidence_status = "còn hiệu lực"
         rows.append({
             "criterion": item["text"],
             "criterion_id": item["id"],
@@ -446,6 +550,8 @@ def judge_obligations(criteria: list, steps: list[dict] | None = None,
             "proves": proves,
             "does_not_prove": (applied or {}).get("does_not_prove") or "",
             "artifact": bound,
+            "evidence": bound_evidence,
+            "evidence_status": evidence_status,
             "check_passed": command_passed,
             "command_passed": command_passed,
             "artifact_integrity": integrity,

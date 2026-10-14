@@ -37,6 +37,7 @@ Thứ tự: R1 quyền chạy check, R2 tiêu chí gắn phép kiểm và artifa
 | L2 | đạt | `0719f51` | https://github.com/wuongg/mira-harness/actions/runs/38515440770 success |
 | L3 | đạt | `063e993` | https://github.com/wuongg/mira-harness/actions/runs/38516162248 success |
 | L4 | đạt | `2f7d6fd` | https://github.com/wuongg/mira-harness/actions/runs/38518143543 success |
+| P1 | đạt, chờ CI |  |  |
 
 ### R1
 
@@ -316,6 +317,20 @@ Lệnh: `py -3 -m unittest discover -s tests -p "test_giao_e2e.py" -v`
 Selftest: `Ran 540 tests`, `OK (skipped=2)`.
 
 Giới hạn: provider giả không chứng minh chất lượng model. `team --brief` vẫn cấp mọi lệnh tiêu chí của người dùng. Hash không chống người sửa cùng lúc các hash trong file. `--check-only` không phải bàn giao. Xác nhận tay không đặt `criterion_verified`. V2 `cbc4f7f` vẫn đỏ một job Windows. Không PR, không merge `main`.
+
+### P1
+
+Phản chứng tại `29b77f9`: tiêu chí `contains` trên `report.md` đã lưu `verified`. Run đang chờ xác nhận tay. Đổi staging thành `NO REQUIRED CONTENT`, xác nhận tiêu chí thủ công rồi settle vẫn thoát 0 và promote file không còn `SOURCE`.
+
+Sau sửa, mỗi kết quả tự động ghi `evidence`: `brief_hash`, `validator_sha256`, và `scope`. Validator file ghi hash của file đó. Validator `behavior` ghi manifest cả cây (`paths` và `tree_sha256`) trước khi so, không giả định một file. `refresh_evidence` chỉ đối chiếu hash, không chạy lại lệnh.
+
+Ba trạng thái: `còn hiệu lực` khi hash khớp; `hết hiệu lực` khi artifact, dependency, brief hoặc validator đổi; `chưa kiểm lại` khi dòng `verified` không có `evidence`. Xác nhận tay không đặt lại `criterion_verified` cho dòng tự động đã hết hiệu lực, và không promote.
+
+Sau promote, cây nguồn có thêm file ngoài snapshot staging (ví dụ `.mira/runs`, `.git`). Lúc đó so từng path đã ghi, không so hash cả cây nguồn với cây staging. Trước promote, hash cây phải khớp đúng thư mục đã kiểm.
+
+Lệnh: `py -3 -m unittest discover -s tests -p "test_evidence_bind.py" -v`
+
+Selftest: `Ran 543 tests`, `OK (skipped=2)`.
 
 ## 1. Mốc
 

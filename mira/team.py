@@ -1232,7 +1232,8 @@ def execute_plan(plan: TeamPlan, *, provider_name: str | None = None,
                     }
         obligations = judge_obligations(
             criteria, steps, evidence, cwd=base, granted=granted,
-            run_id=run_id, artifacts=records, validators=trusted)
+            run_id=run_id, artifacts=records, validators=trusted,
+            brief_hash=getattr(plan, "brief_hash", None) or "")
         missing = unproven(obligations)
         if status == "ok" and missing:
             states = {row.get("state") for row in missing}

@@ -463,7 +463,8 @@ def check_only(root: Path, run_id: str) -> tuple[list[dict], str, int]:
         return refused
     rows = apply_confirmations(state, judge_obligations(
         list(state["brief"]["acceptance_criteria"]),
-        cwd=root, granted=_active_grants(state), run_id=run_id), root)
+        cwd=root, granted=_active_grants(state), run_id=run_id,
+        brief_hash=state["brief_hash"]), root)
     passed = bool(rows) and all(row.get("criterion_verified") for row in rows)
     status = ("kiểm file: đạt — chưa phải hoàn thành nhiệm vụ" if passed
               else "kiểm file: chưa — chưa phải hoàn thành nhiệm vụ")
@@ -609,24 +610,36 @@ def _unlock_os(token) -> None:
     os.close(token)
 
 
+def _checked_rows(state: dict, root: Path) -> list[dict]:
+    from .obligations import refresh_evidence
+    base = Path(state["staging"]) if state.get("staging") and not state.get("promoted") else root
+    if not Path(base).is_dir():
+        base = root
+    return refresh_evidence(
+        list(state.get("obligations") or []), Path(base), state["brief_hash"],
+        state["brief"]["acceptance_criteria"], exact_tree=not bool(state.get("promoted")))
+
+
 def _finish_saved(root: Path, state: dict) -> tuple[list[dict], str, int]:
     """Team đã xong. Không gọi model. Promote tối đa một lần."""
     from .team import promote_staging
-    rows = list(state.get("obligations") or [])
-    if state.get("want_deliver") and not state.get("promoted"):
+    rows = apply_confirmations(state, _checked_rows(state, root), root)
+    status, code = _delivery(rows)
+    if code == 0 and state.get("want_deliver") and not state.get("promoted"):
         folder = Path(state["staging"]) if state.get("staging") else None
         if folder is not None and folder.is_dir():
             promote_staging(root, folder, [])
         state["promoted"] = True
-    if state.get("want_deliver") or state.get("promoted"):
+    if code == 0 and (state.get("want_deliver") or state.get("promoted")):
         state["phase"] = "delivered"
-        status, code = _delivery(rows)
     elif state.get("hold") == "needs_confirmation":
         state["phase"] = "awaiting_confirmation"
         status, code = "bàn giao: chưa", 4
     else:
         state["phase"] = "failed"
-        status, code = "bàn giao: chặn", 3
+        if code == 0:
+            status, code = "bàn giao: chặn", 3
+    state["obligations"] = rows
     _save(root, state)
     body = "\n".join([
         render_table(state["request"], rows), status,
@@ -674,7 +687,7 @@ def _record(root: Path, state: dict, res: dict, ledger, rows: list[dict],
 def settle(root: Path, run_id: str) -> tuple[list[dict], str, int]:
     """Xác nhận tay sau khi worker xong. Không gọi model và không promote lần hai."""
     state = _load(root, run_id)
-    rows = apply_confirmations(state, list(state["obligations"]), root)
+    rows = apply_confirmations(state, _checked_rows(state, root), root)
     status, code = _delivery(rows)
     deliver = state.get("hold") == "needs_confirmation" and code == 0 and not state["promoted"]
     if deliver:
@@ -789,6 +802,8 @@ def render_table(request: str, rows: list[dict]) -> str:
         label = labels.get(state, state)
         if state and label != state:
             label = f"{state} — {label}"
+        if row.get("evidence_status"):
+            label = f"{label} — {row['evidence_status']}"
         lines.append(" | ".join([
             row.get("criterion_id") or "",
             (row.get("criterion") or "").replace("\n", " "),
