@@ -36,7 +36,7 @@ Thứ tự: R1 quyền chạy check, R2 tiêu chí gắn phép kiểm và artifa
 | L1 | đạt | `d4a538b` | https://github.com/wuongg/mira-harness/actions/runs/38514566409 success |
 | L2 | đạt | `0719f51` | https://github.com/wuongg/mira-harness/actions/runs/38515440770 success |
 | L3 | đạt | `063e993` | https://github.com/wuongg/mira-harness/actions/runs/38516162248 success |
-| L4 | đạt trên máy; CI sau khi push | | |
+| L4 | đạt | `2f7d6fd` | https://github.com/wuongg/mira-harness/actions/runs/38518143543 success |
 
 ### R1
 
@@ -311,7 +311,7 @@ Kill dùng tiến trình thật và `MIRA_PAUSE`, không phải mock trong proce
 
 Lệnh: `py -3 -m unittest discover -s tests -p "test_giao_e2e.py" -v`
 
-`9822bad` xin lock lần hai trong cùng tiến trình. Trên Linux `flock` không lồng nhau nên job Ubuntu có thể chậm rồi lỗi. Bản sau chỉ lấy lock hệ điều hành một lần mỗi tiến trình.
+`9822bad` xin lock lần hai trong cùng tiến trình. CI của SHA đó đỏ bốn job Ubuntu: https://github.com/wuongg/mira-harness/actions/runs/38517050383 failure. Windows và quality-gate của SHA đó xanh. Bản `2f7d6fd` chỉ lấy lock hệ điều hành một lần mỗi tiến trình và CI xanh.
 
 Selftest: `Ran 540 tests`, `OK (skipped=2)`.
 
