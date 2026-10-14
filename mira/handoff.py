@@ -40,7 +40,7 @@ _STATE_FIELDS = (
     "id", "request", "brief", "brief_hash", "approved", "approved_hash",
     "grants", "confirmations", "previous",
     "phase", "attempt", "history", "ledger", "obligations", "hold",
-    "staging", "promoted", "want_deliver",
+    "staging", "promoted", "want_deliver", "manifest",
 )
 _SAVE_LOCK = threading.Lock()
 _LOCK_HELD = threading.local()
@@ -94,6 +94,28 @@ def _empty_ledger() -> dict:
         "subagent_runs": 0, "reserved": 0.0, "uncertain_usd": 0.0,
         "uncertain": [], "requests": [],
     }
+
+
+def _manifest_ok(blob) -> bool:
+    if blob is None:
+        return True
+    if not isinstance(blob, dict) or set(blob) != {"run_id", "attempt", "brief_hash", "files"}:
+        return False
+    if not isinstance(blob["run_id"], str) or not isinstance(blob["attempt"], int):
+        return False
+    if not isinstance(blob["brief_hash"], str) or not isinstance(blob["files"], list):
+        return False
+    for item in blob["files"]:
+        if not isinstance(item, dict) or set(item) != {"path", "sha256"}:
+            return False
+        if not isinstance(item["path"], str) or not isinstance(item["sha256"], str):
+            return False
+        if not item["path"] or not item["sha256"]:
+            return False
+        parts = Path(item["path"]).parts
+        if not parts or ".." in parts or Path(item["path"]).is_absolute():
+            return False
+    return True
 
 
 def _ledger_shape(blob) -> bool:
@@ -162,6 +184,8 @@ def _load(root: Path, run_id: str) -> dict:
         raise HandoffError("state hỏng: sai schema")
     if not isinstance(state.get("promoted"), bool) or not isinstance(state.get("want_deliver"), bool):
         raise HandoffError("state hỏng: sai schema")
+    if not _manifest_ok(state.get("manifest")):
+        raise HandoffError("state hỏng: manifest sai schema")
     ok, why = validate_brief(state.get("brief"))
     if not ok:
         raise HandoffError(f"state hỏng: {why}")
@@ -296,6 +320,7 @@ def open_run(root: Path, request: str, brief: dict, previous: str | None = None,
         "staging": "",
         "promoted": False,
         "want_deliver": False,
+        "manifest": None,
     }
     _save(root, state)
     return state
@@ -529,6 +554,7 @@ def begin_retry(root: Path, run_id: str) -> dict:
     state["staging"] = ""
     state["promoted"] = False
     state["want_deliver"] = False
+    state["manifest"] = None
     _save(root, state)
     return state
 
@@ -610,6 +636,77 @@ def _unlock_os(token) -> None:
     os.close(token)
 
 
+def _capture_manifest(root: Path, state: dict) -> dict:
+    from .team import _rel_skipped
+    folder = Path(state["staging"]) if state.get("staging") else None
+    files = []
+    if folder is not None and folder.is_dir():
+        for path in sorted(item for item in folder.rglob("*") if item.is_file()):
+            rel = path.relative_to(folder)
+            if _rel_skipped(rel):
+                continue
+            dest = root / rel
+            new = path.read_bytes()
+            old = dest.read_bytes() if dest.is_file() else None
+            if old == new:
+                continue
+            files.append({"path": rel.as_posix(), "sha256": hashlib.sha256(new).hexdigest()})
+    return {
+        "run_id": state["id"],
+        "attempt": state["attempt"],
+        "brief_hash": state["brief_hash"],
+        "files": files,
+    }
+
+
+def seal_manifest(root: Path, run_id: str) -> dict:
+    """Niêm tập file sẽ promote. Gọi lại không lấy byte mới."""
+    state = _load(root, run_id)
+    current = state.get("manifest")
+    if isinstance(current, dict) and current.get("run_id") == state["id"] and current.get("attempt") == state["attempt"]:
+        return state
+    state["manifest"] = _capture_manifest(root, state)
+    _save(root, state)
+    return state
+
+
+def promote_sealed(root: Path, state: dict) -> str:
+    """Copy đúng byte đã niêm. Không chạy lại lệnh. Chuỗi rỗng là khớp."""
+    from .team import _test_pause
+    manifest = state.get("manifest")
+    if not isinstance(manifest, dict):
+        return "chưa có manifest bàn giao"
+    if manifest.get("run_id") != state["id"] or manifest.get("brief_hash") != state["brief_hash"]:
+        return "manifest không thuộc run này"
+    if manifest.get("attempt") != state["attempt"]:
+        return "manifest không thuộc lần thử này"
+    folder = Path(state["staging"]) if state.get("staging") else None
+    pending = []
+    root = Path(root).resolve()
+    for item in manifest.get("files") or []:
+        rel = Path(item["path"])
+        dest = (root / rel).resolve()
+        if dest != root and root not in dest.parents:
+            return "path thoát khỏi thư mục"
+        digest = item["sha256"]
+        if dest.is_file() and hashlib.sha256(dest.read_bytes()).hexdigest() == digest:
+            continue
+        src = (folder / rel) if folder is not None else None
+        if src is None or not src.is_file():
+            return "thiếu file trong manifest"
+        if hashlib.sha256(src.read_bytes()).hexdigest() != digest:
+            return "tập file đổi trước promote"
+        pending.append((src, dest, digest))
+    for index, (src, dest, digest) in enumerate(pending):
+        if index:
+            _test_pause("mid-promote")
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        os.replace(str(src), str(dest))
+        if not dest.is_file() or hashlib.sha256(dest.read_bytes()).hexdigest() != digest:
+            return "byte sau promote không khớp manifest"
+    return ""
+
+
 def _checked_rows(state: dict, root: Path) -> list[dict]:
     from .obligations import refresh_evidence
     base = Path(state["staging"]) if state.get("staging") and not state.get("promoted") else root
@@ -622,15 +719,17 @@ def _checked_rows(state: dict, root: Path) -> list[dict]:
 
 def _finish_saved(root: Path, state: dict) -> tuple[list[dict], str, int]:
     """Team đã xong. Không gọi model. Promote tối đa một lần."""
-    from .team import promote_staging
     rows = apply_confirmations(state, _checked_rows(state, root), root)
     status, code = _delivery(rows)
+    reason = ""
     if code == 0 and state.get("want_deliver") and not state.get("promoted"):
-        folder = Path(state["staging"]) if state.get("staging") else None
-        if folder is not None and folder.is_dir():
-            promote_staging(root, folder, [])
-        state["promoted"] = True
-    if code == 0 and (state.get("want_deliver") or state.get("promoted")):
+        reason = promote_sealed(root, state)
+        if not reason:
+            state["promoted"] = True
+    if reason:
+        state["phase"] = "failed"
+        status, code = f"bàn giao: chặn — {reason}", 3
+    elif code == 0 and (state.get("want_deliver") or state.get("promoted")):
         state["phase"] = "delivered"
     elif state.get("hold") == "needs_confirmation":
         state["phase"] = "awaiting_confirmation"
@@ -651,20 +750,25 @@ def _finish_saved(root: Path, state: dict) -> tuple[list[dict], str, int]:
 
 def _record(root: Path, state: dict, res: dict, ledger, rows: list[dict],
             status: str, code: int, deliver: bool) -> tuple[list[dict], str, int]:
-    from .team import _test_pause, promote_staging
+    from .team import _test_pause
     state["obligations"] = rows
     state["hold"] = str(res.get("hold") or "")
     state["ledger"] = _ledger_blob(ledger)
     state["staging"] = str(res.get("staging") or "")
     state["want_deliver"] = bool(deliver)
     state["phase"] = "executing"
+    if state["staging"] and not isinstance(state.get("manifest"), dict):
+        state["manifest"] = _capture_manifest(root, state)
     _save(root, state)
     _test_pause("before-promote")
+    reason = ""
     if deliver and not state["promoted"]:
-        folder = Path(state["staging"]) if state["staging"] else None
-        if folder is not None and folder.is_dir():
-            promote_staging(root, folder, [])
-        state["promoted"] = True
+        reason = promote_sealed(root, state)
+        if reason:
+            deliver = False
+            status, code = f"bàn giao: chặn — {reason}", 3
+        else:
+            state["promoted"] = True
         _save(root, state)
     _test_pause("after-promote")
     if deliver:
@@ -691,12 +795,14 @@ def settle(root: Path, run_id: str) -> tuple[list[dict], str, int]:
     status, code = _delivery(rows)
     deliver = state.get("hold") == "needs_confirmation" and code == 0 and not state["promoted"]
     if deliver:
-        folder = Path(state["staging"]) if state["staging"] else None
-        if folder is not None and folder.is_dir():
-            from .team import promote_staging
-            promote_staging(root, folder, [])
-        state["promoted"] = True
-        state["phase"] = "delivered"
+        reason = promote_sealed(root, state)
+        if reason:
+            deliver = False
+            code = 4
+            status = "bàn giao: chưa — " + reason
+        else:
+            state["promoted"] = True
+            state["phase"] = "delivered"
     elif code == 0 and state["promoted"]:
         state["phase"] = "delivered"
     else:

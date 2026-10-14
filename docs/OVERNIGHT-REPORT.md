@@ -38,6 +38,7 @@ Thứ tự: R1 quyền chạy check, R2 tiêu chí gắn phép kiểm và artifa
 | L3 | đạt | `063e993` | https://github.com/wuongg/mira-harness/actions/runs/38516162248 success |
 | L4 | đạt | `2f7d6fd` | https://github.com/wuongg/mira-harness/actions/runs/38518143543 success |
 | P1 | đạt | `e7a7f36` | https://github.com/wuongg/mira-harness/actions/runs/38529381006 success |
+| P2 | đạt, chờ CI |  |  |
 
 ### R1
 
@@ -333,6 +334,26 @@ Lệnh: `py -3 -m unittest discover -s tests -p "test_evidence_bind.py" -v`
 Selftest: `Ran 543 tests`, `OK (skipped=2)`.
 
 CI: https://github.com/wuongg/mira-harness/actions/runs/38529381006 success. SHA `e7a7f36`.
+
+### P2
+
+Manifest được niêm khi worker xong, trước mọi `os.replace`. Khóa: `run_id`, `attempt`, `brief_hash`, và từng file sẽ đưa ra cây nguồn kèm sha256 của byte trong staging. Gọi niêm lần hai không đọc byte mới. `--retry` xóa manifest để lần thử mới tự niêm lại.
+
+Bốn đường dùng cùng `promote_sealed`: bàn giao thường, settle sau xác nhận, phục hồi trước promote, phục hồi sau promote. File đã nằm ở nguồn với đúng hash thì không copy lại. File trong staging lệch hash thì chặn, không promote file nào, không chạy lại lệnh behavior.
+
+Dừng giữa hai file (`MIRA_PAUSE=mid-promote` sau file thứ nhất): một file đã ra nguồn, `promoted` vẫn false, báo cáo không có `bàn giao: đủ`. Phục hồi chỉ copy nốt nếu byte còn khớp. File đã copy không bị hoàn tác.
+
+Giới hạn: tiến trình ngoài harness vẫn sửa được filesystem trong khoảng giữa lúc đọc hash và lúc `os.replace` trả về. Hash không tạo cô lập và không phải giao dịch nguyên tử nhiều file.
+
+Mẫu manifest:
+
+```json
+{"run_id":"0123456789ab","attempt":1,"brief_hash":"<sha256 brief>","files":[{"path":"extra.txt","sha256":"<sha256 byte luc niem>"},{"path":"report.md","sha256":"<sha256 byte luc niem>"}]}
+```
+
+Lệnh: `py -3 -m unittest discover -s tests -p "test_delivery_manifest.py" -v`
+
+Selftest: `Ran 546 tests`, `OK (skipped=2)`.
 
 ## 1. Mốc
 
