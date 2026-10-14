@@ -17,6 +17,7 @@ fail-closed vẫn do code quyết.
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import random
@@ -313,12 +314,36 @@ def checkpoint_path(root: Path, run_id: str) -> Path:
     return Path(root) / ".mira" / "runs" / run_id / "checkpoint.json"
 
 
+def tree_hash(path: Path) -> str:
+    """Hash nội dung file trong một cây. Đổi một byte là hash khác."""
+    digest = hashlib.sha256()
+    root = Path(path)
+    for item in sorted(p for p in root.rglob("*") if p.is_file()):
+        rel = item.relative_to(root).as_posix().encode("utf-8")
+        digest.update(rel)
+        digest.update(b"\0")
+        digest.update(item.read_bytes())
+        digest.update(b"\0")
+    return digest.hexdigest()
+
+
+def _test_pause(name: str) -> None:
+    """Điểm dừng chỉ khi test đặt MIRA_PAUSE. Mặc định không chờ."""
+    if os.environ.get("MIRA_PAUSE") != name:
+        return
+    flag = os.environ.get("MIRA_PAUSE_FLAG")
+    if flag:
+        Path(flag).write_text(name, encoding="utf-8")
+    time.sleep(20)
+
+
 def write_checkpoint(root: Path, payload: dict) -> None:
     """Ghi nguyên tử. File tạm cùng thư mục rồi os.replace."""
     dest = checkpoint_path(root, payload["id"])
     dest.parent.mkdir(parents=True, exist_ok=True)
     tmp = dest.with_suffix(".json.tmp")
     tmp.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+    _test_pause("checkpoint")
     os.replace(tmp, dest)
 
 
@@ -634,6 +659,7 @@ def execute_plan(plan: TeamPlan, *, provider_name: str | None = None,
                 "uncertain": list(ledger.uncertain),
             },
             "staging": str(staging_box[0]) if staging_box[0] is not None else None,
+            "staging_hash": tree_hash(staging_box[0]) if staging_box[0] is not None else None,
             "status": status,
             "fail_reason": fail_reason,
             "hints": {
@@ -1274,11 +1300,115 @@ def resume_team(root: Path, run_id: str, **kw) -> tuple[int, dict]:
         if not path.exists():
             return 2, {"status": "error", "error": "staging của checkpoint không còn",
                        "fail_reason": "staging của checkpoint không còn"}
+        saved_hash = data.get("staging_hash")
+        if saved_hash and tree_hash(path) != saved_hash:
+            why = "artifact đã đổi — không tiếp tục kế hoạch cũ"
+            return 2, {"status": "error", "error": why, "fail_reason": why}
     led = ledger_from_checkpoint(data["ledger"])
     res = execute_plan(
         plan, ledger=led, root=root, run_id=run_id, workers=workers,
         resume_steps=steps, resume_staging=staging, **kw)
     return (0 if res.get("status") == "ok" else 3), res
+
+
+def _deliver(args, plan, res) -> int:
+    """Cổng người và bàn giao. Resume thành công đi vào đây, không gọi lại bước đã xong."""
+    from . import ui
+
+    ui.title("KẾT LUẬN")
+    st = res["status"]
+    ui.kv("Trạng thái", {"ok": ui.c("đã làm", "green", "bold"),
+                         "withheld": ui.c("bị chặn", "yellow", "bold"),
+                         "blocked": ui.c("bị chặn", "yellow", "bold"),
+                         "error": ui.c("lỗi", "red", "bold"),
+                         "stopped_budget": ui.c("dừng vì ngân sách", "yellow", "bold")}.get(st, st))
+    if res["fail_reason"]:
+        ui.kv("Lý do", res["fail_reason"])
+    if res["verifier_verdict"]:
+        ui.kv("Verifier", res["verifier_verdict"])
+    if res["oracle_score"] is not None:
+        ui.kv("Oracle", f"{res['oracle_score']:.2f}")
+    led = res["ledger"]
+    ui.kv("Chi phí", f"${led['total_usd']:.6f} · {led['tokens_in']}+{led['tokens_out']} tok"
+          + ("" if led["all_priced"] else "  (có model chưa có giá trong bảng)"))
+    for k, v in led["by_role"].items():
+        ui.kv("  " + k, f"${v:.6f}")
+    for row in res.get("obligations") or []:
+        ui.note(_obligation_note(row), "info")
+
+    if st != "ok":
+        print()
+        ui.note("fail-closed (I2): KHÔNG ghi gì ra ngoài.", "warn")
+        if getattr(args, "out", None):
+            d = Path(args.out)
+            d.mkdir(parents=True, exist_ok=True)
+            (d / "withheld.json").write_text(json.dumps(res, ensure_ascii=False, indent=2),
+                                             encoding="utf-8")
+            ui.note(f"hồ sơ giữ lại: {d}/withheld.json", "info")
+        return 3
+
+    def _hold() -> None:
+        if res.get("staging"):
+            held = withhold_staging(Path(res["staging"]))
+            res["staging"] = str(held)
+
+    need = plan.gate_tier >= 2
+    approved = True
+    if need and plan.dual_approval:
+        phrases = two_phrases(plan.plan_hash)
+        seen: list[str] = []
+        people: list[dict] = []
+        reject = 0
+        for index, phrase in enumerate(phrases, 1):
+            try:
+                name = input(ui.c(f"\n  Người {index} — tên: ", "bold")).strip()
+                got = input(ui.c(f"  Nhập cụm: {phrase} ", "bold")).strip()
+            except (EOFError, KeyboardInterrupt):
+                name, got = "", ""
+            if name and name in seen:
+                reject = 5
+                break
+            if not name or got != phrase:
+                reject = 4
+                break
+            seen.append(name)
+            people.append({"name": name, "time": time.strftime("%Y-%m-%dT%H:%M:%S"),
+                           "plan_hash": plan.plan_hash})
+        if reject:
+            print()
+            ui.note("hai người chưa duyệt — Executor không ghi.", "warn")
+            _hold()
+            return reject
+        res["gate_person"] = people
+        approved = True
+    elif need and not getattr(args, "approve", False):
+        try:
+            ans = input(ui.c(f"\n  Cổng tầng {plan.gate_tier} — duyệt để ghi? [y/N] ", "bold")).strip().lower()
+        except (EOFError, KeyboardInterrupt):
+            ans = "n"
+        approved = ans in ("y", "yes", "có", "co")
+    if need and not approved:
+        print()
+        ui.note("chưa duyệt — Executor không ghi (đúng I1/I2).", "warn")
+        _hold()
+        return 4
+
+    if res.get("staging"):
+        staging = Path(res["staging"])
+        if staging.is_dir() and not staging.name.endswith(".withheld"):
+            audit: list[dict] = []
+            res["promoted"] = promote_staging(Path.cwd(), staging, audit)
+            res["promote_audit"] = audit
+            shutil.rmtree(staging, ignore_errors=True)
+
+    if not getattr(args, "out", None):
+        ui.note("không có --out nên không ghi gì", "info")
+        return 0
+    _test_pause("handoff")
+    d = _executor_write(Path(args.out), plan, res)
+    print()
+    ui.note(f"Executor đã ghi: {d}/result.md · {d}/trace.json", "ok")
+    return 0
 
 
 def cmd_team(args) -> int:
@@ -1304,18 +1434,22 @@ def cmd_team(args) -> int:
             brief=brief,
             criteria_origin="user" if brief is not None else None,
             require_evidence=bool(getattr(args, "require_evidence", False)))
-        for row in res.get("obligations") or []:
-            ui.note(_obligation_note(row), "info")
         if code == 2:
             ui.note(res.get("error") or "không có checkpoint cho id này", "bad")
             for line in (res.get("contract_diff") or {}).get("lines") or []:
                 ui.note(line, "warn")
             return 2
-        if res.get("status") == "withheld":
-            ui.note(res.get("fail_reason") or "còn tiêu chí chưa có bằng chứng", "warn")
-            ui.note("GIỮ LẠI — không giao", "warn")
-            return 3
-        return code
+        if res.get("status") != "ok":
+            for row in res.get("obligations") or []:
+                ui.note(_obligation_note(row), "info")
+            if res.get("status") == "withheld":
+                ui.note(res.get("fail_reason") or "còn tiêu chí chưa có bằng chứng", "warn")
+                ui.note("GIỮ LẠI — không giao", "warn")
+            return code
+        data = load_checkpoint(Path.cwd(), args.resume)
+        hints = dict(data.get("hints") or {})
+        plan = build_plan(data.get("task") or "", **hints)
+        return _deliver(args, plan, res)
     if not getattr(args, "task", None):
         ui.note("thiếu yêu cầu", "bad")
         return 2
@@ -1453,97 +1587,4 @@ def cmd_team(args) -> int:
                        oracle=oracle, ledger=intake_ledger,
                        on_step=lambda m: print("  " + m))
 
-    ui.title("KẾT LUẬN")
-    st = res["status"]
-    ui.kv("Trạng thái", {"ok": ui.c("đã làm", "green", "bold"),
-                         "withheld": ui.c("bị chặn", "yellow", "bold"),
-                         "blocked": ui.c("bị chặn", "yellow", "bold"),
-                         "error": ui.c("lỗi", "red", "bold"),
-                         "stopped_budget": ui.c("dừng vì ngân sách", "yellow", "bold")}.get(st, st))
-    if res["fail_reason"]:
-        ui.kv("Lý do", res["fail_reason"])
-    if res["verifier_verdict"]:
-        ui.kv("Verifier", res["verifier_verdict"])
-    if res["oracle_score"] is not None:
-        ui.kv("Oracle", f"{res['oracle_score']:.2f}")
-    led = res["ledger"]
-    ui.kv("Chi phí", f"${led['total_usd']:.6f} · {led['tokens_in']}+{led['tokens_out']} tok"
-          + ("" if led["all_priced"] else "  (có model chưa có giá trong bảng)"))
-    for k, v in led["by_role"].items():
-        ui.kv("  " + k, f"${v:.6f}")
-    for row in res.get("obligations") or []:
-        ui.note(_obligation_note(row), "info")
-
-    # ---- cổng người + Executor ----
-    if st != "ok":
-        print()
-        ui.note("fail-closed (I2): KHÔNG ghi gì ra ngoài.", "warn")
-        if args.out:
-            d = Path(args.out)
-            d.mkdir(parents=True, exist_ok=True)
-            (d / "withheld.json").write_text(json.dumps(res, ensure_ascii=False, indent=2),
-                                             encoding="utf-8")
-            ui.note(f"hồ sơ giữ lại: {d}/withheld.json", "info")
-        return 3
-
-    def _hold() -> None:
-        if res.get("staging"):
-            held = withhold_staging(Path(res["staging"]))
-            res["staging"] = str(held)
-
-    need = plan.gate_tier >= 2
-    approved = True
-    if need and plan.dual_approval:
-        phrases = two_phrases(plan.plan_hash)
-        seen: list[str] = []
-        people: list[dict] = []
-        reject = 0
-        for index, phrase in enumerate(phrases, 1):
-            try:
-                name = input(ui.c(f"\n  Người {index} — tên: ", "bold")).strip()
-                got = input(ui.c(f"  Nhập cụm: {phrase} ", "bold")).strip()
-            except (EOFError, KeyboardInterrupt):
-                name, got = "", ""
-            if name and name in seen:
-                reject = 5
-                break
-            if not name or got != phrase:
-                reject = 4
-                break
-            seen.append(name)
-            people.append({"name": name, "time": time.strftime("%Y-%m-%dT%H:%M:%S"),
-                           "plan_hash": plan.plan_hash})
-        if reject:
-            print()
-            ui.note("hai người chưa duyệt — Executor không ghi.", "warn")
-            _hold()
-            return reject
-        res["gate_person"] = people
-        approved = True
-    elif need and not args.approve:
-        try:
-            ans = input(ui.c(f"\n  Cổng tầng {plan.gate_tier} — duyệt để ghi? [y/N] ", "bold")).strip().lower()
-        except (EOFError, KeyboardInterrupt):
-            ans = "n"
-        approved = ans in ("y", "yes", "có", "co")
-    if need and not approved:
-        print()
-        ui.note("chưa duyệt — Executor không ghi (đúng I1/I2).", "warn")
-        _hold()
-        return 4
-
-    if res.get("staging"):
-        staging = Path(res["staging"])
-        if staging.is_dir() and not staging.name.endswith(".withheld"):
-            audit: list[dict] = []
-            res["promoted"] = promote_staging(Path.cwd(), staging, audit)
-            res["promote_audit"] = audit
-            shutil.rmtree(staging, ignore_errors=True)
-
-    if not args.out:
-        ui.note("không có --out nên không ghi gì", "info")
-        return 0
-    d = _executor_write(Path(args.out), plan, res)
-    print()
-    ui.note(f"Executor đã ghi: {d}/result.md · {d}/trace.json", "ok")
-    return 0
+    return _deliver(args, plan, res)

@@ -16,8 +16,8 @@ Thứ tự: R1 quyền chạy check, R2 tiêu chí gắn phép kiểm và artifa
 | --- | --- | --- | --- |
 | R1 | đạt | `9dfe1c8` | https://github.com/wuongg/mira-harness/actions/runs/38488932153 success |
 | R2 | đạt | `296e187` | https://github.com/wuongg/mira-harness/actions/runs/38489405825 success |
-| R3 | đạt trên máy; CI sau khi push | | |
-| R4 | chưa làm | | |
+| R3 | đạt | `74b7154` | https://github.com/wuongg/mira-harness/actions/runs/38489760877 success |
+| R4 | đạt trên máy; CI sau khi push | | |
 | R5 | chưa làm | | |
 
 ### R1
@@ -50,13 +50,29 @@ Lệnh: `py -3 -m unittest discover -s tests -p "test_budget_hold.py" -v`
 
 Selftest: `Ran 471 tests`, `OK (skipped=2)`.
 
+### R4
+
+Năm lần thử đều khởi chạy `mira team` trong subprocess và ngắt bằng `TerminateProcess`. Provider là HTTP giả trên `127.0.0.1`, không gọi API trả phí.
+
+Sau worker, checkpoint đã có `next_index` từ 1. Resume không tăng số lần gọi worker và sổ cái còn một dòng worker. Lúc ghi checkpoint, tiến trình dừng sau file `.json.tmp` và trước `os.replace` khi `MIRA_PAUSE=checkpoint`. Kill thì không còn `checkpoint.json`. Resume thoát 2, không gọi thêm worker, không bàn giao. Trước bàn giao, `MIRA_PAUSE=handoff` dừng trước `_executor_write`. Resume đi vào `_deliver`, ghi một `result.md`, không gọi lại worker. Đổi brief thì thoát 2 và không ghi đè brief đã lưu. Đổi một byte trong staging đã có `staging_hash` thì thoát 2 với `artifact đã đổi` và không bàn giao.
+
+`MIRA_PAUSE` chỉ ngủ khi biến đó được đặt. Mặc định không chờ. Điểm dừng này để giết tiến trình thật, không thay cho snapshot trong cùng process.
+
+Khoản đang giữ trong lúc gọi model không nằm trên đĩa. Ngắt giữa call thì mất chỗ giữ và không ghi khoản không chắc. Chưa chứng minh phục hồi khoản đó.
+
+Lệnh: `py -3 -m unittest discover -s tests -p "test_crash_resume.py" -v`
+
+Selftest: `Ran 476 tests`, `OK (skipped=2)`.
+
 ## 1. Mốc
+
+Mục 1 đến hết là nhật ký Q1–Q8. Nhánh làm việc hiện tại là mục 0.
 
 - SHA đầu vào: `bb587009da2b4d90edc6eeb0384114e5e83ba797`.
 - Nhánh: `agent/overnight-rd-2026-10-13`. Worktree `C:\Users\phamv\Downloads\mira-overnight`.
 - SHA cuối của mã: `38ed912`. CI: https://github.com/wuongg/mira-harness/actions/runs/38434179075 success.
 - Ba file markdown kế hoạch chưa commit ở checkout gốc không được đụng.
-- Pull request: chưa tạo. `gh` chưa đăng nhập. Link: https://github.com/wuongg/mira-harness/compare/main...agent/overnight-rd-2026-10-13?expand=1
+- Pull request: chưa tạo. `gh` chưa đăng nhập. Link overnight này không còn là nhánh làm việc. Link hiện tại nằm ở mục 0.
 
 ## 2. Hàng đợi
 
