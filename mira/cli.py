@@ -776,6 +776,26 @@ def build_parser() -> argparse.ArgumentParser:
     tm.add_argument("--out", default=None, help="thư mục Executor ghi kết quả")
     tm.set_defaults(func=cmd_team)
 
+    from .handoff import cmd_giao
+    gx = sub.add_parser("giao", help="phiếu từ câu nói thường, rồi bảng bàn giao")
+    gx.add_argument("task", nargs="?", default=None, help="yêu cầu bằng lời")
+    gx.add_argument("--run", default=None, help="chạy run đã lưu")
+    gx.add_argument("--grant", action="append", default=[],
+                    help="cấp đúng một lệnh; duyệt phiếu không cấp lệnh")
+    gx.add_argument("--approve-brief", dest="approve_brief", action="store_true",
+                    help="duyệt phiếu đã xem, không cấp lệnh")
+    gx.add_argument("--change", default=None, help="câu yêu cầu mới, không tiếp run cũ")
+    gx.add_argument("--previous", default=None, help="id run cũ khi tạo run mới")
+    gx.add_argument("--cwd", default=".")
+    gx.add_argument("--provider", default=None,
+                    choices=["openrouter", "anthropic", "openai", "xai", "tavily", "brave", "serper"])
+    gx.add_argument("--model", default=None)
+    gx.add_argument("--base-url", dest="base_url", default=None)
+    gx.add_argument("--max-tokens", dest="max_tokens", type=int, default=4096)
+    gx.add_argument("--price-in", dest="price_in", default=None,
+                    help="giá USD mỗi triệu token, dạng IN,OUT")
+    gx.set_defaults(func=cmd_giao)
+
     from .intake import cmd_brief
     br = sub.add_parser("brief", help="kiểm tra hoặc chép brief JSON")
     bsub = br.add_subparsers(dest="brief_cmd", required=True)

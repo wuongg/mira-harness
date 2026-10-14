@@ -107,7 +107,7 @@ class CrashResumeTest(unittest.TestCase):
                     if hits:
                         try:
                             data = json.loads(hits[0].read_text(encoding="utf-8"))
-                        except json.JSONDecodeError:
+                        except (json.JSONDecodeError, OSError):
                             data = None
                         if data and int(data.get("next_index") or 0) >= 1:
                             break
@@ -144,7 +144,7 @@ class CrashResumeTest(unittest.TestCase):
                     if hits:
                         try:
                             data = json.loads(hits[0].read_text(encoding="utf-8"))
-                        except json.JSONDecodeError:
+                        except (json.JSONDecodeError, OSError):
                             data = None
                         if data and int(data.get("next_index") or 0) >= 1:
                             break
@@ -265,7 +265,7 @@ class CrashResumeTest(unittest.TestCase):
                     if hits:
                         try:
                             data = json.loads(hits[0].read_text(encoding="utf-8"))
-                        except json.JSONDecodeError:
+                        except (json.JSONDecodeError, OSError):
                             data = None
                         if data and int(data.get("next_index") or 0) >= 1:
                             break

@@ -26,7 +26,8 @@ Thứ tự: R1 quyền chạy check, R2 tiêu chí gắn phép kiểm và artifa
 | S3 | đạt | `92ef473` | https://github.com/wuongg/mira-harness/actions/runs/38509001523 success |
 | S4 | đạt | `e965c49` | https://github.com/wuongg/mira-harness/actions/runs/38509232763 success |
 | V1 | đạt | `f1e9537` | https://github.com/wuongg/mira-harness/actions/runs/38509821752 success |
-| V2 | đạt trên máy; CI sau khi push | | |
+| V2 | CI đỏ một job Windows | `cbc4f7f` | https://github.com/wuongg/mira-harness/actions/runs/38510168826 failure |
+| UX | đạt trên máy; CI sau khi push | | |
 
 ### R1
 
@@ -175,6 +176,28 @@ Selftest: `Ran 502 tests`, `OK (skipped=2)`.
 Lệnh: `py -3 -m unittest discover -s tests -p "test_validators.py"`
 
 Selftest: `Ran 508 tests`, `OK (skipped=2)`.
+
+CI `cbc4f7f`: https://github.com/wuongg/mira-harness/actions/runs/38510168826 failure. Job `unittest (windows-latest / 3.12)` lỗi `PermissionError` khi đọc `checkpoint.json` trong `test_doi_artifact_sau_kill_khong_ban_giao`. Vòng chờ của test đó giờ thử lại khi file đang bị khóa, cùng cách nó đã thử lại khi JSON còn dở. Các job unittest còn lại và quality-gate đều success.
+
+### UX
+
+Lệnh `mira giao` nhận câu nói thường, gọi intake sẵn có, rồi in mục tiêu, deliverable, ràng buộc và từng tiêu chí là tự động hay cần người xác nhận. Dòng lệnh cần cấp quyền được in riêng. Duyệt phiếu không ghi grant. `--run` chỉ chạy validator với các lệnh đã `--grant` đúng chuỗi.
+
+Đổi yêu cầu bằng `--change` in khác biệt, id run cũ và bước tạo run mới `--previous`. Run mới không nhận grant cũ.
+
+`giao --run` không gọi worker. Người dùng hoặc fixture sửa file; lệnh này chỉ kiểm. Provider giả chỉ chứng minh luồng và chính sách.
+
+Ba demo, provider giả, subprocess thật: `py -3 -m unittest discover -s tests -p "test_giao_demo.py" -v`
+
+| Demo | Thao tác người dùng | Đã kiểm | Chưa kiểm | Bàn giao sai | Chặn sai | Tiếp tục sau chặn hoặc đổi yêu cầu |
+| --- | --- | --- | --- | --- | --- | --- |
+| A sửa `add` | 4: mở phiếu, chạy chưa cấp lệnh, sửa file, cấp đúng lệnh | 1 behavior sau khi cấp đúng lệnh | cùng tiêu chí khi chưa cấp hoặc cấp `echo sai` | không: hai lần đầu `bàn giao: chưa` | không: lần cấp đúng lệnh ra `verified` | được: lệnh sai vẫn `pending`, lần sau cấp đúng thì đạt |
+| B JSON | 4: file `[{}]`, mở phiếu, chạy, sửa file rồi chạy lại | 1 `json_keys` khi file đủ khóa | lần `[{}]` là `failed` | không | không | được: chạy lại cùng run sau khi sửa file |
+| C báo cáo | 3: ghi file, mở phiếu, chạy | 1 `contains` | 1 tiêu chí không có validator, `needs_confirmation` | không: vẫn `bàn giao: chưa` | không: tiêu chí tự động vẫn `verified` | không cần lệnh; tiêu chí người vẫn mở |
+
+Ví dụ A, câu `Sua ham add va kiem bang test` ra phiếu có tiêu chí `[tự động] add-ok` và đúng một lệnh. Chưa `--grant` thì bảng là `pending` và `bàn giao: chưa`. Sau khi `calc.add` trả tổng và cấp đúng lệnh, bảng là `verified` và `bàn giao: đủ`.
+
+Selftest: `Ran 512 tests`, `OK (skipped=2)`.
 
 ## 1. Mốc
 
