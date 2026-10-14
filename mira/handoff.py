@@ -264,6 +264,9 @@ def execute(root: Path, run_id: str, *, provider: str | None, model: str | None,
     refused = _blocked(state)
     if refused:
         return refused
+    needed = grant_commands(state["brief"])
+    if needed and not _active_grants(state):
+        return [], "chưa cấp lệnh — không thực thi", 8
     from .team import Ledger, build_plan, execute_plan, promote_staging
     plan = build_plan(
         state["request"], surface="write_sandbox", labels=["internal"],

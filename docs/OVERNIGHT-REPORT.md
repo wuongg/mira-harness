@@ -29,7 +29,8 @@ Thứ tự: R1 quyền chạy check, R2 tiêu chí gắn phép kiểm và artifa
 | V2 | CI đỏ một job Windows | `cbc4f7f` | https://github.com/wuongg/mira-harness/actions/runs/38510168826 failure |
 | UX | đạt | `4f6ec72` | https://github.com/wuongg/mira-harness/actions/runs/38510764742 success |
 | H1 | đạt | `b4bbd75` | https://github.com/wuongg/mira-harness/actions/runs/38511813897 success |
-| H2 | đạt trên máy; CI sau khi push | | |
+| H2 | đạt | `f0b3db1` | https://github.com/wuongg/mira-harness/actions/runs/38512453126 success |
+| H3 | đạt trên máy; CI sau khi push | | |
 
 ### R1
 
@@ -220,6 +221,23 @@ Selftest: `Ran 518 tests`, `OK (skipped=2)`.
 Lệnh worker: `py -3 -m unittest discover -s tests -p "test_giao_execute.py" -v`
 
 Selftest: `Ran 520 tests`, `OK (skipped=2)`.
+
+### H3
+
+Ba demo do worker tạo kết quả qua tool, provider giả. Test chỉ dựng file sai hoặc thư mục trống, không viết kết quả đúng.
+
+| Demo | Bước người dùng | Worker | Kiểm | Chưa chứng minh | Bàn giao |
+| --- | --- | --- | --- | --- | --- |
+| A sửa `add` | 2: duyệt phiếu, cấp đúng lệnh rồi chạy | `edit_file` trong staging, file nguồn thành `return a + b` | behavior `verified` | không | đủ |
+| B JSON | 2: duyệt phiếu, chạy | `write_file` tạo `rows.json` | `json_keys` `verified` | không | đủ |
+| C báo cáo | 2: duyệt phiếu, chạy | `write_file` trong staging | `contains` `verified` | tiêu chí không validator, `needs_confirmation` | chưa, file không vào cây nguồn |
+| Worker làm sai | 2 | staging thành `return 0` | behavior không đạt | tiêu chí hành vi | chưa, cây nguồn giữ hàm trừ |
+| Không cấp lệnh | 2 | không gọi | không chạy | lệnh chưa cấp | `không thực thi`, không checkpoint |
+| Đổi yêu cầu | 3: chạy cũ, `--change`, run mới | không | grant mới rỗng | lệnh của run cũ không sang | chưa |
+
+Lệnh: `py -3 -m unittest discover -s tests -p "test_giao_execute.py" -v`
+
+Selftest: `Ran 525 tests`, `OK (skipped=2)`.
 
 ## 1. Mốc
 

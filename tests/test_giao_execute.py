@@ -42,14 +42,25 @@ class _Stub(BaseHTTPRequestHandler):
         if "INTAKE" in blob:
             text = json.dumps(_Stub.brief, ensure_ascii=False)
         elif "VERIFIER" in blob:
-            text = '{"verdict":"PASS","reasons":["khop"],"evidence":["calc"],"confidence":0.9}'
+            text = '{"verdict":"PASS","reasons":["khop"],"evidence":["tep"],"confidence":0.9}'
         elif "<result>" in blob:
-            text = '<tool>{"name":"finish","args":{"summary":"da sua add"}}</tool>'
+            text = '<tool>{"name":"finish","args":{"summary":"xong"}}</tool>'
+        elif "rows.json" in blob:
+            call = {"name": "write_file", "args": {
+                "path": "rows.json", "content": '[{"invoice_id":"a"}]'}}
+            text = "<tool>" + json.dumps(call, ensure_ascii=False) + "</tool>"
+        elif "report.md" in blob:
+            call = {"name": "write_file", "args": {
+                "path": "report.md", "content": "Nguon: so tay\n"}}
+            text = "<tool>" + json.dumps(call, ensure_ascii=False) + "</tool>"
+        elif "SAI" in blob:
+            call = {"name": "edit_file", "args": {
+                "path": "calc.py", "old": "return a - b", "new": "return 0"}}
+            text = "<tool>" + json.dumps(call, ensure_ascii=False) + "</tool>"
         else:
-            text = (
-                '<tool>{"name":"edit_file","args":{"path":"calc.py",'
-                '"old":"return a - b","new":"return a + b"}}</tool>'
-            )
+            call = {"name": "edit_file", "args": {
+                "path": "calc.py", "old": "return a - b", "new": "return a + b"}}
+            text = "<tool>" + json.dumps(call, ensure_ascii=False) + "</tool>"
         body = {"content": [{"type": "text", "text": text}],
                 "usage": {"input_tokens": 30, "output_tokens": 40}}
         raw = json.dumps(body).encode()
@@ -124,6 +135,140 @@ class GiaoExecuteTest(unittest.TestCase):
         finally:
             srv.shutdown()
             srv.server_close()
+
+    def test_worker_tao_json(self):
+        brief = {
+            "goal": "Ghi rows.json",
+            "deliverables": ["rows.json"],
+            "acceptance_criteria": [{
+                "schema": 1, "id": "inv", "text": "moi phan tu co invoice_id",
+                "validator": {
+                    "kind": "json_keys", "path": "rows.json", "expect": "array",
+                    "required": ["invoice_id"], "forbidden": ["token"],
+                },
+            }],
+            "constraints": [], "assumptions": [], "questions": [],
+            "per_role_hints": {"planner": "", "worker": "", "verifier": ""},
+        }
+        srv, base = _serve(brief)
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                opened = _mira(root, base, ["Ghi rows.json", "--approve-brief"])
+                self.assertEqual(opened.returncode, 0, opened.stderr + opened.stdout)
+                run = _id(opened.stdout)
+                ran = _mira(root, base, ["--run", run])
+                self.assertEqual(ran.returncode, 0, ran.stdout + ran.stderr)
+                self.assertIn("verified", ran.stdout)
+                loaded = json.loads((root / "rows.json").read_text(encoding="utf-8"))
+                self.assertEqual(loaded[0]["invoice_id"], "a")
+        finally:
+            srv.shutdown()
+            srv.server_close()
+
+    def test_worker_tao_bao_cao(self):
+        brief = {
+            "goal": "Ghi report.md",
+            "deliverables": ["report.md"],
+            "acceptance_criteria": [
+                {
+                    "schema": 1, "id": "src", "text": "bao cao co dong nguon",
+                    "validator": {
+                        "kind": "contains", "path": "report.md",
+                        "must_contain": ["Nguon:"], "must_not_contain": [],
+                    },
+                },
+                {"schema": 1, "id": "tone", "text": "giong van phong de doc"},
+            ],
+            "constraints": [], "assumptions": [], "questions": [],
+            "per_role_hints": {"planner": "", "worker": "", "verifier": ""},
+        }
+        srv, base = _serve(brief)
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                opened = _mira(root, base, ["Ghi report.md", "--approve-brief"])
+                run = _id(opened.stdout)
+                ran = _mira(root, base, ["--run", run])
+                self.assertNotEqual(ran.returncode, 0, ran.stdout)
+                self.assertIn("verified", ran.stdout)
+                self.assertIn("needs_confirmation", ran.stdout)
+                self.assertIn("bàn giao: chưa", ran.stdout)
+                self.assertFalse((root / "report.md").exists())
+                staged = list((root / ".mira" / "staging").glob("**/*.withheld/report.md"))
+                self.assertTrue(staged, ran.stdout)
+                self.assertIn("Nguon:", staged[0].read_text(encoding="utf-8"))
+        finally:
+            srv.shutdown()
+            srv.server_close()
+
+    def test_worker_lam_sai_khong_ban_giao(self):
+        cmd = shlex.join([sys.executable, "-c", "import calc; print(calc.add(2, 3))"])
+        srv, base = _serve(_brief(cmd))
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                (root / "calc.py").write_text("def add(a, b):\n    return a - b\n", encoding="utf-8")
+                opened = _mira(root, base, ["Sửa calc.py SAI", "--approve-brief"])
+                run = _id(opened.stdout)
+                ran = _mira(root, base, ["--run", run, "--grant", cmd])
+                self.assertNotEqual(ran.returncode, 0, ran.stdout + ran.stderr)
+                self.assertNotIn("bàn giao: đủ", ran.stdout)
+                self.assertIn("return a - b", (root / "calc.py").read_text(encoding="utf-8"))
+                staged = list((root / ".mira" / "staging").glob("**/*.withheld/calc.py"))
+                self.assertTrue(staged, ran.stdout)
+                self.assertIn("return 0", staged[0].read_text(encoding="utf-8"))
+        finally:
+            srv.shutdown()
+            srv.server_close()
+
+    def test_khong_cap_quyen_khong_thuc_thi(self):
+        cmd = shlex.join([sys.executable, "-c", "import calc; print(calc.add(2, 3))"])
+        srv, base = _serve(_brief(cmd))
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                (root / "calc.py").write_text("def add(a, b):\n    return a - b\n", encoding="utf-8")
+                opened = _mira(root, base, ["Sửa calc.py thành phép cộng", "--approve-brief"])
+                run = _id(opened.stdout)
+                ran = _mira(root, base, ["--run", run])
+                self.assertEqual(ran.returncode, 8, ran.stdout)
+                self.assertIn("không thực thi", ran.stdout)
+                self.assertIn("return a - b", (root / "calc.py").read_text(encoding="utf-8"))
+                self.assertFalse((root / ".mira" / "runs" / run / "checkpoint.json").exists())
+        finally:
+            srv.shutdown()
+            srv.server_close()
+
+    def test_doi_yeu_cau_khong_dung_grant_cu(self):
+        cmd = shlex.join([sys.executable, "-c", "import calc; print(calc.add(2, 3))"])
+        srv, base = _serve(_brief(cmd))
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                (root / "calc.py").write_text("def add(a, b):\n    return a - b\n", encoding="utf-8")
+                opened = _mira(root, base, ["Sửa calc.py thành phép cộng", "--approve-brief"])
+                run = _id(opened.stdout)
+                changed = _mira(root, base, ["--run", run, "--change", "Ghi rows.json"])
+                self.assertEqual(changed.returncode, 2, changed.stdout)
+                self.assertIn(run, changed.stdout)
+                fresh = _mira(root, base, ["Ghi rows.json", "--previous", run, "--approve-brief"])
+                new_id = _id(fresh.stdout)
+                state = json.loads((root / ".mira" / "runs" / new_id / "handoff.json").read_text(encoding="utf-8"))
+                self.assertEqual(state["grants"], [])
+                self.assertEqual(state["previous"], run)
+                ran = _mira(root, base, ["--run", new_id])
+                self.assertNotIn("bàn giao: đủ", ran.stdout + ran.stderr)
+        finally:
+            srv.shutdown()
+            srv.server_close()
+
+
+def _id(text: str) -> str:
+    for line in text.splitlines():
+        if line.startswith("Run: "):
+            return line.split(": ", 1)[1].strip()
+    raise AssertionError(text)
 
 
 if __name__ == "__main__":
