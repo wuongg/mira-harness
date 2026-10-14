@@ -33,7 +33,8 @@ Thứ tự: R1 quyền chạy check, R2 tiêu chí gắn phép kiểm và artifa
 | H3 | đạt | `d3d7b28` | https://github.com/wuongg/mira-harness/actions/runs/38512806091 success |
 | H4 | đạt | `5a3dfed` | https://github.com/wuongg/mira-harness/actions/runs/38513177620 success |
 | H5 | đạt | `5aead5e` | https://github.com/wuongg/mira-harness/actions/runs/38513574605 success |
-| L1 | đạt trên máy; CI sau khi push | | |
+| L1 | đạt | `d4a538b` | https://github.com/wuongg/mira-harness/actions/runs/38514566409 success |
+| L2 | đạt trên máy; CI sau khi push | | |
 
 ### R1
 
@@ -269,6 +270,18 @@ Sau: bàn giao chỉ khi trạng thái team là `ok` và mọi tiêu chí đã c
 Lệnh: `py -3 -m unittest discover -s tests -p "test_giao_gates.py" -v`
 
 Selftest: `Ran 532 tests`, `OK (skipped=2)`.
+
+### L2
+
+Trước khi sửa, gọi `execute` hai lần trên cùng run thì `execute_plan` chạy hai lần, mỗi lần một `Ledger()` mới. Lần hai có thể bị `diff trống` vì file đã được sửa.
+
+Sau: run có `phase` là chờ duyệt, chờ quyền, chờ chạy, đang thực thi, chờ xác nhận, thất bại, đã bàn giao. Run đã bàn giao hoặc đã thất bại mà mở lại chỉ in kết quả, không gọi model, không promote lại. Xác nhận tay khi đang chờ xác nhận chỉ chốt và promote một lần. `--retry` tạo attempt mới, giữ `history`, và cộng tiếp sổ cái cũ. Intake nằm trong cùng ledger với worker và verifier. Dòng `chi phí tích lũy` in tổng đó.
+
+Mở lại run đã bàn giao hai lần: 0 request mới, file nguồn không bị ghi lại. Xác nhận báo cáo: 0 request mới, một lần promote. `--retry` sau khi dựng lại file sai: request tăng, `attempt` = 2, `total_usd` không nhỏ hơn attempt trước.
+
+Lệnh: `py -3 -m unittest discover -s tests -p "test_giao_lifecycle.py" -v`
+
+Selftest: `Ran 536 tests`, `OK (skipped=2)`.
 
 ## 1. Mốc
 

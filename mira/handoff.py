@@ -22,9 +22,24 @@ from .obligations import criterion_commands, judge_obligations, validate_criteri
 
 _AUTO = {"contains", "json_keys", "shape", "behavior"}
 _RUN_ID = re.compile(r"^[0-9a-f]{12}$")
+_PHASES = {
+    "awaiting_approval", "awaiting_grant", "ready", "executing",
+    "awaiting_confirmation", "failed", "delivered",
+}
+_PHASE_LABEL = {
+    "awaiting_approval": "chờ duyệt",
+    "awaiting_grant": "chờ quyền",
+    "ready": "chờ chạy",
+    "executing": "đang thực thi",
+    "awaiting_confirmation": "chờ xác nhận",
+    "failed": "thất bại",
+    "delivered": "đã bàn giao",
+}
 _STATE_FIELDS = (
     "id", "request", "brief", "brief_hash", "approved", "approved_hash",
     "grants", "confirmations", "previous",
+    "phase", "attempt", "history", "ledger", "obligations", "hold",
+    "staging", "promoted",
 )
 _SAVE_LOCK = threading.Lock()
 
@@ -64,6 +79,41 @@ def _grant_ok(item) -> bool:
             and isinstance(item["cmd"], str) and isinstance(item["brief_hash"], str))
 
 
+def _history_ok(item) -> bool:
+    return (isinstance(item, dict)
+            and set(item) == {"attempt", "phase", "cost_usd"}
+            and isinstance(item["attempt"], int) and item["phase"] in _PHASES
+            and isinstance(item["cost_usd"], (int, float)))
+
+
+def _empty_ledger() -> dict:
+    return {
+        "rows": [], "total_usd": 0.0, "total_in": 0, "total_out": 0,
+        "subagent_runs": 0, "reserved": 0.0, "uncertain_usd": 0.0,
+        "uncertain": [], "requests": [],
+    }
+
+
+def _ledger_shape(blob) -> bool:
+    return (isinstance(blob, dict) and isinstance(blob.get("rows"), list)
+            and isinstance(blob.get("total_usd"), (int, float))
+            and isinstance(blob.get("requests"), list))
+
+
+def _ledger_blob(ledger) -> dict:
+    return {
+        "rows": list(ledger.rows),
+        "total_usd": round(ledger.total_usd, 6),
+        "total_in": ledger.total_in,
+        "total_out": ledger.total_out,
+        "subagent_runs": ledger.subagent_runs,
+        "reserved": round(ledger.reserved, 6),
+        "uncertain_usd": round(ledger.uncertain_usd, 6),
+        "uncertain": list(ledger.uncertain),
+        "requests": list(ledger.requests),
+    }
+
+
 def _load(root: Path, run_id: str) -> dict:
     _check_run_id(run_id)
     path = _dir(root, run_id) / "handoff.json"
@@ -88,6 +138,17 @@ def _load(root: Path, run_id: str) -> dict:
     confirmations = state.get("confirmations")
     if not isinstance(confirmations, list) or not all(_confirm_ok(item) for item in confirmations):
         raise HandoffError("state hỏng: xác nhận sai schema")
+    if state.get("phase") not in _PHASES or not isinstance(state.get("attempt"), int) or state["attempt"] < 1:
+        raise HandoffError("state hỏng: sai schema")
+    history = state.get("history")
+    if not isinstance(history, list) or not all(_history_ok(item) for item in history):
+        raise HandoffError("state hỏng: sai schema")
+    if not _ledger_shape(state.get("ledger")) or not isinstance(state.get("obligations"), list):
+        raise HandoffError("state hỏng: sai schema")
+    if not isinstance(state.get("hold"), str) or not isinstance(state.get("staging"), str):
+        raise HandoffError("state hỏng: sai schema")
+    if not isinstance(state.get("promoted"), bool):
+        raise HandoffError("state hỏng: sai schema")
     ok, why = validate_brief(state.get("brief"))
     if not ok:
         raise HandoffError(f"state hỏng: {why}")
@@ -189,7 +250,8 @@ def preview(brief: dict, run_id: str) -> str:
     return "\n".join(lines)
 
 
-def open_run(root: Path, request: str, brief: dict, previous: str | None = None) -> dict:
+def open_run(root: Path, request: str, brief: dict, previous: str | None = None,
+             ledger: dict | None = None) -> dict:
     ok, why = validate_brief(brief)
     if not ok:
         raise HandoffError(why)
@@ -205,6 +267,14 @@ def open_run(root: Path, request: str, brief: dict, previous: str | None = None)
         "grants": [],
         "confirmations": [],
         "previous": previous,
+        "phase": "awaiting_approval",
+        "attempt": 1,
+        "history": [],
+        "ledger": ledger if ledger is not None else _empty_ledger(),
+        "obligations": [],
+        "hold": "",
+        "staging": "",
+        "promoted": False,
     }
     _save(root, state)
     return state
@@ -214,6 +284,8 @@ def approve(root: Path, run_id: str) -> dict:
     state = _load(root, run_id)
     state["approved"] = True
     state["approved_hash"] = state["brief_hash"]
+    if state["phase"] in ("awaiting_approval", "awaiting_grant", "ready"):
+        state["phase"] = "awaiting_grant" if grant_commands(state["brief"]) else "ready"
     _save(root, state)
     return state
 
@@ -366,18 +438,18 @@ def check_only(root: Path, run_id: str) -> tuple[list[dict], str, int]:
     return rows, body, 4
 
 
-def execute(root: Path, run_id: str, *, provider: str | None, model: str | None,
-            base_url: str | None, max_tokens: int, price) -> tuple[list[dict], str, int]:
-    """Chạy team/execute_plan trên cùng ledger, staging và checkpoint."""
-    state = _load(root, run_id)
-    refused = _blocked(state)
-    if refused:
-        return refused
-    needed = grant_commands(state["brief"])
-    if needed and not _active_grants(state):
-        return [], "chưa cấp lệnh — không thực thi", 8
+def _phase_line(state: dict) -> str:
+    return "vòng đời: " + _PHASE_LABEL[state["phase"]]
+
+
+def _cost_line(state: dict) -> str:
+    usd = float(state["ledger"].get("total_usd") or 0)
+    return f"chi phí tích lũy: ${usd:.6f}"
+
+
+def _make_plan(state: dict, price):
     from . import config as C
-    from .team import Ledger, ROLES_BY_LANE, build_plan, execute_plan, promote_staging
+    from .team import ROLES_BY_LANE, build_plan
     plan = build_plan(
         state["request"], surface="write_sandbox", labels=["internal"],
         records=50, dollars=0.0, reversibility="C1", output_type="free_string")
@@ -392,11 +464,134 @@ def execute(root: Path, run_id: str, *, provider: str | None, model: str | None,
     plan.granted_cmds = _active_grants(state)
     plan.stage_worker = True
     plan.declared_price = price
+    return plan
+
+
+def _view(root: Path, state: dict) -> tuple[list[dict], str, int]:
+    path = _dir(root, state["id"]) / "handoff.md"
+    saved = path.read_text(encoding="utf-8") if path.is_file() else ""
+    code = 0 if state["phase"] == "delivered" else (4 if state["phase"] == "awaiting_confirmation" else 3)
+    body = "\n".join(part for part in (
+        saved, _phase_line(state), _cost_line(state), "không gọi lại") if part)
+    return list(state.get("obligations") or []), body, code
+
+
+def begin_retry(root: Path, run_id: str) -> dict:
+    """Attempt mới trên cùng sổ cái. Không cấp ngân sách mới."""
+    state = _load(root, run_id)
+    if state["phase"] not in ("delivered", "failed"):
+        raise HandoffError("chỉ chạy lại run đã kết thúc")
+    state["history"].append({
+        "attempt": state["attempt"],
+        "phase": state["phase"],
+        "cost_usd": float(state["ledger"].get("total_usd") or 0),
+    })
+    state["attempt"] += 1
+    state["phase"] = "ready"
+    state["obligations"] = []
+    state["hold"] = ""
+    state["confirmations"] = []
+    state["staging"] = ""
+    state["promoted"] = False
+    _save(root, state)
+    return state
+
+
+def _record(root: Path, state: dict, res: dict, ledger, rows: list[dict],
+            status: str, code: int, deliver: bool) -> tuple[list[dict], str, int]:
+    from .team import promote_staging
+    state["obligations"] = rows
+    state["hold"] = str(res.get("hold") or "")
+    state["ledger"] = _ledger_blob(ledger)
+    state["staging"] = str(res.get("staging") or "")
+    if deliver and not state["promoted"]:
+        folder = Path(state["staging"]) if state["staging"] else None
+        if folder is not None and folder.is_dir():
+            promote_staging(root, folder, [])
+        state["promoted"] = True
+        state["phase"] = "delivered"
+    elif res.get("hold") == "needs_confirmation" and res.get("status") == "withheld":
+        state["phase"] = "awaiting_confirmation"
+    else:
+        state["phase"] = "failed" if not deliver else "delivered"
+    _save(root, state)
+    edited = any(step.get("edited") for step in res.get("steps") or [])
+    head = "worker: đã sửa trong staging" if edited else "worker: không sửa"
+    body = "\n".join([
+        head, render_table(state["request"], rows), status,
+        _phase_line(state), _cost_line(state),
+    ])
+    _write_table(root, state["id"], body)
+    return rows, body, code
+
+
+def settle(root: Path, run_id: str) -> tuple[list[dict], str, int]:
+    """Xác nhận tay sau khi worker xong. Không gọi model và không promote lần hai."""
+    state = _load(root, run_id)
+    rows = apply_confirmations(state, list(state["obligations"]), root)
+    status, code = _delivery(rows)
+    deliver = state.get("hold") == "needs_confirmation" and code == 0 and not state["promoted"]
+    if deliver:
+        folder = Path(state["staging"]) if state["staging"] else None
+        if folder is not None and folder.is_dir():
+            from .team import promote_staging
+            promote_staging(root, folder, [])
+        state["promoted"] = True
+        state["phase"] = "delivered"
+    elif code == 0 and state["promoted"]:
+        state["phase"] = "delivered"
+    else:
+        state["phase"] = "awaiting_confirmation"
+        code = 4 if code == 0 else code
+        status = "bàn giao: chưa"
+    state["obligations"] = rows
+    _save(root, state)
+    body = "\n".join([
+        render_table(state["request"], rows), status,
+        _phase_line(state), _cost_line(state),
+    ])
+    _write_table(root, run_id, body)
+    return rows, body, code
+
+
+def execute(root: Path, run_id: str, *, provider: str | None, model: str | None,
+            base_url: str | None, max_tokens: int, price,
+            resume: bool = False) -> tuple[list[dict], str, int]:
+    """Chạy team/execute_plan trên ledger và checkpoint đã có của run."""
+    state = _load(root, run_id)
+    if state["phase"] == "delivered":
+        return _view(root, state)
+    if state["phase"] == "failed":
+        return _view(root, state)
+    if state["phase"] == "awaiting_confirmation":
+        return _view(root, state)
+    refused = _blocked(state)
+    if refused:
+        return refused
+    needed = grant_commands(state["brief"])
+    if needed and not _active_grants(state):
+        state["phase"] = "awaiting_grant"
+        _save(root, state)
+        return [], "chưa cấp lệnh — không thực thi\n" + _phase_line(state), 8
+    from .team import execute_plan, ledger_from_checkpoint, load_checkpoint
+    plan = _make_plan(state, price)
+    resume_steps = None
+    resume_staging = None
+    if resume or state["phase"] == "executing":
+        data = load_checkpoint(root, state["id"])
+        led = ledger_from_checkpoint(data["ledger"])
+        resume_steps = list(data.get("steps") or [])
+        resume_staging = data.get("staging")
+    else:
+        led = ledger_from_checkpoint(state["ledger"])
+    state["phase"] = "executing"
+    _save(root, state)
     res = execute_plan(
         plan, provider_name=provider, model_override=model, base_url=base_url,
         max_tokens=max_tokens, root=root, run_id=state["id"], oracle="off",
-        ledger=Ledger(), on_step=lambda _m: None)
-    staging = res.get("staging")
+        ledger=led, on_step=lambda _m: None,
+        resume_steps=resume_steps, resume_staging=resume_staging)
+    state = _load(root, run_id)
     rows = apply_confirmations(state, list(res.get("obligations") or []), root)
     criteria_line, criteria_code = _delivery(rows)
     team_status = res.get("status") or "error"
@@ -409,17 +604,9 @@ def execute(root: Path, run_id: str, *, provider: str | None, model: str | None,
     else:
         status, code = f"bàn giao: chặn — {team_status}", 3
         deliver = False
-    if deliver and staging:
-        folder = Path(staging)
-        if folder.is_dir():
-            promote_staging(root, folder, [])
     if not deliver and res.get("fail_reason"):
         status += " — " + str(res["fail_reason"])
-    edited = any(step.get("edited") for step in res.get("steps") or [])
-    head = "worker: đã sửa trong staging" if edited else "worker: không sửa"
-    body = head + "\n" + render_table(state["request"], rows) + "\n" + status
-    _write_table(root, run_id, body)
-    return rows, body, code
+    return _record(root, state, res, led, rows, status, code, deliver)
 
 
 def render_table(request: str, rows: list[dict]) -> str:
@@ -486,10 +673,15 @@ def cmd_giao(args) -> int:
                     return 8
             for cmd in getattr(args, "grant", None) or []:
                 remember_grant(root, run_id, cmd)
+            if getattr(args, "retry", False):
+                begin_retry(root, run_id)
             if getattr(args, "confirm", None):
                 confirm(root, run_id, args.confirm, getattr(args, "artifact", None) or "")
+            state = _load(root, run_id)
             if getattr(args, "check_only", False):
                 _rows, body, code = check_only(root, run_id)
+            elif state["phase"] == "awaiting_confirmation" and getattr(args, "confirm", None):
+                _rows, body, code = settle(root, run_id)
             else:
                 _rows, body, code = execute(
                     root, run_id, provider=getattr(args, "provider", None),
@@ -518,12 +710,14 @@ def cmd_giao(args) -> int:
     if not prov.available():
         print("thiếu key cho intake")
         return 8
-    got = run_intake(task, prov, Ledger(), clarify_max=0, ask=lambda _q: "",
+    led = Ledger()
+    got = run_intake(task, prov, led, clarify_max=0, ask=lambda _q: "",
                      model=model, declared_price=_price(getattr(args, "price_in", None)))
     if not got["ok"] or got["brief"] is None:
         print(got["reason"] or "brief hỏng")
         return 8
-    state = open_run(root, task, got["brief"], previous=getattr(args, "previous", None))
+    state = open_run(root, task, got["brief"], previous=getattr(args, "previous", None),
+                     ledger=_ledger_blob(led))
     if getattr(args, "approve_brief", False):
         state = approve(root, state["id"])
     print(preview(state["brief"], state["id"]))
