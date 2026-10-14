@@ -10,7 +10,7 @@ from argparse import Namespace
 from pathlib import Path
 
 from mira import handoff as handoff_mod
-from mira.handoff import _dir, approve, cmd_giao, execute, open_run, remember_grant
+from mira.handoff import _dir, approve, check_only, cmd_giao, open_run, remember_grant
 
 HandoffError = getattr(handoff_mod, "HandoffError", RuntimeError)
 
@@ -58,9 +58,9 @@ class HandoffLockTest(unittest.TestCase):
             (root / "note.txt").write_text("hello\n", encoding="utf-8")
             state = open_run(root, "ghi note", _brief(["khong-co"]))
             approve(root, state["id"])
-            _rows, _body, code = execute(root, state["id"])
+            _rows, _body, code = check_only(root, state["id"])
             self.assertNotEqual(code, 0)
-            path = root / ".mira-giao" / state["id"] / "state.json"
+            path = root / ".mira" / "runs" / state["id"] / "handoff.json"
             saved = json.loads(path.read_text(encoding="utf-8"))
             saved["brief"]["acceptance_criteria"][0]["validator"]["must_contain"] = ["hello"]
             path.write_text(json.dumps(saved), encoding="utf-8")
@@ -78,7 +78,7 @@ class HandoffLockTest(unittest.TestCase):
     def test_run_id_thoat_thu_muc(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            for bad in ("../../other", "..", "a/b", "a\\b", "C:\\Windows", "/etc/passwd", "abcd", ""):
+            for bad in ("../../other", "..", "a/b", "a\\b", "C:\\Windows", "/etc/passwd", "abcd", "abcd1234", ""):
                 with self.assertRaises(HandoffError):
                     _dir(root, bad)
             self.assertFalse((root.parent.parent / "other").exists())
@@ -116,7 +116,7 @@ class HandoffLockTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             state = open_run(root, "ghi note", _brief(["hello"]))
-            path = root / ".mira-giao" / state["id"] / "state.json"
+            path = root / ".mira" / "runs" / state["id"] / "handoff.json"
             path.write_text("{", encoding="utf-8")
             buf = io.StringIO()
             with contextlib.redirect_stdout(buf):

@@ -28,7 +28,8 @@ Thứ tự: R1 quyền chạy check, R2 tiêu chí gắn phép kiểm và artifa
 | V1 | đạt | `f1e9537` | https://github.com/wuongg/mira-harness/actions/runs/38509821752 success |
 | V2 | CI đỏ một job Windows | `cbc4f7f` | https://github.com/wuongg/mira-harness/actions/runs/38510168826 failure |
 | UX | đạt | `4f6ec72` | https://github.com/wuongg/mira-harness/actions/runs/38510764742 success |
-| H1 | đạt trên máy; CI sau khi push | | |
+| H1 | đạt | `b4bbd75` | https://github.com/wuongg/mira-harness/actions/runs/38511813897 success |
+| H2 | đạt trên máy; CI sau khi push | | |
 
 ### R1
 
@@ -209,6 +210,16 @@ Sau: run id chỉ nhận 8 ký tự hex thường. Separator, `..` và đường
 Lệnh: `py -3 -m unittest discover -s tests -p "test_handoff_lock.py" -v`
 
 Selftest: `Ran 518 tests`, `OK (skipped=2)`.
+
+### H2
+
+`mira giao --run` gọi `execute_plan`. Worker sửa trong staging bằng tool thật, validator chạy trên staging, rồi file được promote nếu cổng bàn giao đạt. Ledger và checkpoint nằm trong `.mira/runs/<id>/`, cùng chỗ với `handoff.json`. Không còn `.mira-giao`.
+
+`--check-only` chỉ kiểm file có sẵn và in `chưa phải hoàn thành nhiệm vụ`. Nó không được tính là bàn giao.
+
+Lệnh worker: `py -3 -m unittest discover -s tests -p "test_giao_execute.py" -v`
+
+Selftest: `Ran 520 tests`, `OK (skipped=2)`.
 
 ## 1. Mốc
 

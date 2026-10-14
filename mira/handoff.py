@@ -18,7 +18,7 @@ from .intake import brief_hash, run_intake, validate_brief
 from .obligations import criterion_commands, judge_obligations, validate_criteria
 
 _AUTO = {"contains", "json_keys", "shape", "behavior"}
-_RUN_ID = re.compile(r"^[0-9a-f]{8}$")
+_RUN_ID = re.compile(r"^[0-9a-f]{12}$")
 _STATE_FIELDS = (
     "id", "request", "brief", "brief_hash", "approved", "approved_hash",
     "grants", "previous",
@@ -37,7 +37,7 @@ def _check_run_id(run_id: str) -> None:
 
 def _dir(root: Path, run_id: str) -> Path:
     _check_run_id(run_id)
-    base = (Path(root).resolve() / ".mira-giao").resolve()
+    base = (Path(root).resolve() / ".mira" / "runs").resolve()
     path = (base / run_id).resolve()
     if path != base and base not in path.parents:
         raise HandoffError("run thoát khỏi thư mục")
@@ -57,7 +57,7 @@ def _grant_ok(item) -> bool:
 
 def _load(root: Path, run_id: str) -> dict:
     _check_run_id(run_id)
-    path = _dir(root, run_id) / "state.json"
+    path = _dir(root, run_id) / "handoff.json"
     if not path.is_file():
         raise FileNotFoundError(run_id)
     try:
@@ -95,7 +95,7 @@ def _save(root: Path, state: dict) -> None:
     state["brief_hash"] = brief_hash(state["brief"])
     state["state_hash"] = _state_hash(state)
     folder = _dir(root, state["id"])
-    dest = folder / "state.json"
+    dest = folder / "handoff.json"
     with _SAVE_LOCK:
         folder.mkdir(parents=True, exist_ok=True)
         tmp = dest.with_suffix(".json.tmp")
@@ -167,7 +167,7 @@ def open_run(root: Path, request: str, brief: dict, previous: str | None = None)
     if previous is not None:
         _check_run_id(previous)
     state = {
-        "id": uuid.uuid4().hex[:8],
+        "id": uuid.uuid4().hex[:12],
         "request": request,
         "brief": brief,
         "brief_hash": brief_hash(brief),
@@ -228,19 +228,72 @@ def _active_grants(state: dict) -> set[str]:
             if item["brief_hash"] == bound and item["cmd"] in allowed}
 
 
-def execute(root: Path, run_id: str) -> tuple[list[dict], str, int]:
+def _blocked(state: dict) -> tuple[list[dict], str, int] | None:
+    if _approval_current(state):
+        return None
+    text = ("duyệt cũ hết hiệu lực vì phiếu đã đổi" if state.get("approved")
+            else "chưa duyệt phiếu — không chạy")
+    return [], text, 8
+
+
+def _write_table(root: Path, run_id: str, body: str) -> None:
+    (_dir(root, run_id) / "handoff.md").write_text(body, encoding="utf-8")
+
+
+def check_only(root: Path, run_id: str) -> tuple[list[dict], str, int]:
+    """Chỉ đọc file và chạy validator. Không phải hoàn thành nhiệm vụ."""
     state = _load(root, run_id)
-    if not _approval_current(state):
-        text = "duyệt cũ hết hiệu lực vì phiếu đã đổi" if state.get("approved") else "chưa duyệt phiếu — không chạy"
-        return [], text, 8
+    refused = _blocked(state)
+    if refused:
+        return refused
     rows = judge_obligations(
         list(state["brief"]["acceptance_criteria"]),
         cwd=root, granted=_active_grants(state), run_id=run_id)
-    table = render_table(state["request"], rows)
-    delivered = all(row.get("criterion_verified") for row in rows) and bool(rows)
+    passed = bool(rows) and all(row.get("criterion_verified") for row in rows)
+    status = ("kiểm file: đạt — chưa phải hoàn thành nhiệm vụ" if passed
+              else "kiểm file: chưa — chưa phải hoàn thành nhiệm vụ")
+    body = render_table(state["request"], rows) + "\n" + status
+    _write_table(root, run_id, body)
+    return rows, body, 4
+
+
+def execute(root: Path, run_id: str, *, provider: str | None, model: str | None,
+            base_url: str | None, max_tokens: int, price) -> tuple[list[dict], str, int]:
+    """Chạy team/execute_plan trên cùng ledger, staging và checkpoint."""
+    state = _load(root, run_id)
+    refused = _blocked(state)
+    if refused:
+        return refused
+    from .team import Ledger, build_plan, execute_plan, promote_staging
+    plan = build_plan(
+        state["request"], surface="write_sandbox", labels=["internal"],
+        records=50, dollars=0.0, reversibility="C1", output_type="free_string")
+    plan.brief = state["brief"]
+    plan.brief_hash = state["brief_hash"]
+    plan.criteria_origin = "user"
+    plan.require_evidence = True
+    plan.granted_cmds = _active_grants(state)
+    plan.stage_worker = True
+    plan.declared_price = price
+    res = execute_plan(
+        plan, provider_name=provider, model_override=model, base_url=base_url,
+        max_tokens=max_tokens, root=root, run_id=state["id"], oracle="off",
+        ledger=Ledger(), on_step=lambda _m: None)
+    staging = res.get("staging")
+    if res.get("status") == "ok" and staging:
+        folder = Path(staging)
+        if folder.is_dir() and not folder.name.endswith(".withheld"):
+            promote_staging(root, folder, [])
+    rows = list(res.get("obligations") or [])
+    delivered = res.get("status") == "ok" and bool(rows) and all(
+        row.get("criterion_verified") for row in rows)
     status = "bàn giao: đủ" if delivered else "bàn giao: chưa"
-    body = table + "\n" + status
-    (_dir(root, run_id) / "handoff.md").write_text(body, encoding="utf-8")
+    if res.get("fail_reason") and not delivered:
+        status += " — " + str(res["fail_reason"])
+    edited = any(step.get("edited") for step in res.get("steps") or [])
+    head = "worker: đã sửa trong staging" if edited else "worker: không sửa"
+    body = head + "\n" + render_table(state["request"], rows) + "\n" + status
+    _write_table(root, run_id, body)
     return rows, body, 0 if delivered else 4
 
 
@@ -295,7 +348,15 @@ def cmd_giao(args) -> int:
                     return 8
             for cmd in getattr(args, "grant", None) or []:
                 remember_grant(root, run_id, cmd)
-            _rows, body, code = execute(root, run_id)
+            if getattr(args, "check_only", False):
+                _rows, body, code = check_only(root, run_id)
+            else:
+                _rows, body, code = execute(
+                    root, run_id, provider=getattr(args, "provider", None),
+                    model=getattr(args, "model", None),
+                    base_url=getattr(args, "base_url", None),
+                    max_tokens=int(getattr(args, "max_tokens", 4096) or 4096),
+                    price=_price(getattr(args, "price_in", None)))
         except FileNotFoundError:
             print(f"không có run {run_id}")
             return 2

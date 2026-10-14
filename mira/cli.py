@@ -784,6 +784,8 @@ def build_parser() -> argparse.ArgumentParser:
                     help="cấp đúng một lệnh; duyệt phiếu không cấp lệnh")
     gx.add_argument("--approve-brief", dest="approve_brief", action="store_true",
                     help="duyệt phiếu đã xem, không cấp lệnh")
+    gx.add_argument("--check-only", dest="check_only", action="store_true",
+                    help="chỉ kiểm file có sẵn, không chạy worker và không bàn giao")
     gx.add_argument("--change", default=None, help="câu yêu cầu mới, không tiếp run cũ")
     gx.add_argument("--previous", default=None, help="id run cũ khi tạo run mới")
     gx.add_argument("--cwd", default=".")

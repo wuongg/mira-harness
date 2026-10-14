@@ -1090,7 +1090,8 @@ def execute_plan(plan: TeamPlan, *, provider_name: str | None = None,
             skill_at[0] = -1
         elif has_worker:
             from .tools import shape_of
-            if root is not None and shape_of(plan.task_text) == "edit":
+            if root is not None and (
+                    shape_of(plan.task_text) == "edit" or getattr(plan, "stage_worker", False)):
                 worker_steps = [_reuse(lambda: _worker_edit(_prior()))]
                 for st in worker_steps:
                     _log_step(st)
@@ -1213,7 +1214,9 @@ def execute_plan(plan: TeamPlan, *, provider_name: str | None = None,
         granted = set()
         trusted = origin == "user"
         if trusted:
-            granted = {cmd for item in criteria for cmd in criterion_commands(item)}
+            all_cmds = {cmd for item in criteria for cmd in criterion_commands(item)}
+            explicit = getattr(plan, "granted_cmds", None)
+            granted = all_cmds if explicit is None else set(explicit) & all_cmds
         records = {}
         base = staging_box[0] or root
         if isinstance(evidence, dict) and base is not None:
