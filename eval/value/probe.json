@@ -1,5 +1,6 @@
 {
   "provider": "anthropic",
+  "endpoint": "https://api.anthropic.com/v1/messages",
   "model": "claude-sonnet-5-5",
   "official_source": "https://platform.claude.com/docs/en/models/sonnet-5-5/overview",
   "pricing_source": "https://platform.claude.com/docs/en/about-claude/pricing",
@@ -11,6 +12,7 @@
   "cache_read_usd_per_mtok": 0.1,
   "tasks": ["V01", "V05", "V10"],
   "max_http_per_task": 8,
+  "max_http_trial": 24,
   "max_tokens": 1024,
   "budget_usd": 2,
   "unknown_before_call": [

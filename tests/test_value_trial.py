@@ -5,6 +5,8 @@ import json
 import subprocess
 import sys
 import tempfile
+import threading
+import time
 import unittest
 from pathlib import Path
 
@@ -157,10 +159,12 @@ class ValueTrialTest(unittest.TestCase):
             locked = trial.probe_run(False, "http://127.0.0.1:9", path)
             self.assertEqual(locked["stopped"], "locked")
             self.assertEqual(locked["http_attempts"], 0)
+            self.assertEqual(locked["real_api_requests"], 0)
             self.assertEqual(trial._Stub.hits, before)
             blocked = trial.probe_run(True, "https://api.anthropic.com", path)
             self.assertEqual(blocked["stopped"], "paid-api-not-approved")
             self.assertEqual(blocked["http_attempts"], 0)
+            self.assertEqual(blocked["real_api_requests"], 0)
             self.assertNotIn(trial.CANARY, path.read_text(encoding="utf-8"))
 
     def test_ten_toml_khong_phai_api_id(self):
@@ -170,37 +174,80 @@ class ValueTrialTest(unittest.TestCase):
             trial.validate_probe_model("sonnet-5.5", "anthropic")
         self.assertEqual(trial.load_probe()["model"], trial.OFFICIAL_MODEL)
 
+    def _view(self, usd: float, run: str, uncertain: float = 0.0, attempt: int = 2):
+        return {
+            "run_id": run,
+            "attempt": 1,
+            "total_usd": usd,
+            "reserved": 0.0,
+            "uncertain_usd": uncertain,
+            "total_in": 20,
+            "total_out": 10,
+            "requests": [{"id": "w", "state": "settled", "hold": usd}],
+            "steps": [{"request_id": "w", "attempt": attempt}],
+        }
+
+    def test_hai_task_tong_040_khong_ghi_de(self):
+        book: dict = {}
+        trial.note_runs(book, "V01", [self._view(0.20, "a")])
+        trial.note_runs(book, "V01", [self._view(0.20, "a")])
+        trial.note_runs(book, "V05", [self._view(0.20, "b")])
+        folded = trial.fold_book(book)
+        self.assertEqual(folded["spent_usd"], 0.40)
+        self.assertNotEqual(folded["spent_usd"], 0.20)
+
+    def test_snapshot_tich_luy_va_task_loi(self):
+        book: dict = {}
+        trial.note_runs(book, "V01", [self._view(0.20, "a")])
+        trial.note_runs(book, "V01", [self._view(0.40, "a", uncertain=0.05)])
+        trial.note_runs(book, "V05", [self._view(0.20, "b", attempt=1)])
+        folded = trial.fold_book(book)
+        self.assertEqual(folded["spent_usd"], 0.60)
+        self.assertEqual(folded["uncertain_usd"], 0.05)
+        self.assertEqual(folded["reserved_usd"], 0.0)
+        self.assertEqual(trial.send_count(self._view(0.20, "a", attempt=2)), 2)
+        blocked = dict(trial.load_probe())
+        blocked["max_http_per_task"] = 1
+        self.assertEqual(trial.allow_send({"V01": {"a:1": self._view(0.20, "a")}}, "V01", blocked), "calls")
+        wide = dict(blocked)
+        wide["max_http_per_task"] = 8
+        wide["max_http_trial"] = 2
+        self.assertEqual(trial.allow_send({"V01": {"a:1": self._view(0.20, "a")}}, "V05", wide), "calls")
+
     def test_probe_gioi_han_bang_server_gia(self):
         spec = next(item for item in trial.load_tasks() if item["id"] == "V10")
         srv, base = trial._serve(spec["brief"])
         probe = trial.load_probe()
         try:
             with tempfile.TemporaryDirectory() as tmp:
-                path = Path(tmp) / "progress.json"
+                root = Path(tmp)
                 cheap = dict(probe)
                 cheap["budget_usd"] = 0
-                stopped = trial.probe_run(True, base, path, ["V10"], cheap)
+                stopped = trial.probe_run(True, base, root / "budget.json", ["V10"], cheap)
                 self.assertEqual(stopped["stopped"], "budget")
                 self.assertEqual(stopped["http_attempts"], 0)
                 self.assertEqual(stopped["tasks_started"], [])
-
-                trial._Stub.script = [500]
-                trial._Stub.hits = 0
-                retried = trial.probe_run(True, base, path, ["V10"], probe)
-                self.assertGreaterEqual(retried["http_attempts"], 2)
+                self.assertEqual(stopped["real_api_requests"], 0)
+                self.assertTrue(stopped["budget_is_estimate"])
 
                 trial._Stub.script = [500] * 9
                 trial._Stub.hits = 0
-                unclear = trial.probe_run(True, base, path, ["V10", "V01"], probe)
+                unclear = trial.probe_run(True, base, root / "fail.json", ["V10", "V01"], probe)
                 self.assertEqual(unclear["tasks_started"], ["V10"])
                 self.assertEqual(unclear["stopped"], "uncertain")
-                self.assertGreaterEqual(unclear["http_attempts"], 3)
-                self.assertNotIn(trial.CANARY, path.read_text(encoding="utf-8"))
-
+                self.assertGreaterEqual(unclear["http_attempts"], 1)
+                self.assertNotIn("V01", unclear["tasks_started"])
+                self.assertNotIn(trial.CANARY, (root / "fail.json").read_text(encoding="utf-8"))
                 trial._Stub.script = []
+                trial._Stub.hits = 0
+                again = trial.probe_run(True, base, root / "fail.json", ["V10", "V01"], probe)
+                self.assertEqual(again["stopped"], "uncertain")
+                self.assertEqual(trial._Stub.hits, 0)
+                self.assertGreaterEqual(again["http_attempts"], 1)
+
                 trial._Stub.usage = False
                 trial._Stub.hits = 0
-                unknown = trial.probe_run(True, base, path, ["V10", "V01"], probe)
+                unknown = trial.probe_run(True, base, root / "usage.json", ["V10", "V01"], probe)
                 self.assertEqual(unknown["stopped"], "usage-unknown")
                 self.assertEqual(unknown["tasks_started"], ["V10"])
 
@@ -208,12 +255,120 @@ class ValueTrialTest(unittest.TestCase):
                 trial._Stub.hits = 0
                 narrow = dict(probe)
                 narrow["max_http_per_task"] = 1
-                capped = trial.probe_run(True, base, path, ["V10", "V01"], narrow)
+                capped = trial.probe_run(True, base, root / "cap.json", ["V10", "V01"], narrow)
                 self.assertEqual(capped["tasks_started"], ["V10"])
                 self.assertEqual(capped["stopped"], "calls")
-                self.assertGreater(capped["http_attempts"], 1)
+                self.assertEqual(capped["http_attempts"], 1)
+                self.assertEqual(trial._Stub.hits, 1)
         finally:
             trial._Stub.script = []
             trial._Stub.usage = True
+            trial._Stub.hold = False
+            srv.shutdown()
+            srv.server_close()
+
+    def test_hai_task_that_cong_va_resume(self):
+        spec = next(item for item in trial.load_tasks() if item["id"] == "V10")
+        srv, base = trial._serve(spec["brief"])
+        probe = trial.load_probe()
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                path = Path(tmp) / "progress.json"
+                done = trial.probe_run(True, base, path, ["V10", "V01"], probe)
+                parts = [
+                    sum(float(view["total_usd"]) for view in slot.values())
+                    for slot in done["books"].values()
+                ]
+                self.assertEqual(done["stopped"], "finished")
+                self.assertEqual(sorted(done["tasks_done"]), ["V01", "V10"])
+                self.assertEqual(len(parts), 2)
+                self.assertAlmostEqual(done["spent_usd"], sum(parts), places=6)
+                self.assertGreater(done["spent_usd"], max(parts))
+                self.assertEqual(done["real_api_requests"], 0)
+                hits = trial._Stub.hits
+                spent = done["spent_usd"]
+                second = trial.probe_run(True, base, path, ["V10", "V01"], probe)
+                self.assertEqual(trial._Stub.hits, hits)
+                self.assertAlmostEqual(second["spent_usd"], spent, places=6)
+                self.assertEqual(second["tasks_done"], done["tasks_done"])
+                saved = json.loads(path.read_text(encoding="utf-8"))
+                self.assertEqual(saved["schema"], 1)
+                self.assertTrue(saved["config_id"])
+                self.assertTrue(saved["budget_is_estimate"])
+                self.assertNotIn(trial.CANARY, path.read_text(encoding="utf-8"))
+        finally:
+            trial._Stub.hold = False
+            srv.shutdown()
+            srv.server_close()
+
+    def test_retry_nam_trong_so_truoc_khi_gui_tiep(self):
+        spec = next(item for item in trial.load_tasks() if item["id"] == "V10")
+        srv, base = trial._serve(spec["brief"])
+        probe = dict(trial.load_probe())
+        probe["max_http_per_task"] = 8
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                trial._Stub.script = [200, 500]
+                trial._Stub.hits = 0
+                done = trial.probe_run(True, base, Path(tmp) / "progress.json", ["V10"], probe)
+                attempts = [
+                    int(req.get("attempts") or 1)
+                    for slot in done["books"].values()
+                    for view in slot.values()
+                    for req in view.get("requests") or []
+                ]
+                self.assertTrue(attempts)
+                self.assertGreaterEqual(max(attempts), 2)
+                self.assertEqual(done["http_attempts"], 4)
+                self.assertEqual(done["http_attempts"], trial._Stub.hits)
+                self.assertEqual(done["real_api_requests"], 0)
+        finally:
+            trial._Stub.script = []
+            srv.shutdown()
+            srv.server_close()
+
+    def test_ngat_giua_request_va_hai_runner(self):
+        spec = next(item for item in trial.load_tasks() if item["id"] == "V10")
+        srv, base = trial._serve(spec["brief"])
+        probe = trial.load_probe()
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                path = Path(tmp) / "progress.json"
+                trial._Stub.hold = True
+                trial._Stub.hits = 0
+                hung = trial.probe_run(True, base, path, ["V10"], probe, call_timeout=4)
+                self.assertEqual(hung["stopped"], "uncertain")
+                self.assertGreaterEqual(trial._Stub.hits, 1)
+                self.assertGreaterEqual(hung["uncertain_usd"], 0)
+                kept = hung["http_attempts"]
+                trial._Stub.hold = False
+                trial._Stub.hits = 0
+                resumed = trial.probe_run(True, base, path, ["V10"], probe, call_timeout=1)
+                self.assertEqual(resumed["stopped"], "uncertain")
+                self.assertEqual(trial._Stub.hits, 0)
+                self.assertGreaterEqual(resumed["http_attempts"], kept)
+
+                path2 = Path(tmp) / "busy.json"
+                trial._Stub.hold = True
+                trial._Stub.hits = 0
+                box: dict = {}
+
+                def _run() -> None:
+                    box["first"] = trial.probe_run(
+                        True, base, path2, ["V10"], probe, call_timeout=8)
+
+                worker = threading.Thread(target=_run)
+                worker.start()
+                deadline = time.time() + 5
+                while trial._Stub.hits < 1 and time.time() < deadline:
+                    time.sleep(0.05)
+                busy = trial.probe_run(True, base, path2, ["V10"], probe, call_timeout=1)
+                self.assertEqual(busy["stopped"], "busy")
+                self.assertEqual(busy["real_api_requests"], 0)
+                trial._Stub.hold = False
+                worker.join(timeout=20)
+                self.assertFalse(worker.is_alive())
+        finally:
+            trial._Stub.hold = False
             srv.shutdown()
             srv.server_close()

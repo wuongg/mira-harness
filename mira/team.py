@@ -566,13 +566,22 @@ class Ledger:
             text, usage = prov.call(system, user)
         except ProviderError as exc:
             self.lose_request(rid, "request có thể đã được xử lý")
+            self._note_attempts(rid, getattr(prov, "attempts", 1))
             self._flush()
             raise exc
         usd = self.charge(role, model, usage or {}, getattr(prov, "name", "") or "",
                           price=rates, declared_by_user=declared_by_user,
                           price_source=source)
         self.settle_request(rid, usd)
+        self._note_attempts(rid, getattr(prov, "attempts", 1))
         return text, usage, usd, rid
+
+    def _note_attempts(self, rid: str, n: int) -> None:
+        with self._lock:
+            for req in self.requests:
+                if req["id"] == rid:
+                    req["attempts"] = max(int(n or 1), 1)
+                    return
 
     def committed(self) -> float:
         """Đã chi, đang giữ chỗ, và khoản chưa chắc. Không chỉ total_usd."""

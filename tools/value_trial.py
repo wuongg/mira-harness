@@ -23,6 +23,21 @@ FREEZE = VALUE / "frozen.sha256"
 PROBE = VALUE / "probe.json"
 CANARY = "MIRAVALUECANARY7f3a"
 OFFICIAL_MODEL = "claude-sonnet-5-5"
+# Đối chiếu 2026-10-14 với trang model và trang giá của Anthropic, không lấy từ prices.toml.
+OFFICIAL = {
+    "provider": "anthropic",
+    "model": OFFICIAL_MODEL,
+    "endpoint": "https://api.anthropic.com/v1/messages",
+    "price_in_usd_per_mtok": 2.0,
+    "price_out_usd_per_mtok": 10.0,
+    "cache_write_5m_usd_per_mtok": 2.5,
+    "cache_write_1h_usd_per_mtok": 4.0,
+    "cache_read_usd_per_mtok": 0.1,
+    "source": "https://platform.claude.com/docs/en/models/sonnet-5-5/overview",
+    "pricing_source": "https://platform.claude.com/docs/en/about-claude/pricing",
+    "verified_on": "2026-10-14",
+}
+PROGRESS_SCHEMA = 1
 USER_ACTIONS = ("approve", "grant", "confirm", "change", "retry", "kill", "resume", "new_run", "run")
 
 
@@ -182,6 +197,7 @@ class _Stub(BaseHTTPRequestHandler):
     hits = 0
     script: list[int] = []
     usage = True
+    hold = False
 
     def log_message(self, *_args):
         return
@@ -198,6 +214,10 @@ class _Stub(BaseHTTPRequestHandler):
             self.send_header("content-length", str(len(body)))
             self.end_headers()
             self.wfile.write(body)
+            return
+        if _Stub.hold:
+            while _Stub.hold:
+                time.sleep(0.05)
             return
         req = json.loads(raw_req.decode("utf-8"))
         blob = json.dumps(req, ensure_ascii=False)
@@ -223,6 +243,7 @@ def _serve(brief: dict):
     _Stub.hits = 0
     _Stub.script = []
     _Stub.usage = True
+    _Stub.hold = False
     srv = ThreadingHTTPServer(("127.0.0.1", 0), _Stub)
     threading.Thread(target=srv.serve_forever, daemon=True).start()
     return srv, f"http://127.0.0.1:{srv.server_address[1]}"
@@ -517,13 +538,29 @@ def toml_model_names() -> set[str]:
 def validate_probe_model(model: str, provider: str) -> None:
     if model in toml_model_names():
         raise SystemExit("tên trong prices.toml không phải API ID")
-    if model != OFFICIAL_MODEL or provider != "anthropic":
+    if model != OFFICIAL["model"] or provider != OFFICIAL["provider"]:
         raise SystemExit("model hoặc provider không khớp nguồn đã xác minh")
 
 
 def load_probe() -> dict:
     data = json.loads(PROBE.read_text(encoding="utf-8"))
     validate_probe_model(str(data.get("model") or ""), str(data.get("provider") or ""))
+    paired = {
+        "endpoint": "endpoint",
+        "price_in_usd_per_mtok": "price_in_usd_per_mtok",
+        "price_out_usd_per_mtok": "price_out_usd_per_mtok",
+        "cache_read_usd_per_mtok": "cache_read_usd_per_mtok",
+        "official_source": "source",
+        "pricing_source": "pricing_source",
+        "verified_on": "verified_on",
+    }
+    for key, official_key in paired.items():
+        if data.get(key) != OFFICIAL[official_key]:
+            raise SystemExit("probe.json lệch nguồn chính thức đã xác minh")
+    if float(data.get("price_in_usd_per_mtok")) != OFFICIAL["price_in_usd_per_mtok"]:
+        raise SystemExit("giá vào không khớp nguồn chính thức")
+    if float(data.get("price_out_usd_per_mtok")) != OFFICIAL["price_out_usd_per_mtok"]:
+        raise SystemExit("giá ra không khớp nguồn chính thức")
     return data
 
 
@@ -542,46 +579,304 @@ def _progress(path: Path, state: dict) -> None:
     blob = json.dumps(state, ensure_ascii=False, indent=2)
     if canary_in(blob):
         blob = blob.replace(CANARY, "[redacted]")
-    path.write_text(blob, encoding="utf-8")
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp.write_text(blob, encoding="utf-8")
+    os.replace(tmp, path)
 
 
-def _stop_reason(state: dict, probe: dict, task_calls: int) -> str:
-    if float(state.get("uncertain_usd") or 0) > 0:
+def _ledger_view(data: dict) -> dict | None:
+    ledger = data.get("ledger") or {}
+    if "requests" not in ledger and "total_usd" not in ledger:
+        return None
+    return {
+        "run_id": str(data.get("id") or ""),
+        "attempt": int(data.get("attempt") or 1),
+        "total_usd": float(ledger.get("total_usd") or 0),
+        "reserved": float(ledger.get("reserved") or 0),
+        "uncertain_usd": float(ledger.get("uncertain_usd") or 0),
+        "total_in": int(ledger.get("total_in") or 0),
+        "total_out": int(ledger.get("total_out") or 0),
+        "requests": list(ledger.get("requests") or []),
+        "steps": list(data.get("steps") or []),
+    }
+
+
+def _richer(new: dict, old: dict) -> bool:
+    def score(item: dict) -> tuple:
+        committed = item["total_usd"] + item["reserved"] + item["uncertain_usd"]
+        return (len(item["requests"]), len(item["steps"]), committed)
+    return score(new) >= score(old)
+
+
+def collect_run_ledgers(dest: Path) -> list[dict]:
+    """Một snapshot mới của cùng run/attempt thay snapshot cũ, không cộng thêm."""
+    runs = dest / ".mira" / "runs"
+    found: dict[str, dict] = {}
+    if not runs.is_dir():
+        return []
+    for path in runs.glob("*/*"):
+        if path.name not in ("handoff.json", "checkpoint.json"):
+            continue
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        view = _ledger_view(data)
+        if view is None:
+            continue
+        if not view["run_id"]:
+            view["run_id"] = path.parent.name
+        key = f"{view['run_id']}:{view['attempt']}"
+        old = found.get(key)
+        if old is None or _richer(view, old):
+            found[key] = view
+    return list(found.values())
+
+
+def send_count(view: dict) -> int:
+    """Số lần urlopen đã hoặc đang gửi, lấy từ sổ harness. reserved chưa gửi thì không tính."""
+    attempts: dict[str, int] = {}
+    for step in view.get("steps") or []:
+        rid = step.get("request_id")
+        if rid:
+            attempts[str(rid)] = max(int(step.get("attempt") or 1), 1)
+    total = 0
+    for req in view.get("requests") or []:
+        if req.get("state") == "reserved":
+            continue
+        total += max(attempts.get(str(req.get("id")), 1), int(req.get("attempts") or 1))
+    return total
+
+
+def seal_inflight(view: dict) -> dict:
+    """Request đã tạo trước lúc gửi nhưng chưa có usage thì giữ uncertain, không gửi lại."""
+    sealed = dict(view)
+    requests = []
+    extra = 0.0
+    for req in view.get("requests") or []:
+        item = dict(req)
+        if item.get("state") == "dispatched":
+            extra += float(item.get("hold") or 0)
+            item["state"] = "uncertain"
+            requests.append(item)
+            continue
+        if item.get("state") == "reserved":
+            continue
+        requests.append(item)
+    sealed["requests"] = requests
+    sealed["reserved"] = 0.0
+    sealed["uncertain_usd"] = round(float(view.get("uncertain_usd") or 0) + extra, 6)
+    sealed["inflight_sealed"] = True
+    return sealed
+
+
+def note_runs(book: dict, task_id: str, views: list[dict]) -> None:
+    slot = book.setdefault(task_id, {})
+    for view in views:
+        key = f"{view['run_id']}:{view['attempt']}"
+        old = slot.get(key)
+        if old is None or _richer(view, old):
+            slot[key] = view
+
+
+def fold_book(book: dict) -> dict:
+    spent = reserved = uncertain = sends = 0.0
+    send_n = 0
+    for slot in book.values():
+        for view in slot.values():
+            spent += float(view.get("total_usd") or 0)
+            reserved += float(view.get("reserved") or 0)
+            uncertain += float(view.get("uncertain_usd") or 0)
+            send_n += send_count(view)
+    return {
+        "spent_usd": round(spent, 6),
+        "reserved_usd": round(reserved, 6),
+        "uncertain_usd": round(uncertain, 6),
+        "http_attempts": send_n,
+    }
+
+
+def task_sends(book: dict, task_id: str) -> int:
+    return sum(send_count(view) for view in (book.get(task_id) or {}).values())
+
+
+def allow_send(book: dict, task_id: str, probe: dict) -> str:
+    """Trả lý do chặn. Rỗng nghĩa là còn được gửi request kế tiếp."""
+    folded = fold_book(book)
+    if folded["uncertain_usd"] > 0:
         return "uncertain"
-    if float(state.get("usage_usd") or 0) >= float(probe["budget_usd"]):
+    if folded["spent_usd"] + folded["reserved_usd"] + folded["uncertain_usd"] >= float(probe["budget_usd"]):
         return "budget"
-    if task_calls > int(probe["max_http_per_task"]):
+    if task_sends(book, task_id) >= int(probe["max_http_per_task"]):
+        return "calls"
+    if folded["http_attempts"] >= int(probe["max_http_trial"]):
         return "calls"
     return ""
 
 
+def _config_id(probe: dict, tasks: list[str], sha: str) -> str:
+    body = {
+        "provider": probe.get("provider"),
+        "model": probe.get("model"),
+        "endpoint": OFFICIAL["endpoint"],
+        "verified_on": OFFICIAL["verified_on"],
+        "price_in": probe.get("price_in_usd_per_mtok"),
+        "price_out": probe.get("price_out_usd_per_mtok"),
+        "budget_usd": probe.get("budget_usd"),
+        "max_http_per_task": probe.get("max_http_per_task"),
+        "max_http_trial": probe.get("max_http_trial"),
+        "max_tokens": probe.get("max_tokens"),
+        "tasks": list(tasks),
+        "harness_sha": sha,
+    }
+    raw = json.dumps(body, sort_keys=True, ensure_ascii=False)
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
+
+def _blank_state(probe: dict, tasks: list[str], approved: bool) -> dict:
+    sha = harness_sha()
+    return {
+        "schema": PROGRESS_SCHEMA,
+        "config_id": _config_id(probe, tasks, sha),
+        "approved": bool(approved),
+        "provider": probe.get("provider"),
+        "model": probe.get("model"),
+        "endpoint": OFFICIAL["endpoint"],
+        "official_source": OFFICIAL["source"],
+        "pricing_source": OFFICIAL["pricing_source"],
+        "verified_on": OFFICIAL["verified_on"],
+        "harness_sha": sha,
+        "tasks_started": [],
+        "tasks_done": [],
+        "books": {},
+        "spent_usd": 0.0,
+        "reserved_usd": 0.0,
+        "uncertain_usd": 0.0,
+        "usage_usd": 0.0,
+        "http_attempts": 0,
+        "real_api_requests": 0,
+        "budget_usd": probe.get("budget_usd"),
+        "budget_is_estimate": True,
+        "budget_note": "Trần so với usage và hold đã ghi trên sổ, không phải hóa đơn nhà cung cấp.",
+        "max_tokens": probe.get("max_tokens"),
+        "max_http_per_task": probe.get("max_http_per_task"),
+        "max_http_trial": probe.get("max_http_trial"),
+        "stopped": "",
+    }
+
+
+def _apply_fold(state: dict) -> None:
+    totals = fold_book(state.get("books") or {})
+    state["spent_usd"] = totals["spent_usd"]
+    state["reserved_usd"] = totals["reserved_usd"]
+    state["uncertain_usd"] = totals["uncertain_usd"]
+    state["http_attempts"] = totals["http_attempts"]
+    state["usage_usd"] = totals["spent_usd"]
+    state["real_api_requests"] = 0
+
+
+def _pid_alive(pid: int) -> bool:
+    if pid <= 0:
+        return False
+    if os.name == "nt":
+        import ctypes
+        handle = ctypes.windll.kernel32.OpenProcess(0x1000, False, pid)
+        if not handle:
+            return False
+        ctypes.windll.kernel32.CloseHandle(handle)
+        return True
+    try:
+        os.kill(pid, 0)
+    except OSError:
+        return False
+    return True
+
+
+def _acquire_progress(path: Path):
+    lock = path.with_name(path.name + ".lock")
+    for _ in range(2):
+        try:
+            fd = os.open(str(lock), os.O_CREAT | os.O_EXCL | os.O_RDWR)
+        except FileExistsError:
+            try:
+                raw = lock.read_text(encoding="utf-8").strip()
+                pid = int(raw or "0")
+            except (OSError, ValueError):
+                pid = 0
+            if _pid_alive(pid):
+                return None
+            try:
+                lock.unlink()
+            except OSError:
+                return None
+            continue
+        os.write(fd, str(os.getpid()).encode("ascii"))
+        return fd
+    return None
+
+
+def _release_progress(path: Path, fd) -> None:
+    if fd is None:
+        return
+    os.close(fd)
+    try:
+        path.with_name(path.name + ".lock").unlink()
+    except OSError:
+        pass
+
+
 def probe_run(approve_spend: bool, base_url: str | None, progress_path: Path,
-              tasks: list[str] | None = None, probe: dict | None = None) -> dict:
+              tasks: list[str] | None = None, probe: dict | None = None,
+              call_timeout: float = 90) -> dict:
     probe = dict(probe or load_probe())
     chosen = list(tasks or probe["tasks"])
-    state = {
-        "approved": bool(approve_spend),
-        "provider": probe["provider"],
-        "model": probe["model"],
-        "harness_sha": harness_sha(),
-        "tasks_started": [],
-        "http_attempts": 0,
-        "usage_usd": 0.0,
-        "uncertain_usd": 0.0,
-        "stopped": "",
-        "max_tokens": probe["max_tokens"],
-        "budget_usd": probe["budget_usd"],
-        "max_http_per_task": probe["max_http_per_task"],
-    }
-    reason = probe_block_reason(approve_spend, base_url)
-    if reason:
-        state["stopped"] = reason
-        _progress(progress_path, state)
-        return state
-    assert base_url is not None
-    _assert_local(base_url)
-    price = f"{probe['price_in_usd_per_mtok']},{probe['price_out_usd_per_mtok']}"
-    return _probe_loop(probe, chosen, base_url, progress_path, price, state)
+    held = _acquire_progress(progress_path)
+    if held is None:
+        return {
+            "schema": PROGRESS_SCHEMA,
+            "stopped": "busy",
+            "real_api_requests": 0,
+            "http_attempts": 0,
+            "budget_is_estimate": True,
+        }
+    try:
+        reason = probe_block_reason(approve_spend, base_url)
+        if reason:
+            if progress_path.is_file():
+                state = json.loads(progress_path.read_text(encoding="utf-8"))
+            else:
+                state = _blank_state(probe, chosen, approve_spend)
+                state["stopped"] = reason
+                _progress(progress_path, state)
+            state = dict(state)
+            state["stopped"] = reason
+            state["real_api_requests"] = 0
+            return state
+        if progress_path.is_file():
+            state = json.loads(progress_path.read_text(encoding="utf-8"))
+            if int(state.get("schema") or 0) != PROGRESS_SCHEMA:
+                state["stopped"] = "schema"
+                _progress(progress_path, state)
+                return state
+            if state.get("config_id") != _config_id(probe, chosen, harness_sha()):
+                state["stopped"] = "config-mismatch"
+                state["real_api_requests"] = 0
+                _progress(progress_path, state)
+                return state
+        else:
+            state = _blank_state(probe, chosen, approve_spend)
+        assert base_url is not None
+        _assert_local(base_url)
+        if float(state.get("uncertain_usd") or 0) > 0 or state.get("stopped") == "uncertain":
+            state["stopped"] = "uncertain"
+            state["real_api_requests"] = 0
+            _apply_fold(state)
+            _progress(progress_path, state)
+            return state
+        price = f"{probe['price_in_usd_per_mtok']},{probe['price_out_usd_per_mtok']}"
+        return _probe_loop(probe, chosen, base_url, progress_path, price, state, call_timeout)
+    finally:
+        _release_progress(progress_path, held)
 
 
 def _prepare_dest(spec: dict, dest: Path) -> Path:
@@ -592,79 +887,136 @@ def _prepare_dest(spec: dict, dest: Path) -> Path:
     return dest
 
 
+def _remember(state: dict, task_id: str, dest: Path, *, died: bool) -> None:
+    views = collect_run_ledgers(dest)
+    if died:
+        views = [seal_inflight(view) for view in views]
+    if not views and died:
+        views = [{
+            "run_id": "unrecorded",
+            "attempt": 1,
+            "total_usd": 0.0,
+            "reserved": 0.0,
+            "uncertain_usd": 0.0,
+            "requests": [{"id": "unrecorded", "state": "uncertain", "hold": 0}],
+            "steps": [],
+            "unpriced": True,
+        }]
+    note_runs(state["books"], task_id, views)
+    _apply_fold(state)
+
+
+def _call_giao(dest: Path, base: str, bits: list[str], price: str, max_tokens: str,
+               timeout: float):
+    try:
+        return _giao(dest, base, bits, max_tokens=max_tokens, price=price, timeout=timeout)
+    except subprocess.TimeoutExpired:
+        return None
+
+
+def _tokens(task_id: str, book: dict) -> int:
+    total = 0
+    for view in (book.get(task_id) or {}).values():
+        total += int(view.get("total_in") or 0) + int(view.get("total_out") or 0)
+    return total
+
+
+def _mark_unrecorded(state: dict, task_id: str) -> None:
+    note_runs(state["books"], task_id, [{
+        "run_id": "unrecorded",
+        "attempt": 1,
+        "total_usd": 0.0,
+        "reserved": 0.0,
+        "uncertain_usd": 0.0,
+        "total_in": 0,
+        "total_out": 0,
+        "requests": [{"id": "unrecorded", "state": "uncertain", "hold": 0}],
+        "steps": [],
+        "unpriced": True,
+    }])
+    _apply_fold(state)
+
+
 def _probe_loop(probe: dict, chosen: list[str], base_url: str, progress_path: Path,
-                price: str, state: dict) -> dict:
+                price: str, state: dict, call_timeout: float) -> dict:
     specs = {item["id"]: item for item in load_tasks()}
     base_dir = Path(tempfile.mkdtemp(prefix="mira-value-probe-"))
+    done = set(state.get("tasks_done") or [])
+    _apply_fold(state)
     _progress(progress_path, state)
     for tid in chosen:
-        if float(state["uncertain_usd"]) > 0:
-            state["stopped"] = "uncertain"
-            break
-        if float(state["usage_usd"]) >= float(probe["budget_usd"]):
-            state["stopped"] = "budget"
-            break
-        if state["tasks_started"] and state["http_attempts"] >= int(probe["max_http_per_task"]):
-            state["stopped"] = "calls"
+        if tid in done:
+            continue
+        blocked = allow_send(state["books"], tid, probe)
+        if blocked:
+            state["stopped"] = blocked
             break
         spec = specs[tid]
         _Stub.brief = spec["brief"]
         dest = _prepare_dest(spec, base_dir / tid)
-        state["tasks_started"].append(tid)
+        if tid not in state["tasks_started"]:
+            state["tasks_started"].append(tid)
         _progress(progress_path, state)
-        proc, hits, _dur, text = _giao(
+        outcome = _call_giao(
             dest, base_url, [spec["prompt"], "--approve-brief"],
-            max_tokens=str(probe["max_tokens"]), price=price)
-        state["http_attempts"] += hits
-        ledger = _ledger(dest)
-        state["usage_usd"] = round(float(state["usage_usd"]) + float(ledger.get("total_usd") or 0), 6)
-        state["uncertain_usd"] = round(
-            float(state["uncertain_usd"]) + float(ledger.get("uncertain_usd") or 0), 6)
-        if proc.returncode != 0 and hits and not ledger.get("total_in"):
-            state["uncertain_usd"] = max(float(state["uncertain_usd"]), 0.000001)
-        if ("HTTP 5" in text or "uncertain" in text) and state["uncertain_usd"] <= 0:
-            state["uncertain_usd"] = 0.000001
+            price, str(probe["max_tokens"]), call_timeout)
+        if outcome is None:
+            _remember(state, tid, dest, died=True)
+            state["stopped"] = "uncertain"
+            break
+        proc, _hits, _dur, text = outcome
         if canary_in(text):
             state["canary_leaked"] = True
-        missing_usage = (
-            proc.returncode == 0 and hits > 0 and not ledger.get("total_in")
-            and state["uncertain_usd"] <= 0)
-        if state["uncertain_usd"] <= 0 and not missing_usage and proc.returncode in (0, 8):
-            run = _run_id(text)
-            if run:
-                proc, hits, _dur, more = _giao(
-                    dest, base_url, ["--run", run],
-                    max_tokens=str(probe["max_tokens"]), price=price)
-                text += "\n" + more
-                state["http_attempts"] += hits
-                ledger = _ledger(dest)
-                state["usage_usd"] = round(float(ledger.get("total_usd") or 0), 6)
-                state["uncertain_usd"] = round(float(ledger.get("uncertain_usd") or 0), 6)
-                if ("HTTP 5" in more or "uncertain" in more) and state["uncertain_usd"] <= 0:
-                    state["uncertain_usd"] = 0.000001
-                if canary_in(more):
-                    state["canary_leaked"] = True
-                if hits > 0 and not ledger.get("total_in") and state["uncertain_usd"] <= 0:
-                    missing_usage = True
-        if missing_usage and state["uncertain_usd"] <= 0:
-            state["stopped"] = "usage-unknown"
-            _progress(progress_path, state)
+        _remember(state, tid, dest, died=False)
+        if proc.returncode != 0:
+            if task_sends(state["books"], tid) == 0:
+                _mark_unrecorded(state, tid)
+            state["stopped"] = "uncertain"
             break
-        task_calls = state["http_attempts"]
-        stop = _stop_reason(state, probe, task_calls)
-        if stop:
-            state["stopped"] = stop
+        if state["uncertain_usd"] > 0:
+            state["stopped"] = "uncertain"
+            break
+        if proc.returncode == 0 and task_sends(state["books"], tid) > 0 and _tokens(tid, state["books"]) == 0:
+            state["stopped"] = "usage-unknown"
+            break
+        run = _run_id(text)
+        blocked = allow_send(state["books"], tid, probe)
+        if blocked:
+            state["stopped"] = blocked
+            break
+        if not run:
+            state["tasks_done"].append(tid)
             _progress(progress_path, state)
-            if stop == "uncertain":
-                break
+            continue
+        outcome = _call_giao(
+            dest, base_url, ["--run", run], price, str(probe["max_tokens"]), call_timeout)
+        if outcome is None:
+            _remember(state, tid, dest, died=True)
+            state["stopped"] = "uncertain"
+            break
+        proc, _hits, _dur, more = outcome
+        if canary_in(more):
+            state["canary_leaked"] = True
+        _remember(state, tid, dest, died=False)
+        if state["uncertain_usd"] > 0 or "uncertain" in more or "HTTP 5" in more:
+            state["stopped"] = "uncertain"
+            break
+        if proc.returncode == 0 and _tokens(tid, state["books"]) == 0:
+            state["stopped"] = "usage-unknown"
             break
         if proc.returncode not in (0, 3, 4, 8):
             state["stopped"] = "provider-error"
-            _progress(progress_path, state)
             break
+        blocked = allow_send(state["books"], tid, probe)
+        if blocked:
+            state["stopped"] = blocked
+            break
+        state["tasks_done"].append(tid)
         _progress(progress_path, state)
     if not state["stopped"]:
         state["stopped"] = "finished"
+    state["real_api_requests"] = 0
+    _apply_fold(state)
     _progress(progress_path, state)
     return state
 

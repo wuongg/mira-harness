@@ -181,18 +181,24 @@ Lệnh hiện tại không gọi API. Mặc định khóa:
 py -3 tools\value_trial.py probe --tasks V01,V05,V10 --progress probe-progress.json
 ```
 
-Kỳ vọng: `stopped` là `locked`, `http_attempts` là 0. `--approve-spend` với host khác `127.0.0.1` vẫn trả `paid-api-not-approved` và không gửi request. Bản này chỉ mở khóa server giả trên `127.0.0.1` để kiểm trần. Gọi Anthropic vẫn cần một duyệt riêng sau khi ngân sách được chấp nhận.
+Kỳ vọng khi chưa duyệt: `stopped` là `locked`, `http_attempts` là 0, `real_api_requests` là 0. `--approve-spend` với host khác `http://127.0.0.1` trả `paid-api-not-approved` và không gửi request. Không bỏ điều kiện localhost để gọi runner giả vào host thật. Bản này chỉ mở khóa server giả trên `127.0.0.1` để kiểm trần. Gọi Anthropic vẫn cần một duyệt riêng sau khi ngân sách được chấp nhận.
 
-Trần xin duyệt: **$2** cho cả ba nhiệm vụ.
+Trần xin duyệt: **$2** cho cả ba nhiệm vụ. Trần này là ước lượng trên `spent` + `reserved` + `uncertain` đã ghi, không phải hóa đơn nhà cung cấp.
+
+Sổ đợt không lấy tổng của task cuối. Mỗi snapshot gắn `run_id` và `attempt`. Snapshot mới của cùng run thay snapshot cũ. Tổng đợt là tổng các sổ. Phản chứng: hai task 0.20 và 0.20, kể cả khi snapshot 0.20 của task đầu bị ghi lại, tổng là 0.40. `spent`, `reserved` và `uncertain` giữ riêng. Task lỗi vẫn giữ phần đã ghi. `uncertain` của task trước làm đợt dừng, không bắt đầu task sau, và resume không đưa sổ về 0.
+
+Request được đếm trước lần gọi `giao` kế tiếp, gồm retry 429/5xx mà provider ghi vào `attempts` trên sổ (tối đa 3 trong `retry_open`). Trần 8 request mỗi task và 24 request cả đợt là hai trần riêng. Request thứ N+1 không được gửi. `reserved` chưa gửi thì không tính. Tiền trong một tiến trình `giao` vẫn chặn trước `urlopen` bằng hold ước lượng của ledger harness.
+
+Tiến độ ghi nguyên tử (`os.replace`), schema 1, có `config_id` của model, endpoint, giá, trần và danh sách task. Resume bỏ task đã nằm trong `tasks_done`. Request đã gửi nhưng chưa có usage thành `uncertain` và dừng chờ xử lý, không tự gọi lại. Hai runner cùng một file progress: runner sau nhận `stopped=busy` khi tiến trình giữ khóa còn sống.
 
 - `--max-tokens 1024`
-- sau một nhiệm vụ, nếu số POST đã vượt 8 thì không bắt đầu nhiệm vụ sau. Một tiến trình `giao` có thể vượt 8 bên trong vì retry nằm trong harness
-- dừng khi ước tính chạm $2
-- request lỗi 5xx hoặc không còn usage được ghi `uncertain` và không được gọi lại
+- model `claude-sonnet-5-5`, endpoint `POST https://api.anthropic.com/v1/messages`
+- giá xác minh 2026-10-14 từ https://platform.claude.com/docs/en/models/sonnet-5-5/overview và https://platform.claude.com/docs/en/about-claude/pricing : vào $2, ra $10, cache write 5 phút $2.50, cache write 1 giờ $4, cache read $0.10
+- `probe.json` lệch các hằng này thì từ chối, không kế thừa mù
 - response 200 mà không có usage thì dừng `usage-unknown`, không gửi nhiệm vụ sau
-- tiến độ ghi sau mỗi nhiệm vụ vào file `--progress`
+- không in và không ghi key. Canary không được nằm trong file progress
 
-Phần không biết trước: số token vào thực tế, cache, thinking, retry 429/5xx (tối đa 3), và request đã gửi nhưng thành `uncertain_usd`. Trần $2 giả định mỗi call không quá khoảng 20k token vào và 1024 token ra, tức khoảng $0.05/call ở giá công bố, 3 nhiệm vụ × 8 call. Nếu input lớn hơn, dừng sớm theo trần $2.
+Phần không biết trước: số token vào thực tế, cache, thinking, và request chết giữa chừng khi harness chưa kịp ghi `attempts`. Trần $2 giả định mỗi call không quá khoảng 20k token vào và 1024 token ra, tức khoảng $0.05/call ở giá công bố, 3 nhiệm vụ × 8 call. Nếu input lớn hơn, dừng sớm theo trần $2.
 
 ## Quy tắc sau khi có số thật
 
