@@ -28,14 +28,15 @@ def _rel_files() -> list[Path]:
 def freeze_text() -> str:
     lines = []
     for path in _rel_files():
-        digest = hashlib.sha256(path.read_bytes()).hexdigest()
+        data = path.read_bytes().replace(b"\r\n", b"\n")
+        digest = hashlib.sha256(data).hexdigest()
         lines.append(f"{digest}  {path.relative_to(VALUE).as_posix()}")
     return "\n".join(lines) + "\n"
 
 
 def verify_freeze() -> str:
     current = freeze_text()
-    saved = FREEZE.read_text(encoding="utf-8") if FREEZE.is_file() else ""
+    saved = FREEZE.read_text(encoding="utf-8").replace("\r\n", "\n") if FREEZE.is_file() else ""
     if current != saved:
         raise SystemExit("phép kiểm đã đổi so với bản đóng băng")
     return current

@@ -11,7 +11,7 @@ Dừng ở đây. Chưa gọi API trả phí. Chưa merge `main`. Chưa mở pul
 - CI của repo: Ubuntu và Windows, Python 3.9–3.12, cộng job shadow, quality-gate sàn 0.90, commit-lint
 - So sánh nhánh: https://github.com/wuongg/mira-harness/compare/main...agent/trust-limits-2026-10-14?expand=1
 
-SHA của commit đóng gói bộ thử được ghi ở cuối sau khi CI của đúng SHA đó trả về.
+`6694b3d` đã push và CI đỏ mọi job unittest: hash đóng băng lệch vì checkout Linux dùng LF còn hash được tính trên CRLF. Không lấy SHA đó làm bản thử. Bản sửa hash chuẩn hóa xuống dòng nằm ở commit sau.
 
 ### Test bị skip trên máy Windows này
 
@@ -56,7 +56,7 @@ Kỳ vọng: in `7`, rồi help có `--confirm`. Help không phải nghiệm thu
 
 ## Mười hai nhiệm vụ
 
-Gói nằm trong `eval/value/`. Phép kiểm ở `eval/value/checks/Vxx.py`, ngoài `workspace/`, nên bản sao thư mục làm việc của worker không chứa phép kiểm. Hash đóng băng: `eval/value/frozen.sha256`. Worker không được sửa phép kiểm. Lời verifier không phải đáp án. Tập này không dùng lại `calc.py`, `rows.json` hóa đơn, hay `report.md` đã dùng để sửa code.
+Gói nằm trong `eval/value/`. Phép kiểm ở `eval/value/checks/Vxx.py`, ngoài `workspace/`, nên bản sao thư mục làm việc của worker không chứa phép kiểm. Hash đóng băng: `eval/value/frozen.sha256`. Hash tính trên byte đã đổi `\r\n` thành `\n`, để checkout Windows không làm lệch dấu niêm. Worker không được sửa phép kiểm. Lời verifier không phải đáp án. Tập này không dùng lại `calc.py`, `rows.json` hóa đơn, hay `report.md` đã dùng để sửa code.
 
 Đóng băng trước khi thử:
 
