@@ -90,7 +90,8 @@ class ObligationTest(unittest.TestCase):
     def test_check_thoat_0_co_tham_chieu(self):
         cmd = shlex.join([sys.executable, "-c", "import sys; raise SystemExit(0)"])
         with tempfile.TemporaryDirectory() as tmp:
-            rows = judge_obligations([f"check: {cmd}"], [], None, cwd=Path(tmp))
+            rows = judge_obligations(
+                [f"check: {cmd}"], [], None, cwd=Path(tmp), granted={cmd})
         self.assertEqual(rows[0]["state"], "proven")
         self.assertEqual(rows[0]["ref"]["exit"], 0)
         self.assertEqual(rows[0]["ref"]["cmd"], cmd)
@@ -99,6 +100,7 @@ class ObligationTest(unittest.TestCase):
         cmd = shlex.join([sys.executable, "-c", "import sys; raise SystemExit(0)"])
         self.plan.brief = _brief()
         self.plan.brief["acceptance_criteria"] = [f"check: {cmd}"]
+        self.plan.criteria_origin = "user"
         self.plan.require_evidence = True
         res = self._run()
         self.assertEqual(res["status"], "ok")
@@ -109,6 +111,7 @@ class ObligationTest(unittest.TestCase):
         cmd = shlex.join([sys.executable, "-c", "import sys; raise SystemExit(1)"])
         self.plan.brief = _brief()
         self.plan.brief["acceptance_criteria"] = [f"check: {cmd}"]
+        self.plan.criteria_origin = "user"
         self.plan.require_evidence = True
         res = self._run()
         self.assertEqual(res["status"], "withheld")
@@ -143,12 +146,14 @@ class ObligationTest(unittest.TestCase):
             self.skipTest("backslash chỉ là escape trên Windows")
         cmd = f'{sys.executable} -c "import sys; raise SystemExit(0)"'
         with tempfile.TemporaryDirectory() as tmp:
-            rows = judge_obligations([f"check: {cmd}"], cwd=Path(tmp))
+            rows = judge_obligations(
+                [f"check: {cmd}"], cwd=Path(tmp), granted={cmd})
         self.assertEqual(rows[0]["state"], "proven")
         self.assertEqual(rows[0]["ref"]["exit"], 0)
         bad = f'{sys.executable} -c "import sys; raise SystemExit(2)"'
         with tempfile.TemporaryDirectory() as tmp:
-            rows = judge_obligations([f"check: {bad}"], cwd=Path(tmp))
+            rows = judge_obligations(
+                [f"check: {bad}"], cwd=Path(tmp), granted={bad})
         self.assertEqual(rows[0]["state"], "failed")
         self.assertEqual(rows[0]["ref"]["exit"], 2)
 

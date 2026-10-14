@@ -627,6 +627,7 @@ def execute_plan(plan: TeamPlan, *, provider_name: str | None = None,
                 "parent": None,
             },
             "require_evidence": bool(getattr(plan, "require_evidence", False)),
+            "criteria_origin": getattr(plan, "criteria_origin", None) or "model",
         })
 
     def _note(st: dict) -> dict:
@@ -1030,10 +1031,15 @@ def execute_plan(plan: TeamPlan, *, provider_name: str | None = None,
     brief = getattr(plan, "brief", None)
     if (getattr(plan, "require_evidence", False) and isinstance(brief, dict)
             and brief.get("acceptance_criteria")):
-        from .obligations import judge_obligations, unproven
+        from .obligations import _declared_check, judge_obligations, unproven
+        criteria = list(brief["acceptance_criteria"])
+        origin = getattr(plan, "criteria_origin", None) or "model"
+        granted = set()
+        if origin == "user":
+            granted = {cmd for item in criteria if (cmd := _declared_check(str(item)))}
         obligations = judge_obligations(
-            list(brief["acceptance_criteria"]), steps, evidence,
-            cwd=staging_box[0] or root)
+            criteria, steps, evidence,
+            cwd=staging_box[0] or root, granted=granted)
         missing = unproven(obligations)
         if status == "ok" and missing:
             status, fail_reason = "withheld", "còn tiêu chí chưa có bằng chứng"
@@ -1061,14 +1067,18 @@ def execute_plan(plan: TeamPlan, *, provider_name: str | None = None,
 
 def _obligation_note(row: dict) -> str:
     """Một dòng người đọc được: đã kiểm, chưa kiểm, hoặc bị chặn, kèm cách xử lý."""
-    label = {"proven": "đã kiểm", "failed": "bị chặn", "unproven": "chưa kiểm"}.get(
-        row.get("state") or "", row.get("state") or "")
+    label = {
+        "proven": "đã kiểm", "failed": "bị chặn", "unproven": "chưa kiểm",
+        "pending": "chờ cấp quyền", "blocked": "bị chặn",
+    }.get(row.get("state") or "", row.get("state") or "")
     reason = row.get("reason") or ""
     hint = ""
     if row.get("state") == "unproven":
         hint = " Thêm tiền tố check: rồi chạy lại."
     elif row.get("state") == "failed":
         hint = " Sửa cho lệnh thoát 0 rồi chạy lại."
+    elif row.get("state") == "pending":
+        hint = " Đưa đúng lệnh trong file --brief. Model không tự được chạy."
     text = f"{label}: {row.get('criterion') or ''}"
     if reason:
         text += f" — {reason}."
@@ -1162,13 +1172,16 @@ def resume_team(root: Path, run_id: str, **kw) -> tuple[int, dict]:
     price = data.get("declared_price")
     if price:
         plan.declared_price = (float(price[0]), float(price[1]))
+    origin_arg = kw.pop("criteria_origin", None)
     if new_brief is not None:
         from .intake import brief_hash
         plan.brief = new_brief
         plan.brief_hash = brief_hash(new_brief)
+        plan.criteria_origin = origin_arg or "user"
     elif stored:
         plan.brief = stored
         plan.brief_hash = data.get("brief_hash")
+        plan.criteria_origin = data.get("criteria_origin") or "model"
     passed_flag = bool(kw.pop("require_evidence", False))
     plan.require_evidence = bool(data.get("require_evidence")) or passed_flag
     workers = int(data.get("workers") or 1)
@@ -1215,6 +1228,7 @@ def cmd_team(args) -> int:
             oracle=getattr(args, "oracle", None),
             on_step=lambda m: print("  " + m),
             brief=brief,
+            criteria_origin="user" if brief is not None else None,
             require_evidence=bool(getattr(args, "require_evidence", False)))
         for row in res.get("obligations") or []:
             ui.note(_obligation_note(row), "info")
@@ -1322,6 +1336,7 @@ def cmd_team(args) -> int:
             from_file = False
         plan.brief = obj
         plan.brief_hash = brief_hash(obj)
+        plan.criteria_origin = "user" if from_file else "model"
         plan.require_evidence = bool(getattr(args, "require_evidence", False))
         print(canonical_brief(obj))
         if not from_file:
@@ -1348,6 +1363,7 @@ def cmd_team(args) -> int:
             return 8
         plan.brief = obj
         plan.brief_hash = brief_hash(obj)
+        plan.criteria_origin = "user"
     if getattr(args, "require_evidence", False):
         plan.require_evidence = True
     if plan.dual_approval and args.approve:

@@ -124,6 +124,27 @@ def _ignore_workspace(_dir: str, names: list[str]) -> list[str]:
     return skip
 
 
+def _split_shell(cmd: str) -> list[str]:
+    """Tách lệnh như run_shell. Trên Windows, đường dẫn có '\\' được thử lại."""
+    argv = shlex.split(cmd, posix=True)
+    if os.name != "nt" or not argv or _shell_token_runs(argv[0]):
+        return argv
+    alt = [_strip_shell_quotes(token) for token in shlex.split(cmd, posix=False)]
+    if alt and _shell_token_runs(alt[0]):
+        return alt
+    return argv
+
+
+def _shell_token_runs(token: str) -> bool:
+    return Path(token).is_file() or shutil.which(token) is not None
+
+
+def _strip_shell_quotes(token: str) -> str:
+    if len(token) >= 2 and token[0] == token[-1] and token[0] in "\"'":
+        return token[1:-1]
+    return token
+
+
 def _shell_argv(work: Path, argv: list[str]) -> list[str]:
     """Linux có bwrap thì cắt mạng và chỉ cho ghi trong bản sao."""
     bwrap = shutil.which("bwrap") if sys.platform.startswith("linux") else None
@@ -1198,9 +1219,12 @@ class Session:
         return str(self.memory_path())
 
     def run_shell(self, cmd: str, timeout: int = 60) -> str:
-        """Chạy đối số trong bản sao. Không ghi ngược vào cây nguồn."""
+        """Chạy đối số trong bản sao. Không ghi ngược vào cây nguồn.
+
+        Thư mục làm việc là bản sao, không phải sandbox. Không có cô lập tiến trình.
+        """
         try:
-            argv = shlex.split(cmd, posix=True)
+            argv = _split_shell(cmd)
         except ValueError as e:
             return f"LỖI: lệnh không tách được đối số: {e}"
         if not argv:

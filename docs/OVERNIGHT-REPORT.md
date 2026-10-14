@@ -1,5 +1,35 @@
 # Báo cáo đêm 2026-10-13
 
+## 0. Vòng kiểm chứng — kế hoạch ngắn
+
+Nhánh mới `agent/trust-limits-2026-10-14`, tách từ `7f732a9` (đầu nhánh overnight), không tách từ `main` cục bộ `bb58700`. `mira/obligations.py` không có trên `main`. Không merge vào `main`.
+
+Link so sánh cũ của nhánh overnight không còn là nhánh làm việc: https://github.com/wuongg/mira-harness/compare/main...agent/overnight-rd-2026-10-13?expand=1
+
+Link nhánh này: https://github.com/wuongg/mira-harness/compare/main...agent/trust-limits-2026-10-14?expand=1
+
+`gh` vẫn chưa đăng nhập, nên chưa mở pull request.
+
+Thứ tự: R1 quyền chạy check, R2 tiêu chí gắn phép kiểm và artifact, R3 đặt trước ngân sách song song, R4 phục hồi bằng tiến trình thật, R5 đo giá trị đầu-cuối trên tập tách khỏi fixture sửa code. Không thêm agent.
+
+| Mục | Trạng thái |
+| --- | --- |
+| R1 | đạt trên máy; CI của commit này là lần chạy sau khi push |
+| R2 | chưa làm |
+| R3 | chưa làm |
+| R4 | chưa làm |
+| R5 | chưa làm |
+
+### R1
+
+`check:` không còn gọi `subprocess.run` riêng. Lệnh chỉ chạy khi `criteria_origin` là `user` (file `--brief` do người đưa) và đi qua `Session.run_shell`: xin phép, chặn path ngoài gốc, env đã bỏ key, timeout 30s, đầu ra cắt 8000 ký tự. Brief do intake/model tạo ra để trạng thái `pending` và không gọi subprocess. Duyệt câu brief trên màn hình không phải cấp quyền shell. Bản sao của `run_shell` không phải sandbox.
+
+Lệnh: `py -3 -m unittest discover -s tests -p "test_check_grant.py" -v`
+
+Selftest: `Ran 462 tests`, `OK (skipped=2)`.
+
+Tập đóng băng `tools/overnight_eval.py` lệch 1 dòng, không sửa đáp án: E13 có đường dẫn tuyệt đối của Python nằm ở đối số, `run_shell` chặn trước khi chạy, trạng thái `blocked` thay vì `proven`. Marker vẫn không được tạo.
+
 ## 1. Mốc
 
 - SHA đầu vào: `bb587009da2b4d90edc6eeb0384114e5e83ba797`.

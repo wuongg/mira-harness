@@ -59,6 +59,7 @@ def _checkpoint(root: Path, **extra):
                   "dollars": 0, "reversibility": "C1", "output_type": "free_string"},
         "workers": 1,
         "require_evidence": True,
+        "criteria_origin": "user",
     }
     payload.update(extra)
     write_checkpoint(root, payload)
