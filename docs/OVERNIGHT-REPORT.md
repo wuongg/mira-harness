@@ -21,7 +21,8 @@ Thứ tự: R1 quyền chạy check, R2 tiêu chí gắn phép kiểm và artifa
 | R3 | đạt | `74b7154` | https://github.com/wuongg/mira-harness/actions/runs/38489760877 success |
 | R4 | đạt | `8780d42` | https://github.com/wuongg/mira-harness/actions/runs/38490734366 success |
 | R5 | đạt | `863c27b` | https://github.com/wuongg/mira-harness/actions/runs/38491474015 success |
-| S1 | đạt trên máy; CI sau khi push | | |
+| S1 | đạt | `cb37bb0` | https://github.com/wuongg/mira-harness/actions/runs/38508067848 success |
+| S2 | đạt trên máy; CI sau khi push | | |
 
 ### R1
 
@@ -105,6 +106,18 @@ Ví dụ nạp từ CLI, `--intake off --brief` file này, `--require-evidence`.
 Lệnh: `py -3 -m unittest discover -s tests -p "test_criteria_schema.py" -v`
 
 Selftest: `Ran 483 tests`, `OK (skipped=2)`.
+
+### S2
+
+`command_passed` là mã thoát. `artifact_integrity` là hash đúng run. `criterion_verified` chỉ khi validator chạy đúng. Câu `proves` trùng tiêu chí được giữ ở `claim`, không biến thành bằng chứng.
+
+Validator schema 1: `contains` (chuỗi bắt buộc/cấm), `json_keys` (JSON và khóa), `shape` (đuôi file), `behavior` (lệnh đã cấp quyền, đúng mã thoát và một chuỗi đầu ra). Mỗi dòng ghi `proves` và `does_not_prove`. Không có validator thì `needs_confirmation` hoặc `unverified`.
+
+T-WRONG: file `return 4`, claim trùng câu, hash khớp. Kết quả `unverified`, không còn `verified`.
+
+Lệnh: `py -3 -m unittest discover -s tests -p "test_validators.py" -v`
+
+Selftest: `Ran 490 tests`, `OK (skipped=2)`.
 
 ## 1. Mốc
 

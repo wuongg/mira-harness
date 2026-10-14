@@ -1115,12 +1115,13 @@ def execute_plan(plan: TeamPlan, *, provider_name: str | None = None,
     brief = getattr(plan, "brief", None)
     if (getattr(plan, "require_evidence", False) and isinstance(brief, dict)
             and brief.get("acceptance_criteria")):
-        from .obligations import criterion_command, judge_obligations, unproven
+        from .obligations import criterion_commands, judge_obligations, unproven
         criteria = list(brief["acceptance_criteria"])
         origin = getattr(plan, "criteria_origin", None) or "model"
         granted = set()
-        if origin == "user":
-            granted = {cmd for item in criteria if (cmd := criterion_command(item))}
+        trusted = origin == "user"
+        if trusted:
+            granted = {cmd for item in criteria for cmd in criterion_commands(item)}
         records = {}
         base = staging_box[0] or root
         if isinstance(evidence, dict) and base is not None:
@@ -1135,7 +1136,7 @@ def execute_plan(plan: TeamPlan, *, provider_name: str | None = None,
                     }
         obligations = judge_obligations(
             criteria, steps, evidence, cwd=base, granted=granted,
-            run_id=run_id, artifacts=records)
+            run_id=run_id, artifacts=records, validators=trusted)
         missing = unproven(obligations)
         if status == "ok" and missing:
             status, fail_reason = "withheld", "còn tiêu chí chưa có bằng chứng"
@@ -1164,7 +1165,10 @@ def execute_plan(plan: TeamPlan, *, provider_name: str | None = None,
 def _obligation_note(row: dict) -> str:
     """Một dòng người đọc được: đã kiểm, chưa kiểm, hoặc bị chặn, kèm cách xử lý."""
     label = {
-        "verified": "đã xác minh", "checked": "đã chạy lệnh, chưa xác minh tiêu chí",
+        "verified": "đã xác minh",
+        "checked": "đã chạy lệnh, chưa xác minh tiêu chí",
+        "unverified": "đã chạy lệnh, chưa xác minh tiêu chí" if row.get("command_passed")
+        else "chưa xác minh",
         "failed": "bị chặn", "unproven": "chưa kiểm",
         "needs_confirmation": "chưa kiểm, cần xác nhận",
         "pending": "chờ cấp quyền", "blocked": "bị chặn",
@@ -1173,8 +1177,10 @@ def _obligation_note(row: dict) -> str:
     hint = ""
     if row.get("state") in ("unproven", "needs_confirmation"):
         hint = " Tiêu chí này chưa được kiểm tự động."
-    elif row.get("state") == "checked":
+    elif row.get("state") in ("checked", "unverified") and row.get("command_passed"):
         hint = " Lệnh thoát 0 chưa chứng minh câu tiêu chí."
+    elif row.get("state") == "unverified":
+        hint = " Chưa có validator phù hợp."
     elif row.get("state") == "failed":
         hint = " Sửa cho lệnh thoát 0 rồi chạy lại."
     elif row.get("state") == "pending":

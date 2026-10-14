@@ -24,7 +24,7 @@ class CriterionBindTest(unittest.TestCase):
         row = rows[0]
         self.assertTrue(row["check_passed"])
         self.assertFalse(row["criterion_verified"])
-        self.assertEqual(row["state"], "checked")
+        self.assertEqual(row["state"], "unverified")
         self.assertNotEqual(row["proves"], row["criterion"])
 
     def test_test_xanh_khong_dung_hanh_vi(self):
@@ -115,8 +115,9 @@ class CriterionBindTest(unittest.TestCase):
                 [item], cwd=root, granted={cmd}, run_id="run-a",
                 artifacts={"app.py": {"sha256": digest, "run_id": "run-a"}})
         self.assertTrue(rows[0]["check_passed"])
-        self.assertTrue(rows[0]["criterion_verified"])
-        self.assertEqual(rows[0]["state"], "verified")
+        self.assertTrue(rows[0]["artifact_integrity"])
+        self.assertFalse(rows[0]["criterion_verified"])
+        self.assertEqual(rows[0]["state"], "unverified")
         self.assertEqual(rows[0]["artifact"]["sha256"], digest)
         self.assertEqual(rows[0]["artifact"]["run_id"], "run-a")
 

@@ -92,7 +92,7 @@ class ObligationTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             rows = judge_obligations(
                 [f"check: {cmd}"], [], None, cwd=Path(tmp), granted={cmd})
-        self.assertEqual(rows[0]["state"], "checked")
+        self.assertEqual(rows[0]["state"], "unverified")
         self.assertTrue(rows[0]["check_passed"])
         self.assertFalse(rows[0]["criterion_verified"])
         self.assertEqual(rows[0]["ref"]["exit"], 0)
@@ -106,7 +106,7 @@ class ObligationTest(unittest.TestCase):
         self.plan.require_evidence = True
         res = self._run()
         self.assertEqual(res["status"], "withheld")
-        self.assertEqual(res["obligations"][0]["state"], "checked")
+        self.assertEqual(res["obligations"][0]["state"], "unverified")
         self.assertFalse(res["obligations"][0]["criterion_verified"])
         self.assertEqual(res["obligations"][0]["ref"]["kind"], "check")
 
@@ -151,7 +151,7 @@ class ObligationTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             rows = judge_obligations(
                 [f"check: {cmd}"], cwd=Path(tmp), granted={cmd})
-        self.assertEqual(rows[0]["state"], "checked")
+        self.assertEqual(rows[0]["state"], "unverified")
         self.assertEqual(rows[0]["ref"]["exit"], 0)
         bad = f'{sys.executable} -c "import sys; raise SystemExit(2)"'
         with tempfile.TemporaryDirectory() as tmp:

@@ -282,9 +282,9 @@ def probe_wrong(tree: Path, task: dict) -> dict:
                 "code": proc.returncode}
     got = json.loads(proc.stdout.decode("utf-8"))
     verified = bool(got.get("verified"))
-    return {"id": task["id"], "kind": task["kind"], "fail": False,
-            "remaining": verified,
-            "detail": "file sai van verified khi proves trung cau" if verified else "",
+    return {"id": task["id"], "kind": task["kind"], "fail": verified,
+            "remaining": False,
+            "detail": "file sai van verified" if verified else "khong verified",
             "code": 0}
 
 

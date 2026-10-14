@@ -100,7 +100,7 @@ class CriteriaSchemaTest(unittest.TestCase):
                 self.assertTrue(held.exists(), text)
                 rows = json.loads(held.read_text(encoding="utf-8")).get("obligations") or []
                 self.assertEqual(rows[0]["criterion_id"], "crit-exit")
-                self.assertIn(rows[0]["state"], ("checked", "blocked", "failed", "unproven"))
+                self.assertIn(rows[0]["state"], ("checked", "unverified", "blocked", "failed", "unproven"))
         finally:
             srv.shutdown()
 
