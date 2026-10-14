@@ -39,7 +39,8 @@ Thứ tự: R1 quyền chạy check, R2 tiêu chí gắn phép kiểm và artifa
 | L4 | đạt | `2f7d6fd` | https://github.com/wuongg/mira-harness/actions/runs/38518143543 success |
 | P1 | đạt | `e7a7f36` | https://github.com/wuongg/mira-harness/actions/runs/38529381006 success |
 | P2 | đạt | `0a6784d` | https://github.com/wuongg/mira-harness/actions/runs/38531132701 success |
-| P3 | đạt, chờ CI |  |  |
+| P3 | đạt | `54d7b47` | https://github.com/wuongg/mira-harness/actions/runs/38532489685 success |
+| P4 | ghi nghiệm thu | `54d7b47` | cùng CI P3 |
 
 ### R1
 
@@ -378,6 +379,41 @@ Ca 2 đối chiếu lại cây behavior sau `MIRA_PAUSE=before-promote`, không 
 Lệnh: `py -3 -m unittest discover -s tests -p "test_delivery_cli.py" -v`
 
 Selftest: `Ran 552 tests`, `OK (skipped=2)`.
+
+CI P3: https://github.com/wuongg/mira-harness/actions/runs/38532489685 success. SHA `54d7b47`.
+
+### P4
+
+Ba nhiệm vụ chạy bằng worker thật trong staging và provider HTTP giả. Không có API trả phí. Người dùng ở đây là số lệnh CLI, không phải một người ngồi bấm ngoài phiên này.
+
+| Nhiệm vụ | Thao tác người dùng | Call HTTP | Kết quả kiểm | Bàn giao |
+| --- | --- | --- | --- | --- |
+| Sửa `calc.py` thành phép cộng | 2: duyệt phiếu, chạy và `--grant` | 4 | `verified`, `còn hiệu lực` | đủ, thoát 0 |
+| Ghi `rows.json` | 2: duyệt phiếu, chạy | 4 | `verified`, `còn hiệu lực` | đủ, thoát 0 |
+| Ghi `report.md` có tiêu chí tay | 3: duyệt, chạy, `--confirm` | 4 (xác nhận thêm 0 call) | `contains` verified; `tone` là `user_confirmed` | người dùng xác nhận, thoát 0 |
+
+Chi phí in trên phiếu giả: `$0.120000` mỗi run. Xác nhận tay không đặt `criterion_verified`.
+
+Cài từ wheel trong thư mục venv trống `C:\Users\phamv\AppData\Local\Temp\mira-p4-clean`: gói `mira` 2.5.0, file `Lib\site-packages\mira\__init__.py`, `python -m mira giao --help` thoát 0 và có `--confirm`. Wheel lúc cài: `mira-2.5.0-py3-none-any.whl`, sha256 `f106dad62eebeb9931fb5a3fdcb4fbb58d7ecb41dbe011197192598688ad20aa`.
+
+Chạy lại không cần API trả phí:
+
+```
+py -3 -m unittest discover -s tests -p "test_giao_execute.py" -k "sua_file|tao_json|tao_bao_cao" -v
+py -3 -m unittest discover -s tests -p "test_delivery_cli.py" -v
+```
+
+Cài vào môi trường trống:
+
+```
+py -3 -m venv .venv-clean
+.venv-clean\Scripts\python.exe -m pip install .
+.venv-clean\Scripts\python.exe -m mira giao --help
+```
+
+Thư mục venv phải trống trước khi tạo. Nếu prefix đã có một cây `mira\` cũ, Python nhập cây đó trước `site-packages` và lệnh `giao` biến mất.
+
+Kết luận: chưa đủ thử nghiệm người dùng. Ba nhiệm vụ chỉ chứng minh luồng với provider giả. Blocker: chưa được duyệt API trả phí nên chưa có model thật; `T-REAL` vẫn `not_evaluated`; xác nhận `tone` không phải kiểm tự động; `team --brief` vẫn cấp mọi lệnh tiêu chí của người dùng; hash không phải cô lập và không phải giao dịch nguyên tử nhiều file; tập đóng băng `eval/overnight` vẫn lệch và không được sửa; chưa có pull request vì `gh` chưa đăng nhập. Test xanh không phải hết nợ kỹ thuật và không phải so sánh với công cụ khác.
 
 ## 1. Mốc
 
