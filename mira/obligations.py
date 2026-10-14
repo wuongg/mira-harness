@@ -8,11 +8,9 @@ from __future__ import annotations
 
 import hashlib
 import json
-import re
 from pathlib import Path
 
 _PREFIX = "check:"
-_EXIT = re.compile(r"\[mã thoát (\d+)\]")
 _EXIT_ONLY = "chỉ mã thoát của lệnh này"
 CRITERIA_SCHEMA = 1
 _OBJECT_KEYS = {"schema", "id", "text", "cmd", "proves", "artifact", "validator"}
@@ -194,24 +192,26 @@ def criterion_command(raw) -> str | None:
     return cmds[0] if cmds else None
 
 
-def _through_shell(cmd: str, root: Path) -> tuple[str, int | None, str, str]:
+def _shell_result(cmd: str, root: Path):
     from .tools import Session
 
     def approve(tool: str, args: dict) -> bool:
         return tool == "run_shell" and str(args.get("cmd") or "") == cmd
 
-    text = Session(root=root, mode="default", approve=approve).run_shell(cmd, timeout=30)
-    if text.startswith(("NGƯỜI DÙNG TỪ CHỐI", "BỊ CHẶN")):
+    return Session(root=root, mode="default", approve=approve).run_shell_result(cmd, timeout=30)
+
+
+def _through_shell(cmd: str, root: Path) -> tuple[str, int | None, str, str]:
+    result = _shell_result(cmd, root)
+    text = result.display
+    if result.permission in ("denied", "blocked"):
         return "blocked", None, text.splitlines()[0], text
-    if text.startswith("LỖI:"):
-        return "unproven", None, text.splitlines()[0], text
-    found = _EXIT.match(text)
-    if not found:
-        return "unproven", None, "run_shell không trả mã thoát", text
-    code = int(found.group(1))
-    if code == 0:
-        return "checked", code, "lệnh check thoát 0", text
-    return "failed", code, f"lệnh check thoát {code}", text
+    if result.timed_out or result.permission == "error" or result.exit_code is None:
+        reason = text.splitlines()[0] if text else "run_shell không trả mã thoát"
+        return "unproven", result.exit_code, reason, text
+    if result.exit_code == 0:
+        return "checked", result.exit_code, "lệnh check thoát 0", text
+    return "failed", result.exit_code, f"lệnh check thoát {result.exit_code}", text
 
 
 def _bound_artifact(root: Path, rel: str, run_id: str,
@@ -256,17 +256,38 @@ def _apply_validator(spec: dict, root: Path | None, allowed: set[str]) -> dict:
             return {"state": "blocked", "verified": False, "command_passed": False,
                     "reason": "không có thư mục gốc để đưa vào run_shell",
                     "proves": "", "does_not_prove": spec["does_not_prove"]}
-        _state, code, reason, shown = _through_shell(cmd, root)
-        passed = code == spec["expects_exit"]
-        if passed and spec["expects_stdout"] not in shown:
-            passed = False
+        result = _shell_result(cmd, root)
+        if result.permission in ("denied", "blocked"):
+            return {"state": "blocked", "verified": False, "command_passed": False,
+                    "reason": result.display.splitlines()[0],
+                    "proves": "", "does_not_prove": spec["does_not_prove"]}
+        if result.timed_out:
+            return {"state": "unverified", "verified": False, "command_passed": False,
+                    "reason": "lệnh quá thời gian, đầu ra chưa đủ để kết luận",
+                    "proves": "", "does_not_prove": spec["does_not_prove"]}
+        if result.permission == "error" or result.exit_code is None:
+            return {"state": "unproven", "verified": False, "command_passed": False,
+                    "reason": result.display.splitlines()[0] if result.display else "không có mã thoát",
+                    "proves": "", "does_not_prove": spec["does_not_prove"]}
+        exit_ok = result.exit_code == spec["expects_exit"]
+        found = spec["expects_stdout"] in result.stdout
+        if result.truncated and not found:
+            return {"state": "unverified", "verified": False, "command_passed": exit_ok,
+                    "reason": "đầu ra bị cắt, chưa đủ để kết luận",
+                    "proves": "", "does_not_prove": spec["does_not_prove"]}
+        passed = exit_ok and found
+        if not passed and exit_ok:
             reason = "đầu ra không chứa chuỗi đã khai"
+        elif passed:
+            reason = "lệnh được cấp quyền cho đúng mã thoát và chuỗi đầu ra"
+        else:
+            reason = f"lệnh check thoát {result.exit_code}"
         return {
             "state": "verified" if passed else "failed",
             "verified": passed,
             "command_passed": passed,
-            "reason": "lệnh được cấp quyền cho đúng mã thoát và chuỗi đầu ra" if passed else reason,
-            "proves": "mã thoát và một chuỗi đầu ra đã khai",
+            "reason": reason,
+            "proves": "mã thoát và một chuỗi trên stdout đã khai",
             "does_not_prove": spec["does_not_prove"],
         }
     if root is None or not root.is_dir():
@@ -397,7 +418,8 @@ def judge_obligations(criteria: list, steps: list[dict] | None = None,
         if command_state == "pending" and not verified:
             state = "pending"
             reason = command_reason
-        elif applied and applied["state"] in ("pending", "failed", "blocked", "verified"):
+        elif applied and applied["state"] in (
+                "pending", "failed", "blocked", "verified", "unverified"):
             state = "verified" if verified else applied["state"]
             reason = applied["reason"]
         elif command_state == "blocked":

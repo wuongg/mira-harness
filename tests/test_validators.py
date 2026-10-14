@@ -164,6 +164,58 @@ class ValidatorTest(unittest.TestCase):
         self.assertEqual(rows[0]["state"], "pending")
         self.assertFalse(rows[0]["command_passed"])
 
+    def _behavior(self, code: str, needle: str):
+        cmd = shlex.join([sys.executable, "-c", code])
+        item = {
+            "schema": 1, "id": "beh", "text": "kiem dau ra",
+            "validator": {
+                "kind": "behavior", "cmd": cmd, "expects_exit": 0,
+                "expects_stdout": needle,
+                "does_not_prove": "khong kiem nhanh khac",
+            },
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            row = judge_obligations(
+                [item], cwd=Path(tmp), granted={cmd}, run_id="run-a")[0]
+        return row
+
+    def test_stdout_rong_khong_dat(self):
+        row = self._behavior("import sys; sys.exit(0)", "PASS")
+        self.assertFalse(row["criterion_verified"])
+        self.assertNotEqual(row["state"], "verified")
+
+    def test_chuoi_chi_o_stderr_khong_dat(self):
+        row = self._behavior(
+            "import sys; sys.stderr.write('CHI-STDERR')", "CHI-STDERR")
+        self.assertFalse(row["criterion_verified"])
+        self.assertEqual(row["state"], "failed")
+
+    def test_chuoi_chi_o_dong_ui_khong_dat(self):
+        row = self._behavior("import sys; sys.exit(0)", "[mã thoát 0]")
+        self.assertFalse(row["criterion_verified"])
+        self.assertEqual(row["state"], "failed")
+
+    def test_stdout_hop_le(self):
+        row = self._behavior("print('DUNG-STDOUT')", "DUNG-STDOUT")
+        self.assertTrue(row["criterion_verified"])
+        self.assertEqual(row["state"], "verified")
+
+    def test_timeout_chua_xac_minh(self):
+        from mira.tools import Session
+        cmd = shlex.join([sys.executable, "-c", "import time; time.sleep(5)"])
+        with tempfile.TemporaryDirectory() as tmp:
+            result = Session(root=Path(tmp), mode="bypass",
+                             approve=lambda _t, _a: True).run_shell_result(cmd, timeout=1)
+        self.assertTrue(result.timed_out)
+        self.assertIsNone(result.exit_code)
+        self.assertNotIn("PASS", result.stdout)
+        self.assertEqual(result.permission, "granted")
+
+    def test_output_bi_cat_chua_xac_minh(self):
+        row = self._behavior("print('A' * 9000 + 'TAIL')", "TAIL")
+        self.assertFalse(row["criterion_verified"])
+        self.assertEqual(row["state"], "unverified")
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

@@ -25,7 +25,8 @@ Thứ tự: R1 quyền chạy check, R2 tiêu chí gắn phép kiểm và artifa
 | S2 | đạt | `61300af` | https://github.com/wuongg/mira-harness/actions/runs/38508501239 success |
 | S3 | đạt | `92ef473` | https://github.com/wuongg/mira-harness/actions/runs/38509001523 success |
 | S4 | đạt | `e965c49` | https://github.com/wuongg/mira-harness/actions/runs/38509232763 success |
-| V1 | đạt trên máy; CI sau khi push | | |
+| V1 | đạt | `f1e9537` | https://github.com/wuongg/mira-harness/actions/runs/38509821752 success |
+| V2 | đạt trên máy; CI sau khi push | | |
 
 ### R1
 
@@ -166,6 +167,14 @@ Selftest: `Ran 495 tests`, `OK (skipped=2)`.
 Lệnh: `py -3 -m unittest discover -s tests -p "test_validators.py" -k array`
 
 Selftest: `Ran 502 tests`, `OK (skipped=2)`.
+
+### V2
+
+`behavior` chỉ so `expects_stdout` với stdout thật. Chuỗi nằm ở stderr, ở dòng `[mã thoát 0]`, hoặc ở câu hiển thị của harness không làm check đạt. `run_shell` vẫn trả chuỗi hiển thị cũ. `run_shell_result` trả `exit_code`, `stdout`, `stderr`, `timed_out`, `truncated` và trạng thái quyền. Timeout hoặc output bị cắt mà không thấy chuỗi đã khai thì trạng thái là `unverified`.
+
+Lệnh: `py -3 -m unittest discover -s tests -p "test_validators.py"`
+
+Selftest: `Ran 508 tests`, `OK (skipped=2)`.
 
 ## 1. Mốc
 

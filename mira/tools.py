@@ -25,6 +25,52 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable
 
+_SHELL_CAP = 8000
+
+
+@dataclass
+class ShellResult:
+    """Kết quả lệnh, tách khỏi chuỗi hiển thị."""
+    permission: str
+    exit_code: int | None = None
+    stdout: str = ""
+    stderr: str = ""
+    timed_out: bool = False
+    truncated: bool = False
+    display: str = ""
+
+
+def _as_text(value) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, bytes):
+        return value.decode("utf-8", "replace")
+    return str(value)
+
+
+def _clip(text: str) -> tuple[str, bool]:
+    if len(text) <= _SHELL_CAP:
+        return text, False
+    return text[:_SHELL_CAP], True
+
+
+def _shell_display(result: ShellResult) -> str:
+    if result.display:
+        return result.display
+    if result.timed_out:
+        return "LỖI: quá thời gian"
+    if result.exit_code is None:
+        return "LỖI: không có mã thoát"
+    if not (result.stdout or "").strip() and not (result.stderr or "").strip():
+        body = "lệnh chạy xong, không có đầu ra."
+    else:
+        body = result.stdout or ""
+        if result.stderr:
+            body += "\n[stderr]\n" + result.stderr
+        body = body[:_SHELL_CAP]
+    return f"[mã thoát {result.exit_code}]\n{body}"
+
+
 MODES = ("plan", "default", "acceptEdits", "bypass")
 
 
@@ -1219,6 +1265,10 @@ class Session:
         return str(self.memory_path())
 
     def run_shell(self, cmd: str, timeout: int = 60) -> str:
+        """Chuỗi hiển thị cũ. Dữ liệu nằm ở run_shell_result."""
+        return self.run_shell_result(cmd, timeout=timeout).display
+
+    def run_shell_result(self, cmd: str, timeout: int = 60) -> ShellResult:
         """Chạy đối số trong bản sao. Không ghi ngược vào cây nguồn.
 
         Thư mục làm việc là bản sao, không phải sandbox. Không có cô lập tiến trình.
@@ -1226,42 +1276,49 @@ class Session:
         try:
             argv = _split_shell(cmd)
         except ValueError as e:
-            return f"LỖI: lệnh không tách được đối số: {e}"
+            return ShellResult("error", display=f"LỖI: lệnh không tách được đối số: {e}")
         if not argv:
-            return "LỖI: thiếu lệnh"
+            return ShellResult("error", display="LỖI: thiếu lệnh")
         for arg in argv[1:]:
             blocked = self._unopened_skill_arg(arg)
             if blocked:
-                return blocked
+                return ShellResult("blocked", display=blocked)
         paths = [arg for arg in argv[1:] if arg and not arg.startswith("-")
                  and ("/" in arg or "\\" in arg or "." in arg)]
         denied = self._permit("run_shell", {"cmd": cmd, "paths": paths},
                               f"NGƯỜI DÙNG TỪ CHỐI chạy: {cmd}")
         if denied:
-            return denied
+            return ShellResult("denied", display=denied)
         for arg in argv[1:]:
             if self._arg_outside(arg):
-                return f"BỊ CHẶN: lệnh trỏ ra ngoài thư mục gốc: {arg}"
+                return ShellResult("blocked", display=f"BỊ CHẶN: lệnh trỏ ra ngoài thư mục gốc: {arg}")
         row = {"action": "run_shell", "cmd": cmd, "mode": self.mode, "exit": None}
         self.audit.append(row)
         work = Path(tempfile.mkdtemp(prefix="mira-sh-"))
         try:
             shutil.copytree(self.root, work, dirs_exist_ok=True, ignore=_ignore_workspace)
-            r = subprocess.run(_shell_argv(work, argv), shell=False, cwd=str(work),
-                               timeout=timeout, capture_output=True, text=True,
-                               env=_shell_env())
+            try:
+                r = subprocess.run(_shell_argv(work, argv), shell=False, cwd=str(work),
+                                   timeout=timeout, capture_output=True, text=True,
+                                   env=_shell_env())
+            except subprocess.TimeoutExpired as expired:
+                stdout, cut_out = _clip(_as_text(expired.stdout))
+                stderr, cut_err = _clip(_as_text(expired.stderr))
+                return ShellResult(
+                    "granted", stdout=stdout, stderr=stderr,
+                    timed_out=True, truncated=cut_out or cut_err,
+                    display=f"LỖI: quá {timeout}s")
             row["exit"] = r.returncode
-            if not (r.stdout or "").strip() and not (r.stderr or "").strip():
-                body = "lệnh chạy xong, không có đầu ra."
-            else:
-                body = (r.stdout or "") + (("\n[stderr]\n" + r.stderr) if r.stderr else "")
-                body = body[:8000]
+            stdout, cut_out = _clip(r.stdout or "")
+            stderr, cut_err = _clip(r.stderr or "")
             self.saw_untrusted = True
-            return f"[mã thoát {r.returncode}]\n{body}"
-        except subprocess.TimeoutExpired:
-            return f"LỖI: quá {timeout}s"
+            result = ShellResult(
+                "granted", exit_code=r.returncode, stdout=stdout, stderr=stderr,
+                truncated=cut_out or cut_err)
+            result.display = _shell_display(result)
+            return result
         except Exception as e:
-            return f"LỖI: {type(e).__name__}: {e}"
+            return ShellResult("error", display=f"LỖI: {type(e).__name__}: {e}")
         finally:
             shutil.rmtree(work, ignore_errors=True)
 
