@@ -761,6 +761,11 @@ def _record(root: Path, state: dict, res: dict, ledger, rows: list[dict],
         state["manifest"] = _capture_manifest(root, state)
     _save(root, state)
     _test_pause("before-promote")
+    if deliver:
+        rows = apply_confirmations(state, _checked_rows(state, root), root)
+        status, code = _delivery(rows)
+        if code != 0:
+            deliver = False
     reason = ""
     if deliver and not state["promoted"]:
         reason = promote_sealed(root, state)
@@ -794,6 +799,12 @@ def settle(root: Path, run_id: str) -> tuple[list[dict], str, int]:
     rows = apply_confirmations(state, _checked_rows(state, root), root)
     status, code = _delivery(rows)
     deliver = state.get("hold") == "needs_confirmation" and code == 0 and not state["promoted"]
+    if deliver:
+        from .team import _test_pause
+        _test_pause("before-promote")
+        rows = apply_confirmations(state, _checked_rows(state, root), root)
+        status, code = _delivery(rows)
+        deliver = code == 0 and not state["promoted"]
     if deliver:
         reason = promote_sealed(root, state)
         if reason:

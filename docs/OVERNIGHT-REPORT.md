@@ -38,7 +38,8 @@ Thứ tự: R1 quyền chạy check, R2 tiêu chí gắn phép kiểm và artifa
 | L3 | đạt | `063e993` | https://github.com/wuongg/mira-harness/actions/runs/38516162248 success |
 | L4 | đạt | `2f7d6fd` | https://github.com/wuongg/mira-harness/actions/runs/38518143543 success |
 | P1 | đạt | `e7a7f36` | https://github.com/wuongg/mira-harness/actions/runs/38529381006 success |
-| P2 | đạt, chờ CI |  |  |
+| P2 | đạt | `0a6784d` | https://github.com/wuongg/mira-harness/actions/runs/38531132701 success |
+| P3 | đạt, chờ CI |  |  |
 
 ### R1
 
@@ -354,6 +355,29 @@ Mẫu manifest:
 Lệnh: `py -3 -m unittest discover -s tests -p "test_delivery_manifest.py" -v`
 
 Selftest: `Ran 546 tests`, `OK (skipped=2)`.
+
+CI: https://github.com/wuongg/mira-harness/actions/runs/38531132701 success. SHA `0a6784d`.
+
+Commit docs `cd70217` chỉ ghi URL của P1. CI của SHA đó đỏ một job Windows 3.11, test `test_cay_hien_tai_khong_loi_da_cham`, stderr rỗng, thoát 1: https://github.com/wuongg/mira-harness/actions/runs/38530067925 failure. SHA mã `e7a7f36` và SHA P2 `0a6784d` xanh cùng test đó. Không sửa đáp án.
+
+### P3
+
+Sáu ca đi qua `mira giao` trong subprocess và HTTP giả.
+
+| Ca | Kết quả |
+| --- | --- |
+| 1. `report.md` đổi sau validator, trước xác nhận tay | không promote, không `bàn giao: đủ` |
+| 2. `dep.txt` đổi, `calc.py` giữ nguyên, trước promote | `hết hiệu lực`, nguồn vẫn `return a - b` |
+| 3. File đổi sau xác nhận, trước promote | không promote |
+| 4. Kill giữa promote nhiều file | `phase` vẫn `executing`, `b.txt` còn trong staging, không `bàn giao: đủ` |
+| 5. Mở lại run đã bàn giao | 0 call thêm, mtime không đổi, `không gọi lại` |
+| 6. Run không đổi | thoát 0, `bàn giao: đủ` |
+
+Ca 2 đối chiếu lại cây behavior sau `MIRA_PAUSE=before-promote`, không chạy lại lệnh. Ca 4 dừng sau file đầu của manifest (thứ tự tên), không phải sau đủ hai deliverable.
+
+Lệnh: `py -3 -m unittest discover -s tests -p "test_delivery_cli.py" -v`
+
+Selftest: `Ran 552 tests`, `OK (skipped=2)`.
 
 ## 1. Mốc
 
