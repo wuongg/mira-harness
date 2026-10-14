@@ -70,7 +70,7 @@ def _state_hash(state: dict) -> str:
 
 def _confirm_ok(item) -> bool:
     return (isinstance(item, dict)
-            and set(item) == {"criterion_id", "artifact", "sha256", "brief_hash"}
+            and set(item) == {"criterion_id", "artifact", "sha256", "brief_hash", "run_id"}
             and all(isinstance(item[key], str) and item[key] for key in item))
 
 
@@ -307,23 +307,35 @@ def remember_grant(root: Path, run_id: str, cmd: str) -> dict:
     return state
 
 
-def _find_artifact(root: Path, rel: str) -> Path | None:
+def _find_artifact(root: Path, rel: str, staging: str = "") -> Path | None:
+    """File của đúng run. Staging đang chờ thì không lấy file cũ ở cây nguồn."""
     path = Path(rel)
     if path.is_absolute() or ".." in path.parts or not rel.strip():
         raise HandoffError("artifact không hợp lệ")
     base = Path(root).resolve()
-    names = [base / rel]
-    staging = base / ".mira" / "staging"
-    if staging.is_dir():
-        names.extend(staging.glob(f"*.withheld/{rel}"))
-        names.extend(staging.glob(f"*/{rel}"))
-    for cand in names:
-        if not cand.is_file():
-            continue
-        resolved = cand.resolve()
-        if resolved == base or base in resolved.parents:
-            return resolved
-    return None
+    if staging:
+        folder = Path(staging).resolve()
+        stage_root = (base / ".mira" / "staging").resolve()
+        if folder != stage_root and stage_root not in folder.parents:
+            raise HandoffError("staging thoát khỏi gốc")
+        cand = (folder / rel).resolve()
+        if cand != folder and folder not in cand.parents:
+            return None
+        return cand if cand.is_file() else None
+    cand = (base / rel).resolve()
+    if cand != base and base not in cand.parents:
+        return None
+    if not cand.is_file():
+        return None
+    stage_root = (base / ".mira" / "staging").resolve()
+    if cand == stage_root or stage_root in cand.parents:
+        return None
+    return cand
+
+
+def _artifact_file(root: Path, state: dict, rel: str) -> Path | None:
+    pending = bool(state.get("staging")) and not state.get("promoted")
+    return _find_artifact(root, rel, state.get("staging") or "" if pending else "")
 
 
 def confirm(root: Path, run_id: str, criterion_id: str, artifact: str) -> dict:
@@ -337,12 +349,12 @@ def confirm(root: Path, run_id: str, criterion_id: str, artifact: str) -> dict:
         raise HandoffError("không có tiêu chí")
     if item.get("validator"):
         raise HandoffError("tiêu chí này kiểm tự động")
-    found = _find_artifact(root, artifact)
+    found = _artifact_file(root, state, artifact)
     if found is None:
         raise HandoffError("không có artifact")
     digest = hashlib.sha256(found.read_bytes()).hexdigest()
     row = {"criterion_id": criterion_id, "artifact": artifact.replace("\\", "/"),
-           "sha256": digest, "brief_hash": state["brief_hash"]}
+           "sha256": digest, "brief_hash": state["brief_hash"], "run_id": state["id"]}
     state["confirmations"] = [item for item in state["confirmations"]
                               if item["criterion_id"] != criterion_id]
     state["confirmations"].append(row)
@@ -356,10 +368,11 @@ def apply_confirmations(state: dict, rows: list[dict], root: Path) -> list[dict]
             continue
         match = next((item for item in state.get("confirmations") or []
                       if item["criterion_id"] == row.get("criterion_id")
-                      and item["brief_hash"] == state["brief_hash"]), None)
+                      and item["brief_hash"] == state["brief_hash"]
+                      and item.get("run_id") == state["id"]), None)
         if match is None:
             continue
-        found = _find_artifact(root, match["artifact"])
+        found = _artifact_file(root, state, match["artifact"])
         digest = hashlib.sha256(found.read_bytes()).hexdigest() if found else ""
         row["criterion_verified"] = False
         if digest != match["sha256"]:

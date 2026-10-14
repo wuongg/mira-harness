@@ -34,7 +34,8 @@ Thứ tự: R1 quyền chạy check, R2 tiêu chí gắn phép kiểm và artifa
 | H4 | đạt | `5a3dfed` | https://github.com/wuongg/mira-harness/actions/runs/38513177620 success |
 | H5 | đạt | `5aead5e` | https://github.com/wuongg/mira-harness/actions/runs/38513574605 success |
 | L1 | đạt | `d4a538b` | https://github.com/wuongg/mira-harness/actions/runs/38514566409 success |
-| L2 | đạt trên máy; CI sau khi push | | |
+| L2 | đạt | `0719f51` | https://github.com/wuongg/mira-harness/actions/runs/38515440770 success |
+| L3 | đạt trên máy; CI sau khi push | | |
 
 ### R1
 
@@ -282,6 +283,14 @@ Mở lại run đã bàn giao hai lần: 0 request mới, file nguồn không b�
 Lệnh: `py -3 -m unittest discover -s tests -p "test_giao_lifecycle.py" -v`
 
 Selftest: `Ran 536 tests`, `OK (skipped=2)`.
+
+### L3
+
+Xác nhận không còn quét mọi thư mục staging rồi lấy file đầu tiên, và không lấy `report.md` cũ ở cây nguồn khi run còn bản đang chờ. File được lấy từ `staging` đã ghi trong state của đúng run. Xác nhận lưu `run_id`, `criterion_id`, hash phiếu và hash artifact. Hai run cùng tên `report.md` nhưng nội dung `Nguon: A` và `Nguon: B`: xác nhận của A không áp được cho B. Promote dùng `os.replace` nên file rời staging sau khi bàn giao.
+
+Lệnh: `py -3 -m unittest discover -s tests -p "test_giao_artifact.py" -v`
+
+Selftest: `Ran 537 tests`, `OK (skipped=2)`.
 
 ## 1. Mốc
 
