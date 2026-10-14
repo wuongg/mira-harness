@@ -1,36 +1,106 @@
 """Phiếu giao việc rồi bàn giao. Dùng intake và validator sẵn có.
 
 Duyệt phiếu không cấp quyền chạy lệnh. Mỗi lệnh phải được nêu đúng chuỗi.
+Hash phát hiện phiếu hoặc state đã đổi. Hash không chống người sửa trực tiếp file.
 """
 from __future__ import annotations
 
 import difflib
+import hashlib
 import json
+import os
+import re
+import threading
 import uuid
 from pathlib import Path
 
-from .intake import brief_hash, canonical_brief, run_intake, validate_brief
+from .intake import brief_hash, run_intake, validate_brief
 from .obligations import criterion_commands, judge_obligations, validate_criteria
 
 _AUTO = {"contains", "json_keys", "shape", "behavior"}
+_RUN_ID = re.compile(r"^[0-9a-f]{8}$")
+_STATE_FIELDS = (
+    "id", "request", "brief", "brief_hash", "approved", "approved_hash",
+    "grants", "previous",
+)
+_SAVE_LOCK = threading.Lock()
+
+
+class HandoffError(Exception):
+    """Lỗi phiếu có câu tiếng Việt. CLI in câu này, không in traceback."""
+
+
+def _check_run_id(run_id: str) -> None:
+    if not isinstance(run_id, str) or _RUN_ID.fullmatch(run_id) is None:
+        raise HandoffError("run id không hợp lệ")
 
 
 def _dir(root: Path, run_id: str) -> Path:
-    return root / ".mira-giao" / run_id
+    _check_run_id(run_id)
+    base = (Path(root).resolve() / ".mira-giao").resolve()
+    path = (base / run_id).resolve()
+    if path != base and base not in path.parents:
+        raise HandoffError("run thoát khỏi thư mục")
+    return path
+
+
+def _state_hash(state: dict) -> str:
+    body = {key: state.get(key) for key in _STATE_FIELDS}
+    blob = json.dumps(body, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(blob.encode("utf-8")).hexdigest()
+
+
+def _grant_ok(item) -> bool:
+    return (isinstance(item, dict) and set(item) == {"cmd", "brief_hash"}
+            and isinstance(item["cmd"], str) and isinstance(item["brief_hash"], str))
 
 
 def _load(root: Path, run_id: str) -> dict:
+    _check_run_id(run_id)
     path = _dir(root, run_id) / "state.json"
     if not path.is_file():
         raise FileNotFoundError(run_id)
-    return json.loads(path.read_text(encoding="utf-8"))
+    try:
+        state = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        raise HandoffError("state hỏng: JSON cụt") from None
+    if not isinstance(state, dict) or set(state) != set(_STATE_FIELDS) | {"state_hash"}:
+        raise HandoffError("state hỏng: sai schema")
+    if state.get("id") != run_id or not isinstance(state.get("request"), str):
+        raise HandoffError("state hỏng: sai schema")
+    if not isinstance(state.get("approved"), bool) or not isinstance(state.get("approved_hash"), str):
+        raise HandoffError("state hỏng: sai schema")
+    previous = state.get("previous")
+    if previous is not None and (not isinstance(previous, str) or _RUN_ID.fullmatch(previous) is None):
+        raise HandoffError("state hỏng: previous không hợp lệ")
+    grants = state.get("grants")
+    if not isinstance(grants, list) or not all(_grant_ok(item) for item in grants):
+        raise HandoffError("state hỏng: grant sai schema")
+    ok, why = validate_brief(state.get("brief"))
+    if not ok:
+        raise HandoffError(f"state hỏng: {why}")
+    if state.get("brief_hash") != brief_hash(state["brief"]):
+        raise HandoffError("phiếu không khớp hash đã lưu")
+    if state.get("state_hash") != _state_hash(state):
+        raise HandoffError("trạng thái không khớp hash")
+    return state
 
 
 def _save(root: Path, state: dict) -> None:
+    """Cùng cách với checkpoint: file tạm rồi os.replace."""
+    _check_run_id(state["id"])
+    ok, why = validate_brief(state["brief"])
+    if not ok:
+        raise HandoffError(why)
+    state["brief_hash"] = brief_hash(state["brief"])
+    state["state_hash"] = _state_hash(state)
     folder = _dir(root, state["id"])
-    folder.mkdir(parents=True, exist_ok=True)
-    (folder / "state.json").write_text(
-        json.dumps(state, ensure_ascii=False, indent=2), encoding="utf-8")
+    dest = folder / "state.json"
+    with _SAVE_LOCK:
+        folder.mkdir(parents=True, exist_ok=True)
+        tmp = dest.with_suffix(".json.tmp")
+        tmp.write_text(json.dumps(state, ensure_ascii=False, indent=2), encoding="utf-8")
+        os.replace(tmp, dest)
 
 
 def classify(raw) -> str:
@@ -81,6 +151,7 @@ def preview(brief: dict, run_id: str) -> str:
     for cmd in commands:
         lines.append(f"- {cmd}")
     lines.append("Duyệt phiếu không cấp các lệnh này.")
+    lines.append("Hash phát hiện phiếu đổi, không chống người sửa trực tiếp file.")
     if commands:
         grant_flags = " ".join(f'--grant "{cmd}"' for cmd in commands)
         lines.append(f"Bước tiếp: py -3 -m mira giao --run {run_id} {grant_flags}")
@@ -92,13 +163,16 @@ def preview(brief: dict, run_id: str) -> str:
 def open_run(root: Path, request: str, brief: dict, previous: str | None = None) -> dict:
     ok, why = validate_brief(brief)
     if not ok:
-        raise ValueError(why)
+        raise HandoffError(why)
+    if previous is not None:
+        _check_run_id(previous)
     state = {
         "id": uuid.uuid4().hex[:8],
         "request": request,
         "brief": brief,
         "brief_hash": brief_hash(brief),
         "approved": False,
+        "approved_hash": "",
         "grants": [],
         "previous": previous,
     }
@@ -109,14 +183,24 @@ def open_run(root: Path, request: str, brief: dict, previous: str | None = None)
 def approve(root: Path, run_id: str) -> dict:
     state = _load(root, run_id)
     state["approved"] = True
+    state["approved_hash"] = state["brief_hash"]
     _save(root, state)
     return state
 
 
+def _approval_current(state: dict) -> bool:
+    return bool(state.get("approved")) and state.get("approved_hash") == state.get("brief_hash")
+
+
 def remember_grant(root: Path, run_id: str, cmd: str) -> dict:
     state = _load(root, run_id)
-    if cmd not in state["grants"]:
-        state["grants"].append(cmd)
+    if not _approval_current(state):
+        raise HandoffError("chưa duyệt phiếu này")
+    if cmd not in grant_commands(state["brief"]):
+        raise HandoffError("lệnh không thuộc phiếu đã duyệt")
+    row = {"cmd": cmd, "brief_hash": state["brief_hash"]}
+    if row not in state["grants"]:
+        state["grants"].append(row)
     _save(root, state)
     return state
 
@@ -137,14 +221,21 @@ def request_change(old: str, new: str, old_id: str) -> str:
     )
 
 
+def _active_grants(state: dict) -> set[str]:
+    allowed = set(grant_commands(state["brief"]))
+    bound = state["brief_hash"]
+    return {item["cmd"] for item in state["grants"]
+            if item["brief_hash"] == bound and item["cmd"] in allowed}
+
+
 def execute(root: Path, run_id: str) -> tuple[list[dict], str, int]:
     state = _load(root, run_id)
-    if not state.get("approved"):
-        text = "chưa duyệt phiếu — không chạy"
+    if not _approval_current(state):
+        text = "duyệt cũ hết hiệu lực vì phiếu đã đổi" if state.get("approved") else "chưa duyệt phiếu — không chạy"
         return [], text, 8
     rows = judge_obligations(
         list(state["brief"]["acceptance_criteria"]),
-        cwd=root, granted=set(state.get("grants") or []), run_id=run_id)
+        cwd=root, granted=_active_grants(state), run_id=run_id)
     table = render_table(state["request"], rows)
     delivered = all(row.get("criterion_verified") for row in rows) and bool(rows)
     status = "bàn giao: đủ" if delivered else "bàn giao: chưa"
@@ -187,6 +278,9 @@ def cmd_giao(args) -> int:
         except FileNotFoundError:
             print(f"không có run {run_id}")
             return 2
+        except HandoffError as exc:
+            print(str(exc))
+            return 2
         print(request_change(state["request"], changed, run_id))
         return 2
     if run_id:
@@ -195,15 +289,19 @@ def cmd_giao(args) -> int:
                 approve(root, run_id)
             else:
                 state = _load(root, run_id)
-                if not state.get("approved"):
-                    print("chưa duyệt phiếu — không chạy")
+                if not _approval_current(state):
+                    print("chưa duyệt phiếu — không chạy" if not state.get("approved")
+                          else "duyệt cũ hết hiệu lực vì phiếu đã đổi")
                     return 8
+            for cmd in getattr(args, "grant", None) or []:
+                remember_grant(root, run_id, cmd)
+            _rows, body, code = execute(root, run_id)
         except FileNotFoundError:
             print(f"không có run {run_id}")
             return 2
-        for cmd in getattr(args, "grant", None) or []:
-            remember_grant(root, run_id, cmd)
-        _rows, body, code = execute(root, run_id)
+        except HandoffError as exc:
+            print(str(exc))
+            return 2
         print(body)
         return code
     task = getattr(args, "task", None)

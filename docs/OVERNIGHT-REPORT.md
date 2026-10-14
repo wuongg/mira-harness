@@ -28,6 +28,7 @@ Thứ tự: R1 quyền chạy check, R2 tiêu chí gắn phép kiểm và artifa
 | V1 | đạt | `f1e9537` | https://github.com/wuongg/mira-harness/actions/runs/38509821752 success |
 | V2 | CI đỏ một job Windows | `cbc4f7f` | https://github.com/wuongg/mira-harness/actions/runs/38510168826 failure |
 | UX | đạt | `4f6ec72` | https://github.com/wuongg/mira-harness/actions/runs/38510764742 success |
+| H1 | đạt trên máy; CI sau khi push | | |
 
 ### R1
 
@@ -198,6 +199,16 @@ Ba demo, provider giả, subprocess thật: `py -3 -m unittest discover -s tests
 Ví dụ A, câu `Sua ham add va kiem bang test` ra phiếu có tiêu chí `[tự động] add-ok` và đúng một lệnh. Chưa `--grant` thì bảng là `pending` và `bàn giao: chưa`. Sau khi `calc.add` trả tổng và cấp đúng lệnh, bảng là `verified` và `bàn giao: đủ`.
 
 Selftest: `Ran 512 tests`, `OK (skipped=2)`.
+
+### H1
+
+Hai phản chứng tại `e240749`: sửa validator mà giữ `brief_hash` cũ vẫn `verified` và exit 0; `_dir(root, "../../other")` thoát khỏi thư mục run.
+
+Sau: run id chỉ nhận 8 ký tự hex thường. Separator, `..` và đường dẫn tuyệt đối bị từ chối, rồi đường dẫn được resolve và phải nằm trong `.mira-giao`. Load kiểm schema, hash phiếu và hash state. JSON cụt in `state hỏng: JSON cụt`, exit 2, không traceback. Duyệt lưu `approved_hash`. Đổi brief làm duyệt cũ hết hiệu lực. Grant chỉ nhận lệnh có trong phiếu đã duyệt và gắn với hash đó. Ghi state bằng file tạm rồi `os.replace`. Hash phát hiện thay đổi, không chống người sửa trực tiếp file.
+
+Lệnh: `py -3 -m unittest discover -s tests -p "test_handoff_lock.py" -v`
+
+Selftest: `Ran 518 tests`, `OK (skipped=2)`.
 
 ## 1. Mốc
 
