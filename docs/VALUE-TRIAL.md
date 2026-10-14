@@ -11,7 +11,7 @@ Dừng ở đây. Chưa gọi API trả phí. Chưa merge `main`. Chưa mở pul
 - CI của repo: Ubuntu và Windows, Python 3.9–3.12, cộng job shadow, quality-gate sàn 0.90, commit-lint
 - So sánh nhánh: https://github.com/wuongg/mira-harness/compare/main...agent/trust-limits-2026-10-14?expand=1
 
-`6694b3d` đã push và CI đỏ mọi job unittest: hash đóng băng lệch vì checkout Linux dùng LF còn hash được tính trên CRLF. Không lấy SHA đó làm bản thử. Bản sửa hash chuẩn hóa xuống dòng nằm ở commit sau.
+`6694b3d` CI đỏ mọi job unittest: hash đóng băng lệch vì checkout Linux dùng LF còn hash được tính trên CRLF. `0e2a1e9` CI đỏ các job Ubuntu: thư mục kiểm khói tương đối khi không có `TEMP`, nên `--cwd` ghi thêm một tầng và bị tính là tác dụng phụ. Không lấy hai SHA đó làm bản thử.
 
 ### Test bị skip trên máy Windows này
 

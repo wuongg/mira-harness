@@ -8,6 +8,7 @@ import os
 import shutil
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -218,6 +219,7 @@ def _ledger(dest: Path) -> dict:
 
 
 def smoke_task(spec: dict, base: str, config: str, dest: Path) -> dict:
+    dest = Path(dest).resolve()
     if dest.exists():
         shutil.rmtree(dest)
     shutil.copytree(spec["workspace"], dest)
@@ -340,8 +342,7 @@ def smoke(config: str, only: str | None = None) -> dict:
     _assert_local(base)
     rows = []
     try:
-        base_dir = Path(os.environ.get("TEMP") or ".") / "mira-value-smoke"
-        base_dir.mkdir(parents=True, exist_ok=True)
+        base_dir = Path(tempfile.mkdtemp(prefix="mira-value-smoke-"))
         for spec in tasks:
             _Stub.brief = spec["brief"]
             rows.append(smoke_task(spec, base, config, base_dir / spec["id"]))
