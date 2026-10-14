@@ -33,6 +33,7 @@ Thứ tự: R1 quyền chạy check, R2 tiêu chí gắn phép kiểm và artifa
 | H3 | đạt | `d3d7b28` | https://github.com/wuongg/mira-harness/actions/runs/38512806091 success |
 | H4 | đạt | `5a3dfed` | https://github.com/wuongg/mira-harness/actions/runs/38513177620 success |
 | H5 | đạt | `5aead5e` | https://github.com/wuongg/mira-harness/actions/runs/38513574605 success |
+| L1 | đạt trên máy; CI sau khi push | | |
 
 ### R1
 
@@ -258,6 +259,16 @@ Lệnh: `py -3 -m unittest discover -s tests -p "test_handoff_lock.py" -v`
 Selftest: `Ran 528 tests`, `OK (skipped=2)`.
 
 Giới hạn còn lại: provider giả chỉ chứng minh luồng, không chứng minh chất lượng model thật. `team --brief` vẫn cấp mọi lệnh tiêu chí của người dùng; chỉ `mira giao` gắn grant với hash phiếu. Hash phát hiện sửa file, không chống người có quyền sửa cùng lúc `approved_hash`, `brief_hash` và `state_hash`. `--check-only` không phải bàn giao. Xác nhận tay không đặt `criterion_verified`. Lần `--confirm` chạy lại worker. V2 `cbc4f7f` vẫn đỏ một job Windows; các SHA sau đã xanh. Không PR, không merge `main`.
+
+### L1
+
+Trước khi sửa, tại `fd7d83e`, `execute_plan` trả `error`, `stopped_budget`, `blocked` hoặc verifier `FAIL` trong khi validator file cũ vẫn `verified`: `mira giao` exit 0 và in `bàn giao: đủ`.
+
+Sau: bàn giao chỉ khi trạng thái team là `ok` và mọi tiêu chí đã chốt, hoặc `withheld` với `hold=needs_confirmation` rồi xác nhận tay làm mọi dòng được chốt. `error`, `blocked`, `stopped_budget` và verifier `FAIL` thành `bàn giao: chặn`, exit 3. Không nhận diện ca được phép bàn giao bằng chuỗi `fail_reason`. `giao` dùng làn 1 nên cổng verifier của team vẫn chạy.
+
+Lệnh: `py -3 -m unittest discover -s tests -p "test_giao_gates.py" -v`
+
+Selftest: `Ran 532 tests`, `OK (skipped=2)`.
 
 ## 1. Mốc
 

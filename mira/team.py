@@ -717,6 +717,7 @@ def execute_plan(plan: TeamPlan, *, provider_name: str | None = None,
     staging_box: list[Path | None] = [None]
     status = "ok"
     fail_reason = None
+    hold = None
     run_id = run_id or uuid.uuid4().hex[:12]
     pending = [dict(step) for step in (resume_steps or [])]
     if resume_staging:
@@ -1234,6 +1235,8 @@ def execute_plan(plan: TeamPlan, *, provider_name: str | None = None,
             run_id=run_id, artifacts=records, validators=trusted)
         missing = unproven(obligations)
         if status == "ok" and missing:
+            states = {row.get("state") for row in missing}
+            hold = "needs_confirmation" if states == {"needs_confirmation"} else "unproven"
             status, fail_reason = "withheld", "còn tiêu chí chưa có bằng chứng"
 
     staging_out = None
@@ -1245,7 +1248,7 @@ def execute_plan(plan: TeamPlan, *, provider_name: str | None = None,
 
     _snapshot()
     ledger.on_persist = previous_persist
-    return {"id": run_id, "status": status, "fail_reason": fail_reason,
+    return {"id": run_id, "status": status, "fail_reason": fail_reason, "hold": hold,
             "verifier_verdict": verifier_verdict, "oracle_score": oracle_score,
             "verdict_raw": verifier_raw, "verdict_parsed": verifier_parsed,
             "oracle_gate": oracle_gate,

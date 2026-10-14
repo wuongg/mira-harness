@@ -376,10 +376,15 @@ def execute(root: Path, run_id: str, *, provider: str | None, model: str | None,
     needed = grant_commands(state["brief"])
     if needed and not _active_grants(state):
         return [], "chưa cấp lệnh — không thực thi", 8
-    from .team import Ledger, build_plan, execute_plan, promote_staging
+    from . import config as C
+    from .team import Ledger, ROLES_BY_LANE, build_plan, execute_plan, promote_staging
     plan = build_plan(
         state["request"], surface="write_sandbox", labels=["internal"],
         records=50, dollars=0.0, reversibility="C1", output_type="free_string")
+    if plan.lane < 1:
+        plan.lane = 1
+        plan.roles = list(ROLES_BY_LANE[1])
+        plan.cap_usd = C.BUDGET[1]["cap"]
     plan.brief = state["brief"]
     plan.brief_hash = state["brief_hash"]
     plan.criteria_origin = "user"
@@ -393,14 +398,22 @@ def execute(root: Path, run_id: str, *, provider: str | None, model: str | None,
         ledger=Ledger(), on_step=lambda _m: None)
     staging = res.get("staging")
     rows = apply_confirmations(state, list(res.get("obligations") or []), root)
-    status, code = _delivery(rows)
-    evidence_hold = (res.get("status") == "withheld"
-                     and "chưa có bằng chứng" in str(res.get("fail_reason") or ""))
-    if staging and (res.get("status") == "ok" or (evidence_hold and code == 0)):
+    criteria_line, criteria_code = _delivery(rows)
+    team_status = res.get("status") or "error"
+    if team_status == "ok":
+        status, code = criteria_line, criteria_code
+        deliver = criteria_code == 0
+    elif res.get("hold") == "needs_confirmation" and team_status == "withheld":
+        status, code = criteria_line, criteria_code
+        deliver = criteria_code == 0
+    else:
+        status, code = f"bàn giao: chặn — {team_status}", 3
+        deliver = False
+    if deliver and staging:
         folder = Path(staging)
         if folder.is_dir():
             promote_staging(root, folder, [])
-    if code != 0 and res.get("fail_reason"):
+    if not deliver and res.get("fail_reason"):
         status += " — " + str(res["fail_reason"])
     edited = any(step.get("edited") for step in res.get("steps") or [])
     head = "worker: đã sửa trong staging" if edited else "worker: không sửa"
