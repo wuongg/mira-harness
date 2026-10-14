@@ -21,7 +21,7 @@ _AUTO = {"contains", "json_keys", "shape", "behavior"}
 _RUN_ID = re.compile(r"^[0-9a-f]{12}$")
 _STATE_FIELDS = (
     "id", "request", "brief", "brief_hash", "approved", "approved_hash",
-    "grants", "previous",
+    "grants", "confirmations", "previous",
 )
 _SAVE_LOCK = threading.Lock()
 
@@ -50,6 +50,12 @@ def _state_hash(state: dict) -> str:
     return hashlib.sha256(blob.encode("utf-8")).hexdigest()
 
 
+def _confirm_ok(item) -> bool:
+    return (isinstance(item, dict)
+            and set(item) == {"criterion_id", "artifact", "sha256", "brief_hash"}
+            and all(isinstance(item[key], str) and item[key] for key in item))
+
+
 def _grant_ok(item) -> bool:
     return (isinstance(item, dict) and set(item) == {"cmd", "brief_hash"}
             and isinstance(item["cmd"], str) and isinstance(item["brief_hash"], str))
@@ -76,6 +82,9 @@ def _load(root: Path, run_id: str) -> dict:
     grants = state.get("grants")
     if not isinstance(grants, list) or not all(_grant_ok(item) for item in grants):
         raise HandoffError("state hỏng: grant sai schema")
+    confirmations = state.get("confirmations")
+    if not isinstance(confirmations, list) or not all(_confirm_ok(item) for item in confirmations):
+        raise HandoffError("state hỏng: xác nhận sai schema")
     ok, why = validate_brief(state.get("brief"))
     if not ok:
         raise HandoffError(f"state hỏng: {why}")
@@ -174,6 +183,7 @@ def open_run(root: Path, request: str, brief: dict, previous: str | None = None)
         "approved": False,
         "approved_hash": "",
         "grants": [],
+        "confirmations": [],
         "previous": previous,
     }
     _save(root, state)
@@ -203,6 +213,84 @@ def remember_grant(root: Path, run_id: str, cmd: str) -> dict:
         state["grants"].append(row)
     _save(root, state)
     return state
+
+
+def _find_artifact(root: Path, rel: str) -> Path | None:
+    path = Path(rel)
+    if path.is_absolute() or ".." in path.parts or not rel.strip():
+        raise HandoffError("artifact không hợp lệ")
+    base = Path(root).resolve()
+    names = [base / rel]
+    staging = base / ".mira" / "staging"
+    if staging.is_dir():
+        names.extend(staging.glob(f"*.withheld/{rel}"))
+        names.extend(staging.glob(f"*/{rel}"))
+    for cand in names:
+        if not cand.is_file():
+            continue
+        resolved = cand.resolve()
+        if resolved == base or base in resolved.parents:
+            return resolved
+    return None
+
+
+def confirm(root: Path, run_id: str, criterion_id: str, artifact: str) -> dict:
+    """Chỉ CLI người dùng gọi được. Model không có cửa này."""
+    state = _load(root, run_id)
+    if not _approval_current(state):
+        raise HandoffError("chưa duyệt phiếu này")
+    parsed, _why = validate_criteria(state["brief"]["acceptance_criteria"])
+    item = next((row for row in parsed or [] if row["id"] == criterion_id), None)
+    if item is None:
+        raise HandoffError("không có tiêu chí")
+    if item.get("validator"):
+        raise HandoffError("tiêu chí này kiểm tự động")
+    found = _find_artifact(root, artifact)
+    if found is None:
+        raise HandoffError("không có artifact")
+    digest = hashlib.sha256(found.read_bytes()).hexdigest()
+    row = {"criterion_id": criterion_id, "artifact": artifact.replace("\\", "/"),
+           "sha256": digest, "brief_hash": state["brief_hash"]}
+    state["confirmations"] = [item for item in state["confirmations"]
+                              if item["criterion_id"] != criterion_id]
+    state["confirmations"].append(row)
+    _save(root, state)
+    return state
+
+
+def apply_confirmations(state: dict, rows: list[dict], root: Path) -> list[dict]:
+    for row in rows:
+        if row.get("criterion_verified"):
+            continue
+        match = next((item for item in state.get("confirmations") or []
+                      if item["criterion_id"] == row.get("criterion_id")
+                      and item["brief_hash"] == state["brief_hash"]), None)
+        if match is None:
+            continue
+        found = _find_artifact(root, match["artifact"])
+        digest = hashlib.sha256(found.read_bytes()).hexdigest() if found else ""
+        row["criterion_verified"] = False
+        if digest != match["sha256"]:
+            row["state"] = "needs_confirmation"
+            row["reason"] = "artifact đã đổi, xác nhận cũ hết hiệu lực"
+            continue
+        row["state"] = "user_confirmed"
+        row["reason"] = "người dùng xác nhận"
+        row["proves"] = ""
+        row["does_not_prove"] = "không phải kiểm chứng tự động"
+    return rows
+
+
+def _settled(row: dict) -> bool:
+    return bool(row.get("criterion_verified")) or row.get("state") == "user_confirmed"
+
+
+def _delivery(rows: list[dict]) -> tuple[str, int]:
+    if not rows or not all(_settled(row) for row in rows):
+        return "bàn giao: chưa", 4
+    if any(row.get("state") == "user_confirmed" for row in rows):
+        return "bàn giao: người dùng xác nhận", 0
+    return "bàn giao: đủ", 0
 
 
 def request_change(old: str, new: str, old_id: str) -> str:
@@ -246,9 +334,9 @@ def check_only(root: Path, run_id: str) -> tuple[list[dict], str, int]:
     refused = _blocked(state)
     if refused:
         return refused
-    rows = judge_obligations(
+    rows = apply_confirmations(state, judge_obligations(
         list(state["brief"]["acceptance_criteria"]),
-        cwd=root, granted=_active_grants(state), run_id=run_id)
+        cwd=root, granted=_active_grants(state), run_id=run_id), root)
     passed = bool(rows) and all(row.get("criterion_verified") for row in rows)
     status = ("kiểm file: đạt — chưa phải hoàn thành nhiệm vụ" if passed
               else "kiểm file: chưa — chưa phải hoàn thành nhiệm vụ")
@@ -283,21 +371,21 @@ def execute(root: Path, run_id: str, *, provider: str | None, model: str | None,
         max_tokens=max_tokens, root=root, run_id=state["id"], oracle="off",
         ledger=Ledger(), on_step=lambda _m: None)
     staging = res.get("staging")
-    if res.get("status") == "ok" and staging:
+    rows = apply_confirmations(state, list(res.get("obligations") or []), root)
+    status, code = _delivery(rows)
+    evidence_hold = (res.get("status") == "withheld"
+                     and "chưa có bằng chứng" in str(res.get("fail_reason") or ""))
+    if staging and (res.get("status") == "ok" or (evidence_hold and code == 0)):
         folder = Path(staging)
-        if folder.is_dir() and not folder.name.endswith(".withheld"):
+        if folder.is_dir():
             promote_staging(root, folder, [])
-    rows = list(res.get("obligations") or [])
-    delivered = res.get("status") == "ok" and bool(rows) and all(
-        row.get("criterion_verified") for row in rows)
-    status = "bàn giao: đủ" if delivered else "bàn giao: chưa"
-    if res.get("fail_reason") and not delivered:
+    if code != 0 and res.get("fail_reason"):
         status += " — " + str(res["fail_reason"])
     edited = any(step.get("edited") for step in res.get("steps") or [])
     head = "worker: đã sửa trong staging" if edited else "worker: không sửa"
     body = head + "\n" + render_table(state["request"], rows) + "\n" + status
     _write_table(root, run_id, body)
-    return rows, body, 0 if delivered else 4
+    return rows, body, code
 
 
 def render_table(request: str, rows: list[dict]) -> str:
@@ -351,6 +439,8 @@ def cmd_giao(args) -> int:
                     return 8
             for cmd in getattr(args, "grant", None) or []:
                 remember_grant(root, run_id, cmd)
+            if getattr(args, "confirm", None):
+                confirm(root, run_id, args.confirm, getattr(args, "artifact", None) or "")
             if getattr(args, "check_only", False):
                 _rows, body, code = check_only(root, run_id)
             else:

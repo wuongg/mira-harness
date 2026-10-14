@@ -31,6 +31,7 @@ Thứ tự: R1 quyền chạy check, R2 tiêu chí gắn phép kiểm và artifa
 | H1 | đạt | `b4bbd75` | https://github.com/wuongg/mira-harness/actions/runs/38511813897 success |
 | H2 | đạt | `f0b3db1` | https://github.com/wuongg/mira-harness/actions/runs/38512453126 success |
 | H3 | đạt trên máy; CI sau khi push | | |
+| H4 | đạt trên máy; CI sau khi push | | |
 
 ### R1
 
@@ -238,6 +239,12 @@ Ba demo do worker tạo kết quả qua tool, provider giả. Test chỉ dựng 
 Lệnh: `py -3 -m unittest discover -s tests -p "test_giao_execute.py" -v`
 
 Selftest: `Ran 525 tests`, `OK (skipped=2)`.
+
+### H4
+
+`mira giao --run ID --confirm <id tiêu chí> --artifact <tệp>` ghi xác nhận của người dùng. Xác nhận gắn `criterion_id`, hash file và hash phiếu. Đổi file thì xác nhận cũ hết hiệu lực. Dòng kết quả là `người dùng xác nhận` và `does_not_prove` ghi không phải kiểm chứng tự động. `criterion_verified` vẫn false. Tiêu chí đã có validator không nhận xác nhận tay. Brief không có khóa để model tự ký.
+
+Selftest: `Ran 527 tests`, `OK (skipped=2)`.
 
 ## 1. Mốc
 

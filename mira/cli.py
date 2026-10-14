@@ -786,6 +786,8 @@ def build_parser() -> argparse.ArgumentParser:
                     help="duyệt phiếu đã xem, không cấp lệnh")
     gx.add_argument("--check-only", dest="check_only", action="store_true",
                     help="chỉ kiểm file có sẵn, không chạy worker và không bàn giao")
+    gx.add_argument("--confirm", default=None, help="id tiêu chí người dùng tự xác nhận")
+    gx.add_argument("--artifact", default=None, help="file gắn với xác nhận")
     gx.add_argument("--change", default=None, help="câu yêu cầu mới, không tiếp run cũ")
     gx.add_argument("--previous", default=None, help="id run cũ khi tạo run mới")
     gx.add_argument("--cwd", default=".")

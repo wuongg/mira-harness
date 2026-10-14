@@ -136,6 +136,52 @@ class HandoffLockTest(unittest.TestCase):
                 open_run(root, "ghi note", _brief(["hello"]))
             self.assertTrue(repl.called)
 
+    def test_xac_nhan_nguoi_dung_gan_hash(self):
+        brief = {
+            "goal": "doc bao cao",
+            "deliverables": ["note.txt"],
+            "acceptance_criteria": [
+                {"schema": 1, "id": "tone", "text": "giong van phong de doc"},
+            ],
+            "constraints": [], "assumptions": [], "questions": [],
+            "per_role_hints": {"planner": "", "worker": "", "verifier": ""},
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "note.txt").write_text("hello\n", encoding="utf-8")
+            state = open_run(root, "doc bao cao", brief)
+            approve(root, state["id"])
+            buf = io.StringIO()
+            with contextlib.redirect_stdout(buf):
+                code = cmd_giao(Namespace(
+                    cwd=str(root), run=state["id"], change=None, approve_brief=False,
+                    grant=[], confirm="tone", artifact="note.txt", check_only=True,
+                    task=None, previous=None, provider=None, model=None,
+                    base_url=None, max_tokens=64, price_in=None))
+            self.assertEqual(code, 4, buf.getvalue())
+            self.assertIn("người dùng xác nhận", buf.getvalue())
+            self.assertIn("không phải kiểm chứng tự động", buf.getvalue())
+            self.assertNotIn("verified", buf.getvalue())
+            (root / "note.txt").write_text("doi\n", encoding="utf-8")
+            buf2 = io.StringIO()
+            with contextlib.redirect_stdout(buf2):
+                cmd_giao(Namespace(
+                    cwd=str(root), run=state["id"], change=None, approve_brief=False,
+                    grant=[], confirm=None, artifact=None, check_only=True,
+                    task=None, previous=None, provider=None, model=None,
+                    base_url=None, max_tokens=64, price_in=None))
+            self.assertIn("hết hiệu lực", buf2.getvalue())
+
+    def test_khong_xac_nhan_tieu_chi_tu_dong(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "note.txt").write_text("hello\n", encoding="utf-8")
+            state = open_run(root, "ghi note", _brief(["hello"]))
+            approve(root, state["id"])
+            from mira.handoff import confirm
+            with self.assertRaises(HandoffError):
+                confirm(root, state["id"], "note", "note.txt")
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

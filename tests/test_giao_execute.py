@@ -198,6 +198,11 @@ class GiaoExecuteTest(unittest.TestCase):
                 staged = list((root / ".mira" / "staging").glob("**/*.withheld/report.md"))
                 self.assertTrue(staged, ran.stdout)
                 self.assertIn("Nguon:", staged[0].read_text(encoding="utf-8"))
+                again = _mira(root, base, ["--run", run, "--confirm", "tone", "--artifact", "report.md"])
+                self.assertEqual(again.returncode, 0, again.stdout + again.stderr)
+                self.assertIn("người dùng xác nhận", again.stdout)
+                self.assertIn("user_confirmed", again.stdout)
+                self.assertIn("Nguon:", (root / "report.md").read_text(encoding="utf-8"))
         finally:
             srv.shutdown()
             srv.server_close()
