@@ -23,8 +23,8 @@ Thứ tự: R1 quyền chạy check, R2 tiêu chí gắn phép kiểm và artifa
 | R5 | đạt | `863c27b` | https://github.com/wuongg/mira-harness/actions/runs/38491474015 success |
 | S1 | đạt | `cb37bb0` | https://github.com/wuongg/mira-harness/actions/runs/38508067848 success |
 | S2 | đạt | `61300af` | https://github.com/wuongg/mira-harness/actions/runs/38508501239 success |
-| S3 | đạt trên máy; CI sau khi push | `92ef473` | |
-| S4 | đạt trên máy; CI sau khi push | | |
+| S3 | đạt | `92ef473` | https://github.com/wuongg/mira-harness/actions/runs/38509001523 success |
+| S4 | đạt | `e965c49` | https://github.com/wuongg/mira-harness/actions/runs/38509232763 success |
 
 ### R1
 
