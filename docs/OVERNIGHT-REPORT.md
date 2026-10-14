@@ -311,6 +311,8 @@ Kill dùng tiến trình thật và `MIRA_PAUSE`, không phải mock trong proce
 
 Lệnh: `py -3 -m unittest discover -s tests -p "test_giao_e2e.py" -v`
 
+`9822bad` xin lock lần hai trong cùng tiến trình. Trên Linux `flock` không lồng nhau nên job Ubuntu có thể chậm rồi lỗi. Bản sau chỉ lấy lock hệ điều hành một lần mỗi tiến trình.
+
 Selftest: `Ran 540 tests`, `OK (skipped=2)`.
 
 Giới hạn: provider giả không chứng minh chất lượng model. `team --brief` vẫn cấp mọi lệnh tiêu chí của người dùng. Hash không chống người sửa cùng lúc các hash trong file. `--check-only` không phải bàn giao. Xác nhận tay không đặt `criterion_verified`. V2 `cbc4f7f` vẫn đỏ một job Windows. Không PR, không merge `main`.

@@ -43,6 +43,7 @@ _STATE_FIELDS = (
     "staging", "promoted", "want_deliver",
 )
 _SAVE_LOCK = threading.Lock()
+_LOCK_HELD = threading.local()
 
 
 class HandoffError(Exception):
@@ -532,7 +533,28 @@ def begin_retry(root: Path, run_id: str) -> dict:
 
 
 def _acquire_run(root: Path, run_id: str):
-    """Một tiến trình giữ lock. Tiến trình chết thì lock được nhả."""
+    """Một tiến trình giữ lock. Cùng tiến trình gọi lồng nhau thì không xin lại."""
+    depth = getattr(_LOCK_HELD, "depth", 0)
+    if depth:
+        _LOCK_HELD.depth = depth + 1
+        return _LOCK_HELD.token
+    token = _lock_os(root, run_id)
+    _LOCK_HELD.depth = 1
+    _LOCK_HELD.token = token
+    return token
+
+
+def _release_run(token) -> None:
+    depth = getattr(_LOCK_HELD, "depth", 0)
+    if depth > 1:
+        _LOCK_HELD.depth = depth - 1
+        return
+    _LOCK_HELD.depth = 0
+    _LOCK_HELD.token = None
+    _unlock_os(token)
+
+
+def _lock_os(root: Path, run_id: str):
     if os.name == "nt":
         import ctypes
         kernel = ctypes.WinDLL("kernel32", use_last_error=True)
@@ -568,7 +590,9 @@ def _acquire_run(root: Path, run_id: str):
         raise
 
 
-def _release_run(token) -> None:
+def _unlock_os(token) -> None:
+    if token is None:
+        return
     if os.name == "nt":
         import ctypes
         kernel = ctypes.WinDLL("kernel32", use_last_error=True)
