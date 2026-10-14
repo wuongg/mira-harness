@@ -1,0 +1,48 @@
+{
+  "group": "code",
+  "expect": "deliver",
+  "prompt": "Sửa tally.py để total([1, 2, 3]) trả 6 và total([]) trả 0",
+  "allow": [
+    "tally.py"
+  ],
+  "forbidden": [
+    "Không in thay vì return"
+  ],
+  "fail_if": [
+    "total trả None"
+  ],
+  "interventions": [
+    "approve",
+    "run"
+  ],
+  "grant": [],
+  "brief": {
+    "goal": "Sua total",
+    "deliverables": [
+      "tally.py"
+    ],
+    "acceptance_criteria": [
+      {
+        "schema": 1,
+        "id": "ret",
+        "text": "tra acc",
+        "validator": {
+          "kind": "contains",
+          "path": "tally.py",
+          "must_contain": [
+            "return acc"
+          ],
+          "must_not_contain": []
+        }
+      }
+    ],
+    "constraints": [],
+    "assumptions": [],
+    "questions": [],
+    "per_role_hints": {
+      "planner": "",
+      "worker": "",
+      "verifier": ""
+    }
+  }
+}

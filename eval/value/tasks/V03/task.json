@@ -1,0 +1,49 @@
+{
+  "group": "code",
+  "expect": "deliver",
+  "prompt": "Sửa nums.py để median([1, 10, 2]) trả số 2, không sắp chữ",
+  "allow": [
+    "nums.py"
+  ],
+  "forbidden": [
+    "Không đổi bộ số kiểm"
+  ],
+  "fail_if": [
+    "Kết quả là chuỗi",
+    "median([1, 10, 2]) khác 2"
+  ],
+  "interventions": [
+    "approve",
+    "run"
+  ],
+  "grant": [],
+  "brief": {
+    "goal": "Sua median",
+    "deliverables": [
+      "nums.py"
+    ],
+    "acceptance_criteria": [
+      {
+        "schema": 1,
+        "id": "num",
+        "text": "sap so",
+        "validator": {
+          "kind": "contains",
+          "path": "nums.py",
+          "must_contain": [
+            "sorted(nums)"
+          ],
+          "must_not_contain": []
+        }
+      }
+    ],
+    "constraints": [],
+    "assumptions": [],
+    "questions": [],
+    "per_role_hints": {
+      "planner": "",
+      "worker": "",
+      "verifier": ""
+    }
+  }
+}

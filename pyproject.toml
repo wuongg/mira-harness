@@ -19,5 +19,8 @@ r0-shadow = "mira.cli:deprecated_main"
 [tool.setuptools]
 packages = ["mira"]
 
+[tool.setuptools.package-data]
+mira = ["prices.toml", "tui_palette_256.txt"]
+
 [tool.setuptools.dynamic]
 version = {attr = "mira.__version__"}

@@ -1,0 +1,51 @@
+{
+  "group": "data",
+  "expect": "deliver",
+  "prompt": "Ghi rows.json từ bảng trong notes.md. Mỗi phần tử có id và note",
+  "allow": [
+    "notes.md",
+    "rows.json"
+  ],
+  "forbidden": [
+    "Không sửa notes.md"
+  ],
+  "fail_if": [
+    "Thiếu dòng a hoặc b"
+  ],
+  "interventions": [
+    "approve",
+    "run"
+  ],
+  "grant": [],
+  "brief": {
+    "goal": "Ghi rows.json",
+    "deliverables": [
+      "rows.json"
+    ],
+    "acceptance_criteria": [
+      {
+        "schema": 1,
+        "id": "rows",
+        "text": "co id va note",
+        "validator": {
+          "kind": "json_keys",
+          "path": "rows.json",
+          "expect": "array",
+          "required": [
+            "id",
+            "note"
+          ],
+          "forbidden": []
+        }
+      }
+    ],
+    "constraints": [],
+    "assumptions": [],
+    "questions": [],
+    "per_role_hints": {
+      "planner": "",
+      "worker": "",
+      "verifier": ""
+    }
+  }
+}

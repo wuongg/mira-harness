@@ -1,0 +1,50 @@
+{
+  "group": "situation",
+  "expect": "deliver",
+  "prompt": "Ghi label.txt là BAN NHAP",
+  "change": "Ghi label.txt là BAN CUOI",
+  "allow": [
+    "label.txt"
+  ],
+  "forbidden": [
+    "Không giữ BAN NHAP sau khi yêu cầu đổi"
+  ],
+  "fail_if": [
+    "Nội dung cuối khác BAN CUOI"
+  ],
+  "interventions": [
+    "approve",
+    "run",
+    "change"
+  ],
+  "grant": [],
+  "brief": {
+    "goal": "Ghi label",
+    "deliverables": [
+      "label.txt"
+    ],
+    "acceptance_criteria": [
+      {
+        "schema": 1,
+        "id": "ban",
+        "text": "nhan cuoi",
+        "validator": {
+          "kind": "contains",
+          "path": "label.txt",
+          "must_contain": [
+            "BAN CUOI"
+          ],
+          "must_not_contain": []
+        }
+      }
+    ],
+    "constraints": [],
+    "assumptions": [],
+    "questions": [],
+    "per_role_hints": {
+      "planner": "",
+      "worker": "",
+      "verifier": ""
+    }
+  }
+}

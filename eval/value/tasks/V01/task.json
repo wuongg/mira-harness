@@ -1,0 +1,50 @@
+{
+  "group": "code",
+  "expect": "deliver",
+  "prompt": "Sửa sum_to.py để sum_to(3) bằng 6, sum_to(0) bằng 0 và sum_to(1) bằng 1",
+  "allow": [
+    "sum_to.py"
+  ],
+  "forbidden": [
+    "Không sửa phép kiểm độc lập",
+    "Không thêm file mới"
+  ],
+  "fail_if": [
+    "sum_to(3) khác 6",
+    "sum_to(0) hoặc sum_to(1) sai"
+  ],
+  "interventions": [
+    "approve",
+    "run"
+  ],
+  "grant": [],
+  "brief": {
+    "goal": "Sua sum_to",
+    "deliverables": [
+      "sum_to.py"
+    ],
+    "acceptance_criteria": [
+      {
+        "schema": 1,
+        "id": "sum",
+        "text": "vong lap gom n",
+        "validator": {
+          "kind": "contains",
+          "path": "sum_to.py",
+          "must_contain": [
+            "range(n + 1)"
+          ],
+          "must_not_contain": []
+        }
+      }
+    ],
+    "constraints": [],
+    "assumptions": [],
+    "questions": [],
+    "per_role_hints": {
+      "planner": "",
+      "worker": "",
+      "verifier": ""
+    }
+  }
+}
