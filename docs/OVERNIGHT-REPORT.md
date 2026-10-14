@@ -40,7 +40,7 @@ Thứ tự: R1 quyền chạy check, R2 tiêu chí gắn phép kiểm và artifa
 | P1 | đạt | `e7a7f36` | https://github.com/wuongg/mira-harness/actions/runs/38529381006 success |
 | P2 | đạt | `0a6784d` | https://github.com/wuongg/mira-harness/actions/runs/38531132701 success |
 | P3 | đạt | `54d7b47` | https://github.com/wuongg/mira-harness/actions/runs/38532489685 success |
-| P4 | ghi nghiệm thu | `54d7b47` | cùng CI P3 |
+| P4 | ghi nghiệm thu | `a998067` | https://github.com/wuongg/mira-harness/actions/runs/38533090283 success |
 
 ### R1
 
@@ -413,7 +413,7 @@ py -3 -m venv .venv-clean
 
 Thư mục venv phải trống trước khi tạo. Nếu prefix đã có một cây `mira\` cũ, Python nhập cây đó trước `site-packages` và lệnh `giao` biến mất.
 
-Kết luận: chưa đủ thử nghiệm người dùng. Ba nhiệm vụ chỉ chứng minh luồng với provider giả. Blocker: chưa được duyệt API trả phí nên chưa có model thật; `T-REAL` vẫn `not_evaluated`; xác nhận `tone` không phải kiểm tự động; `team --brief` vẫn cấp mọi lệnh tiêu chí của người dùng; hash không phải cô lập và không phải giao dịch nguyên tử nhiều file; tập đóng băng `eval/overnight` vẫn lệch và không được sửa; chưa có pull request vì `gh` chưa đăng nhập. Test xanh không phải hết nợ kỹ thuật và không phải so sánh với công cụ khác.
+Kết luận: chưa đủ thử nghiệm người dùng. Ba nhiệm vụ chỉ chứng minh luồng với provider giả. Số đo lấy trên cây `54d7b47`. Commit ghi báo cáo là `a998067`, CI https://github.com/wuongg/mira-harness/actions/runs/38533090283 success. Blocker: chưa được duyệt API trả phí nên chưa có model thật; `T-REAL` vẫn `not_evaluated`; xác nhận `tone` không phải kiểm tự động; `team --brief` vẫn cấp mọi lệnh tiêu chí của người dùng; hash không phải cô lập và không phải giao dịch nguyên tử nhiều file; tập đóng băng `eval/overnight` vẫn lệch và không được sửa; chưa có pull request vì `gh` chưa đăng nhập. Test xanh không phải hết nợ kỹ thuật và không phải so sánh với công cụ khác.
 
 ## 1. Mốc
 
