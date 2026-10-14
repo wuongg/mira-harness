@@ -48,5 +48,8 @@
       "worker": "",
       "verifier": ""
     }
-  }
+  },
+  "mutable": [
+    "people.json"
+  ]
 }

@@ -46,5 +46,8 @@
       "worker": "",
       "verifier": ""
     }
-  }
+  },
+  "mutable": [
+    "label.txt"
+  ]
 }

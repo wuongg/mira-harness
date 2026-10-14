@@ -36,5 +36,6 @@
       "worker": "",
       "verifier": ""
     }
-  }
+  },
+  "mutable": []
 }

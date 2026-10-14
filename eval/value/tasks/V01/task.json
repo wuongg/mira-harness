@@ -46,5 +46,8 @@
       "worker": "",
       "verifier": ""
     }
-  }
+  },
+  "mutable": [
+    "sum_to.py"
+  ]
 }

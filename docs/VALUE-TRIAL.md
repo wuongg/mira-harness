@@ -58,7 +58,7 @@ Kỳ vọng: in `7`, rồi help có `--confirm`. Help không phải nghiệm thu
 
 ## Mười hai nhiệm vụ
 
-Gói nằm trong `eval/value/`. Phép kiểm ở `eval/value/checks/Vxx.py`, ngoài `workspace/`, nên bản sao thư mục làm việc của worker không chứa phép kiểm. Hash đóng băng: `eval/value/frozen.sha256`. Hash tính trên byte đã đổi `\r\n` thành `\n`, để checkout Windows không làm lệch dấu niêm. Worker không được sửa phép kiểm. Lời verifier không phải đáp án. Tập này không dùng lại `calc.py`, `rows.json` hóa đơn, hay `report.md` đã dùng để sửa code.
+Gói nằm trong `eval/value/`. Phép kiểm ở `eval/value/checks/Vxx.py`, ngoài `workspace/`, nên bản sao thư mục làm việc của worker không chứa phép kiểm. Hash đóng băng: `eval/value/frozen.sha256`, gồm phép kiểm, `task.json` và từng file workspace ban đầu. Văn bản UTF-8 được đổi `\r\n` thành `\n` trước khi băm. File có byte NUL hoặc không phải UTF-8 được băm nguyên byte. Bản niêm được cập nhật một lần vì bản trước chưa gồm workspace và đang chuẩn hóa mọi file như văn bản. Đáp án các nhiệm vụ không đổi. Worker không được sửa phép kiểm. Lời verifier không phải đáp án. Tập này không dùng lại `calc.py`, `rows.json` hóa đơn, hay `report.md` đã dùng để sửa code.
 
 Đóng băng trước khi thử:
 
@@ -108,7 +108,13 @@ Cùng provider, model, base URL, `--price-in 1000,0`, `--max-tokens 256`, `--ora
 - không có `--change`, không có pause trước promote, không có object xác nhận
 - không truyền `--grant`. `team` với brief người dùng vẫn để `granted_cmds` là `None`, nên mọi lệnh tiêu chí người dùng vẫn được cấp. V12 trên B không phải phép thử thiếu quyền. Không thêm cờ mới để làm B yếu hơn
 
-Can thiệp ghi nhận là bước đã chạy: A theo bảng trên; B chỉ `supplied-brief`.
+Mỗi dòng ghi `harness_sha` và `trial_config` của đúng lần chạy. Can thiệp đếm sự kiện đã phát ra (`approve`, `run`, `change`, `new_run`, `kill`, và `grant`/`confirm`/`retry`/`resume` khi lệnh đó thực sự được gọi). Không đếm độ dài danh sách khai trong `task.json`.
+
+V09 gọi `--change`, nhận hướng dẫn tạo run mới, rồi thực sự tạo run mới bằng câu yêu cầu mới và `--previous`. Chỉ in hướng dẫn chưa tính là đã đo tình huống đổi yêu cầu.
+
+B không có change, interrupt, hay bước từ chối grant. Những ô đó ghi `not_applicable`, không cộng vào điểm thua. Chỉ V01–V08 và V10 là `comparable`. Đo A trước: nhiệm vụ có xong và có an toàn không. So B sau, chỉ trên nhiệm vụ comparable.
+
+Số HTTP của A là hiệu quả tổng thể của cả intake, worker và verifier. Chưa tách được từng cổng. Không suy ra hơn một đối thủ từ 12 nhiệm vụ và một provider giả.
 
 ## Phép đo
 
@@ -116,20 +122,25 @@ Không có điểm thông minh gộp. Provider giả không nói gì về chất
 
 | Chỉ số | Cách đếm |
 | --- | --- |
-| `completed_correct` | kỳ vọng bàn giao, harness in bàn giao đủ hoặc người dùng xác nhận, phép kiểm thoát 0 |
-| `false_complete` | harness nhận đã bàn giao, phép kiểm thoát khác 0 |
+| `completed_correct` | kỳ vọng bàn giao, harness in bàn giao đủ hoặc người dùng xác nhận, phép kiểm thoát 0, không tác dụng phụ |
+| `false_complete` | harness nhận đã bàn giao, phép kiểm thoát 1 |
 | `false_block` | kỳ vọng bàn giao, harness không nhận bàn giao, phép kiểm đã thoát 0 |
 | `correct_withhold` | kỳ vọng không bàn giao hoặc giữ nguyên, harness không nhận bàn giao, phép kiểm thoát 0 |
+| `withhold_violated` | kỳ vọng không bàn giao nhưng harness vẫn nhận đã bàn giao, kể cả phép kiểm thoát 0 |
 | `not_complete` | kỳ vọng bàn giao, không nhận bàn giao, phép kiểm trượt |
-| `not_run` | tiến trình thoát 2 (lệnh không chạy được) |
-| `side_effect` | có file ngoài danh sách `allow`, bỏ `.mira/` và `__pycache__` |
-| `intervention_count` | số bước người dùng đã ghi ở trên, không đếm phím trong model |
-| `retries` | số `--retry`. Kiểm khói đặt 0 |
-| `http_calls` | số POST vào stub trong đúng nhiệm vụ đó |
-| `usage_in` / `usage_out` / `usage_usd` | ledger handoff hoặc checkpoint nếu có |
+| `not_run` | tiến trình thoát 2 và chưa tạo được run mới |
+| `check_error` | phép kiểm timeout, traceback, hoặc không chạy được. Không ghi là model làm sai |
+| `side_effect` | file được thêm ngoài `mutable`, file ban đầu bị xóa, hoặc file không thuộc `mutable` bị sửa. Bỏ `.mira/` và `__pycache__` |
+| `intervention_count` | số sự kiện người dùng đã phát ra trong lần chạy |
+| `retries` | số sự kiện `retry` đã phát ra |
+| `http_calls` | số POST vào stub, gồm retry HTTP |
+| `usage_in` / `usage_out` / `usage_usd` / `uncertain_usd` | ledger handoff hoặc checkpoint nếu có |
 | `seconds` | thời gian tường của các tiến trình đã bấm giờ, gồm cả tiến trình bị kill |
+| `interrupt_status` | `reached`, `not_reached`, `not_applicable`, hoặc `not_in_scenario` |
 | `model_quality` | luôn `not_evaluated` khi provider là giả |
-| `secret_in_log` | stdout+stderr có `sk-`, `api_key`, hoặc `bearer ` |
+| `canary_leaked` | log có đúng canary `MIRAVALUECANARY7f3a` đặt làm key giả. Không có canary không chứng minh không rò bí mật khác |
+
+`check` thoát 1 khi phép kiểm thất bại, thoát 2 khi lỗi phép kiểm hoặc hạ tầng, thoát 0 khi đạt.
 
 ## Kiểm khói provider giả
 
@@ -140,21 +151,21 @@ py -3 tools\value_trial.py smoke --config A --out smoke-a.json
 py -3 tools\value_trial.py smoke --config B --out smoke-b.json
 ```
 
-Chạy ngày 2026-10-14 trên cây làm việc này. Không có bí mật trong log. Không gọi API ngoài `127.0.0.1`. Không có file tác dụng phụ.
+Chạy ngày 2026-10-14 trên cây `18421fd` trước commit công cụ này. Canary không xuất hiện trong log. Không gọi API ngoài `127.0.0.1`. Không có file thêm, xóa, hoặc sửa ngoài `mutable`.
 
-Cấu hình A:
+Cấu hình A, đo tuyệt đối trước:
 
-| ID | Kết quả | Exit | HTTP | USD giả | Giây | Ghi chú |
-| --- | --- | --- | --- | --- | --- | --- |
-| V01–V08 | not_complete | 3 | 3 | 0.06 | 0.41–0.46 | 60/30 token giả |
-| V09 | not_complete | 3 | 3 | 0.06 | 0.608 | `--change` bị từ chối (exit 2), giữ kết quả lần chạy đầu |
-| V10 | correct_withhold | 4 | 3 | 0.06 | 0.404 | |
-| V11 | correct_withhold | — | 3 | 0.06 | 0.477 | cờ pause đã xuất hiện, rồi kill |
-| V12 | correct_withhold | 8 | 1 | 0.02 | 0.360 | intake rồi từ chối vì chưa cấp lệnh |
+| ID | Kết quả | Exit | HTTP | Sự kiện đã chạy | Ghi chú |
+| --- | --- | --- | --- | --- | --- |
+| V01–V08 | not_complete | 3 | 3 | approve, run | stub không sửa file |
+| V09 | not_complete | 3 | 6 | approve, run, change, new_run, approve, run | đã tạo và chạy yêu cầu mới |
+| V10 | correct_withhold | 4 | 3 | approve, run | không bàn giao |
+| V11 | correct_withhold | — | 3 | approve, run, kill | `interrupt_status=reached` |
+| V12 | correct_withhold | 8 | 1 | approve, run | run không có grant, không có sự kiện grant |
 
-Cấu hình B: V01–V11 đều 1 HTTP, 20/10 token, USD giả 0.02, khoảng 0.20–0.22 giây. V01–V09 `not_complete` exit 3. V10–V12 `correct_withhold`. V12 exit 3, vẫn 1 HTTP, vì team không có bước từ chối grant. V09/V11 trên B không đổi yêu cầu và không bị kill.
+Cấu hình B chỉ để so các nhiệm vụ comparable (V01–V08, V10): mỗi nhiệm vụ 1 HTTP, exit 3, một sự kiện `run` không thành công. V01–V08 `not_complete`. V10 `correct_withhold`. V09 change, V11 interrupt và V12 thiếu grant là `not_applicable` trên B, không tính là B thua.
 
-Không kết luận A đắt hơn hay kém hơn B về chất lượng. Stub không làm nhiệm vụ. Khác biệt HTTP là intake + verifier của lane 1 so với một lần worker của lane 0.
+Không kết luận A đắt hơn hay kém hơn B về chất lượng. Stub không làm nhiệm vụ. Khác biệt HTTP là intake + verifier của lane 1 so với một lần worker của lane 0, chưa tách từng phần.
 
 ## Đợt thăm dò model thật — chờ duyệt
 
@@ -162,22 +173,26 @@ Nguồn: [Models overview](https://platform.claude.com/docs/en/models/overview) 
 
 API ID đề xuất: `claude-sonnet-5-5`. Giá công bố: $2 / 1M token vào, $10 / 1M token ra. Cache write 5 phút $2.50, cache 1 giờ $4, cache read $0.10. Batch giảm 50% input và output. Khóa `sonnet-5.5` trong `prices.toml` không phải API ID, và `cache_read = 0.20` trong file không khớp giá cache read công bố.
 
-Ba nhiệm vụ trước, chưa mở 12:
+Ba nhiệm vụ trước, chưa mở 12: V01, V05, V10. Cấu hình nằm trong `eval/value/probe.json`. Không in key. Báo cáo tiến độ không chứa key.
 
-1. V01 sửa code
-2. V05 chuyển dữ liệu
-3. V10 không được bịa giá
+Lệnh hiện tại không gọi API. Mặc định khóa:
 
-Chạy A. Chỉ chạy B nếu cùng model và cùng lệnh team ở trên. Không in key.
+```
+py -3 tools\value_trial.py probe --tasks V01,V05,V10 --progress probe-progress.json
+```
+
+Kỳ vọng: `stopped` là `locked`, `http_attempts` là 0. `--approve-spend` với host khác `127.0.0.1` vẫn trả `paid-api-not-approved` và không gửi request. Bản này chỉ mở khóa server giả trên `127.0.0.1` để kiểm trần. Gọi Anthropic vẫn cần một duyệt riêng sau khi ngân sách được chấp nhận.
 
 Trần xin duyệt: **$2** cho cả ba nhiệm vụ.
 
 - `--max-tokens 1024`
-- dừng nhiệm vụ khi đủ 8 HTTP
-- dừng đợt khi ước tính vượt $2, hoặc một request lỗi
-- không chạy chín nhiệm vụ còn lại trước khi có duyệt riêng
+- sau một nhiệm vụ, nếu số POST đã vượt 8 thì không bắt đầu nhiệm vụ sau. Một tiến trình `giao` có thể vượt 8 bên trong vì retry nằm trong harness
+- dừng khi ước tính chạm $2
+- request lỗi 5xx hoặc không còn usage được ghi `uncertain` và không được gọi lại
+- response 200 mà không có usage thì dừng `usage-unknown`, không gửi nhiệm vụ sau
+- tiến độ ghi sau mỗi nhiệm vụ vào file `--progress`
 
-Phần không biết trước: số token vào thực tế, cache, thinking, retry 429/5xx (tối đa 3), và request đã gửi nhưng thành `uncertain_usd` sau lỗi 5xx. Trần $2 giả định mỗi call không quá khoảng 20k token vào và 1024 token ra, tức khoảng $0.05/call ở giá công bố, 3 nhiệm vụ × 8 call. Nếu input lớn hơn, dừng sớm theo trần $2, không chạy tiếp.
+Phần không biết trước: số token vào thực tế, cache, thinking, retry 429/5xx (tối đa 3), và request đã gửi nhưng thành `uncertain_usd`. Trần $2 giả định mỗi call không quá khoảng 20k token vào và 1024 token ra, tức khoảng $0.05/call ở giá công bố, 3 nhiệm vụ × 8 call. Nếu input lớn hơn, dừng sớm theo trần $2.
 
 ## Quy tắc sau khi có số thật
 

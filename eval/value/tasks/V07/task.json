@@ -47,5 +47,8 @@
       "worker": "",
       "verifier": ""
     }
-  }
+  },
+  "mutable": [
+    "rows.json"
+  ]
 }

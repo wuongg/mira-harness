@@ -44,5 +44,8 @@
       "worker": "",
       "verifier": ""
     }
-  }
+  },
+  "mutable": [
+    "names.py"
+  ]
 }

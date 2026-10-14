@@ -45,5 +45,8 @@
       "worker": "",
       "verifier": ""
     }
-  }
+  },
+  "mutable": [
+    "iso.txt"
+  ]
 }

@@ -44,5 +44,6 @@
       "worker": "",
       "verifier": ""
     }
-  }
+  },
+  "mutable": []
 }
