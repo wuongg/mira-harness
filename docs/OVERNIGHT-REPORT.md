@@ -30,8 +30,9 @@ Thứ tự: R1 quyền chạy check, R2 tiêu chí gắn phép kiểm và artifa
 | UX | đạt | `4f6ec72` | https://github.com/wuongg/mira-harness/actions/runs/38510764742 success |
 | H1 | đạt | `b4bbd75` | https://github.com/wuongg/mira-harness/actions/runs/38511813897 success |
 | H2 | đạt | `f0b3db1` | https://github.com/wuongg/mira-harness/actions/runs/38512453126 success |
-| H3 | đạt trên máy; CI sau khi push | | |
-| H4 | đạt trên máy; CI sau khi push | | |
+| H3 | đạt | `d3d7b28` | https://github.com/wuongg/mira-harness/actions/runs/38512806091 success |
+| H4 | đạt | `5a3dfed` | https://github.com/wuongg/mira-harness/actions/runs/38513177620 success |
+| H5 | đạt trên máy; CI sau khi push | | |
 
 ### R1
 
@@ -231,7 +232,7 @@ Ba demo do worker tạo kết quả qua tool, provider giả. Test chỉ dựng 
 | --- | --- | --- | --- | --- | --- |
 | A sửa `add` | 2: duyệt phiếu, cấp đúng lệnh rồi chạy | `edit_file` trong staging, file nguồn thành `return a + b` | behavior `verified` | không | đủ |
 | B JSON | 2: duyệt phiếu, chạy | `write_file` tạo `rows.json` | `json_keys` `verified` | không | đủ |
-| C báo cáo | 2: duyệt phiếu, chạy | `write_file` trong staging | `contains` `verified` | tiêu chí không validator, `needs_confirmation` | chưa, file không vào cây nguồn |
+| C báo cáo | 3: duyệt phiếu, chạy, rồi `--confirm` tiêu chí tay | `write_file` trong staging | `contains` `verified`; tiêu chí tay là `người dùng xác nhận` | trước xác nhận là `needs_confirmation` | sau xác nhận thì bàn giao và file vào cây nguồn |
 | Worker làm sai | 2 | staging thành `return 0` | behavior không đạt | tiêu chí hành vi | chưa, cây nguồn giữ hàm trừ |
 | Không cấp lệnh | 2 | không gọi | không chạy | lệnh chưa cấp | `không thực thi`, không checkpoint |
 | Đổi yêu cầu | 3: chạy cũ, `--change`, run mới | không | grant mới rỗng | lệnh của run cũ không sang | chưa |
@@ -245,6 +246,18 @@ Selftest: `Ran 525 tests`, `OK (skipped=2)`.
 `mira giao --run ID --confirm <id tiêu chí> --artifact <tệp>` ghi xác nhận của người dùng. Xác nhận gắn `criterion_id`, hash file và hash phiếu. Đổi file thì xác nhận cũ hết hiệu lực. Dòng kết quả là `người dùng xác nhận` và `does_not_prove` ghi không phải kiểm chứng tự động. `criterion_verified` vẫn false. Tiêu chí đã có validator không nhận xác nhận tay. Brief không có khóa để model tự ký.
 
 Selftest: `Ran 527 tests`, `OK (skipped=2)`.
+
+### H5
+
+Bảng bàn giao có cột `id | tiêu chí | kết quả | phép kiểm | chứng minh | không chứng minh`. Mỗi dòng là một `criterion_id` và nội dung tiêu chí đó. `proves` và `does_not_prove` vẫn hiện khi validator đạt. Nhãn tách `validator đã kiểm`, `người dùng xác nhận`, `chưa chứng minh`, `chưa cấp lệnh`, `validator không đạt`, `bị chặn`. Đổi artifact sau xác nhận thì cột không chứng minh ghi `artifact đã đổi, xác nhận cũ hết hiệu lực`.
+
+Lệnh gợi ý dùng `sys.executable -m mira giao` và quote theo hệ điều hành (`list2cmdline` trên Windows, `shlex.join` chỗ khác). Không hardcode `py -3`.
+
+Lệnh: `py -3 -m unittest discover -s tests -p "test_handoff_lock.py" -v`
+
+Selftest: `Ran 528 tests`, `OK (skipped=2)`.
+
+Giới hạn còn lại: provider giả chỉ chứng minh luồng, không chứng minh chất lượng model thật. `team --brief` vẫn cấp mọi lệnh tiêu chí của người dùng; chỉ `mira giao` gắn grant với hash phiếu. Hash phát hiện sửa file, không chống người có quyền sửa cùng lúc `approved_hash`, `brief_hash` và `state_hash`. `--check-only` không phải bàn giao. Xác nhận tay không đặt `criterion_verified`. Lần `--confirm` chạy lại worker. V2 `cbc4f7f` vẫn đỏ một job Windows; các SHA sau đã xanh. Không PR, không merge `main`.
 
 ## 1. Mốc
 

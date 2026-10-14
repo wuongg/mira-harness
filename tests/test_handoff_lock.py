@@ -4,6 +4,7 @@ from __future__ import annotations
 import io
 import json
 import contextlib
+import sys
 import tempfile
 import unittest
 from argparse import Namespace
@@ -181,6 +182,30 @@ class HandoffLockTest(unittest.TestCase):
             from mira.handoff import confirm
             with self.assertRaises(HandoffError):
                 confirm(root, state["id"], "note", "note.txt")
+
+    def test_bang_neu_tung_tieu_chi(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "note.txt").write_text("hello\n", encoding="utf-8")
+            state = open_run(root, "ghi note", _brief(["hello"]))
+            approve(root, state["id"])
+            buf = io.StringIO()
+            with contextlib.redirect_stdout(buf):
+                cmd_giao(Namespace(
+                    cwd=str(root), run=state["id"], change=None, approve_brief=False,
+                    grant=[], confirm=None, artifact=None, check_only=True,
+                    task=None, previous=None, provider=None, model=None,
+                    base_url=None, max_tokens=64, price_in=None))
+            text = buf.getvalue()
+            self.assertIn("note", text)
+            self.assertIn("tep co dung chu", text)
+            self.assertIn("không chạy", text)
+            self.assertIn("validator đã kiểm", text)
+            self.assertNotIn("py -3", text)
+            from mira.handoff import preview
+            shown = preview(_brief(["hello"]), state["id"])
+            self.assertNotIn("py -3", shown)
+            self.assertIn(sys.executable, shown)
 
 
 if __name__ == "__main__":

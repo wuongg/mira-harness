@@ -10,6 +10,9 @@ import hashlib
 import json
 import os
 import re
+import shlex
+import subprocess
+import sys
 import threading
 import uuid
 from pathlib import Path
@@ -112,6 +115,13 @@ def _save(root: Path, state: dict) -> None:
         os.replace(tmp, dest)
 
 
+def _argv(args: list[str]) -> str:
+    argv = [sys.executable, "-m", "mira", "giao", *args]
+    if os.name == "nt":
+        return subprocess.list2cmdline(argv)
+    return shlex.join(argv)
+
+
 def classify(raw) -> str:
     parsed, _why = validate_criteria([raw])
     if not parsed:
@@ -162,10 +172,20 @@ def preview(brief: dict, run_id: str) -> str:
     lines.append("Duyệt phiếu không cấp các lệnh này.")
     lines.append("Hash phát hiện phiếu đổi, không chống người sửa trực tiếp file.")
     if commands:
-        grant_flags = " ".join(f'--grant "{cmd}"' for cmd in commands)
-        lines.append(f"Bước tiếp: py -3 -m mira giao --run {run_id} {grant_flags}")
+        grant_bits = ["--run", run_id]
+        for cmd in commands:
+            grant_bits.extend(["--grant", cmd])
+        lines.append("Bước tiếp: " + _argv(grant_bits))
     else:
-        lines.append(f"Bước tiếp: py -3 -m mira giao --run {run_id}")
+        lines.append("Bước tiếp: " + _argv(["--run", run_id]))
+    for item in brief.get("acceptance_criteria") or []:
+        if classify(item) != "human":
+            continue
+        parsed, _why = validate_criteria([item])
+        if not parsed:
+            continue
+        lines.append("Xác nhận tay: " + _argv(
+            ["--run", run_id, "--confirm", parsed[0]["id"], "--artifact", "<tệp>"]))
     return "\n".join(lines)
 
 
@@ -273,6 +293,7 @@ def apply_confirmations(state: dict, rows: list[dict], root: Path) -> list[dict]
         if digest != match["sha256"]:
             row["state"] = "needs_confirmation"
             row["reason"] = "artifact đã đổi, xác nhận cũ hết hiệu lực"
+            row["does_not_prove"] = row["reason"]
             continue
         row["state"] = "user_confirmed"
         row["reason"] = "người dùng xác nhận"
@@ -305,7 +326,7 @@ def request_change(old: str, new: str, old_id: str) -> str:
         "Khác biệt:\n"
         f"{diff}"
         "Tạo run mới. Duyệt và lệnh của run cũ không được dùng lại.\n"
-        f"Bước tiếp: py -3 -m mira giao \"{new}\" --previous {old_id}"
+        "Bước tiếp: " + _argv([new, "--previous", old_id])
     )
 
 
@@ -389,18 +410,31 @@ def execute(root: Path, run_id: str, *, provider: str | None, model: str | None,
 
 
 def render_table(request: str, rows: list[dict]) -> str:
-    lines = ["yêu cầu | kết quả | phép kiểm | bằng chứng | chưa chứng minh",
-             "--- | --- | --- | --- | ---"]
+    del request
+    labels = {
+        "verified": "validator đã kiểm",
+        "user_confirmed": "người dùng xác nhận",
+        "needs_confirmation": "chưa chứng minh",
+        "pending": "chưa cấp lệnh",
+        "failed": "validator không đạt",
+        "blocked": "bị chặn",
+        "unverified": "chưa chứng minh",
+        "unproven": "chưa chứng minh",
+    }
+    lines = ["id | tiêu chí | kết quả | phép kiểm | chứng minh | không chứng minh",
+             "--- | --- | --- | --- | --- | ---"]
     for row in rows:
-        proven = bool(row.get("criterion_verified"))
-        evidence = row.get("proves") or row.get("reason") or ""
-        gap = "" if proven else (row.get("does_not_prove") or row.get("reason") or "chưa chứng minh")
+        state = row.get("state") or ""
+        label = labels.get(state, state)
+        if state and label != state:
+            label = f"{state} — {label}"
         lines.append(" | ".join([
-            request.replace("\n", " "),
-            row.get("state") or "",
+            row.get("criterion_id") or "",
+            (row.get("criterion") or "").replace("\n", " "),
+            label,
             row.get("kind") or "",
-            evidence.replace("\n", " "),
-            gap.replace("\n", " "),
+            (row.get("proves") or "").replace("\n", " "),
+            (row.get("does_not_prove") or "").replace("\n", " "),
         ]))
     return "\n".join(lines)
 
