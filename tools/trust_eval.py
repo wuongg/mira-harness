@@ -265,7 +265,7 @@ def probe_wrong(tree: Path, task: dict) -> dict:
         "(root / rel).write_text(sys.argv[2], encoding='utf-8')\n"
         "digest = hashlib.sha256((root / rel).read_bytes()).hexdigest()\n"
         "cmd = sys.executable + ' -c \"raise SystemExit(0)\"'\n"
-        "rows = judge_obligations([{'id':'wrong-file','text':sys.argv[1],'cmd':cmd,"
+        "rows = judge_obligations([{'schema':1,'id':'wrong-file','text':sys.argv[1],'cmd':cmd,"
         "'proves':sys.argv[1],'artifact':rel}], granted={cmd}, run_id='r-wrong',"
         "artifacts={rel:{'sha256':digest,'run_id':'r-wrong'}}, cwd=root)\n"
         "json.dump({'verified': bool(rows and rows[0].get('criterion_verified'))}, sys.stdout)\n"

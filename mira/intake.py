@@ -18,6 +18,7 @@ INTAKE_SYSTEM = (
     "Bạn là INTAKE. Trả đúng một object JSON với các khóa goal, deliverables, "
     "acceptance_criteria, constraints, assumptions, questions, per_role_hints. "
     "Không được trả surface, lane, floor, labels, records, dollars, roles hay gate. "
+    "acceptance_criteria là danh sách chuỗi, hoặc object schema 1 gồm id và text. "
     "Nếu câu còn mơ hồ, đặt câu hỏi trong questions. Không tự bịa tiêu chí khi chưa đủ dữ liệu."
 )
 
@@ -50,8 +51,10 @@ def validate_brief(obj) -> tuple[bool, str]:
         return False, "brief thiếu goal"
     if not _string_list(obj["deliverables"], allow_empty=True):
         return False, "deliverables phải là danh sách chuỗi"
-    if not _string_list(obj["acceptance_criteria"], allow_empty=False):
-        return False, "brief thiếu acceptance_criteria"
+    from .obligations import validate_criteria
+    parsed, why = validate_criteria(obj["acceptance_criteria"])
+    if parsed is None:
+        return False, why
     if not _string_list(obj["constraints"], allow_empty=True):
         return False, "constraints phải là danh sách chuỗi"
     if not _string_list(obj["assumptions"], allow_empty=True):

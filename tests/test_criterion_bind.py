@@ -30,6 +30,7 @@ class CriterionBindTest(unittest.TestCase):
     def test_test_xanh_khong_dung_hanh_vi(self):
         cmd = _exit(0)
         item = {
+            "schema": 1,
             "id": "c-save",
             "text": "nút lưu ghi đúng một bản",
             "cmd": cmd,
@@ -48,6 +49,7 @@ class CriterionBindTest(unittest.TestCase):
             (root / "app.py").write_text("def f():\n    return 0\n", encoding="utf-8")
             digest = hashlib.sha256((root / "app.py").read_bytes()).hexdigest()
             item = {
+                "schema": 1,
                 "id": "c-fn",
                 "text": "hàm trả 1",
                 "cmd": cmd,
@@ -67,6 +69,7 @@ class CriterionBindTest(unittest.TestCase):
             (root / "app.py").write_text("def f():\n    return 0\n", encoding="utf-8")
             digest = hashlib.sha256((root / "app.py").read_bytes()).hexdigest()
             item = {
+                "schema": 1,
                 "id": "c-fn",
                 "text": "hàm trả 1",
                 "cmd": cmd,
@@ -101,6 +104,7 @@ class CriterionBindTest(unittest.TestCase):
             (root / "app.py").write_text("def f():\n    return 1\n", encoding="utf-8")
             digest = hashlib.sha256((root / "app.py").read_bytes()).hexdigest()
             item = {
+                "schema": 1,
                 "id": "c-fn",
                 "text": "hàm trả 1",
                 "cmd": cmd,

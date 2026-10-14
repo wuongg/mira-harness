@@ -2,7 +2,9 @@
 
 ## 0. Vòng kiểm chứng — kế hoạch ngắn
 
-Nhánh mới `agent/trust-limits-2026-10-14`, tách từ `7f732a9` (đầu nhánh overnight), không tách từ `main` cục bộ `bb58700`. `mira/obligations.py` không có trên `main`. Không merge vào `main`.
+Nhánh `agent/trust-limits-2026-10-14`, tách từ `7f732a9`, không tách từ `main` cục bộ `bb58700`. Không merge vào `main`.
+
+Câu cũ nói `mira/obligations.py` không có trên `main` là lỗi thời. `origin/main` hiện tại là `81dbbcd` (merge PR overnight) và đã có `mira/obligations.py` với `judge_obligations`.
 
 Link so sánh cũ của nhánh overnight không còn là nhánh làm việc: https://github.com/wuongg/mira-harness/compare/main...agent/overnight-rd-2026-10-13?expand=1
 
@@ -19,6 +21,7 @@ Thứ tự: R1 quyền chạy check, R2 tiêu chí gắn phép kiểm và artifa
 | R3 | đạt | `74b7154` | https://github.com/wuongg/mira-harness/actions/runs/38489760877 success |
 | R4 | đạt | `8780d42` | https://github.com/wuongg/mira-harness/actions/runs/38490734366 success |
 | R5 | đạt | `863c27b` | https://github.com/wuongg/mira-harness/actions/runs/38491474015 success |
+| S1 | đạt trên máy; CI sau khi push | | |
 
 ### R1
 
@@ -88,6 +91,20 @@ Lệnh: `py -3 tools/trust_eval.py --current-only` và `py -3 tools/trust_eval.p
 Selftest: `Ran 477 tests`, `OK (skipped=2)`.
 
 Commit ghi URL này là `763d3b3`. CI: https://github.com/wuongg/mira-harness/actions/runs/38491621204 success.
+
+### S1
+
+Tiêu chí object dùng schema `1`, khóa `id`, `text`, và tùy chọn `cmd`, `proves`, `artifact`. Chuỗi cũ vẫn là schema 0. `validate_criteria` là luật chung của intake, đọc brief, obligations. `contract_diff` giữ nguyên object, không rút thành chuỗi rồi bỏ. Chưa có liên kết tiêu chí sang từng bước, nên đổi tiêu chí hủy cả run (`scope` = `run`). ID trống hoặc trùng thì brief bị từ chối trước khi chạy.
+
+Ví dụ nạp từ CLI, `--intake off --brief` file này, `--require-evidence`. Lệnh đi tới bước kiểm và ghi `criterion_id` `crit-exit` trong `out/withheld.json`:
+
+```json
+{"schema":1,"id":"crit-exit","text":"lenh thoat 0 la buoc kiem","cmd":"python -c \"raise SystemExit(0)\"","proves":"","artifact":""}
+```
+
+Lệnh: `py -3 -m unittest discover -s tests -p "test_criteria_schema.py" -v`
+
+Selftest: `Ran 483 tests`, `OK (skipped=2)`.
 
 ## 1. Mốc
 

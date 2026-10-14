@@ -1,17 +1,40 @@
 """Hợp đồng ý định: đổi goal, tiêu chí hoặc ràng buộc thì kế hoạch cũ hết hiệu lực."""
 from __future__ import annotations
 
+import json
+
 
 def _clean(items) -> list[str]:
     return [item.strip() for item in items if isinstance(item, str) and item.strip()]
+
+
+def _criterion_token(item) -> str | None:
+    """Giữ object trong diff. Không rút về chuỗi rồi bỏ phần còn lại."""
+    if isinstance(item, str):
+        text = item.strip()
+        return text or None
+    if isinstance(item, dict):
+        return json.dumps(item, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    if item is None:
+        return None
+    return json.dumps(item, ensure_ascii=False, default=str)
+
+
+def _criterion_tokens(items) -> list[str]:
+    out = []
+    for item in items or []:
+        token = _criterion_token(item)
+        if token:
+            out.append(token)
+    return out
 
 
 def contract_diff(old: dict, new: dict) -> dict:
     """So hai brief đã đúng schema. Không gọi model."""
     old_goal = (old.get("goal") or "").strip()
     new_goal = (new.get("goal") or "").strip()
-    old_criteria = _clean(old.get("acceptance_criteria") or [])
-    new_criteria = _clean(new.get("acceptance_criteria") or [])
+    old_criteria = _criterion_tokens(old.get("acceptance_criteria") or [])
+    new_criteria = _criterion_tokens(new.get("acceptance_criteria") or [])
     old_limits = _clean(old.get("constraints") or [])
     new_limits = _clean(new.get("constraints") or [])
     old_done = _clean(old.get("deliverables") or [])
@@ -36,6 +59,7 @@ def contract_diff(old: dict, new: dict) -> dict:
     if limits_changed:
         lines.append("constraints đã đổi")
     invalidates = bool(lines)
+    # Chưa có liên kết tiêu chí → bước. Đổi tiêu chí thì hủy cả run.
     return {
         "goal_changed": goal_changed,
         "added_criteria": added,
@@ -44,5 +68,6 @@ def contract_diff(old: dict, new: dict) -> dict:
         "removed_deliverables": removed_done,
         "constraints_changed": limits_changed,
         "invalidates": invalidates,
+        "scope": "run" if invalidates else "",
         "lines": lines,
     }
