@@ -111,9 +111,10 @@ class FlowTest(unittest.TestCase):
             with _Here(root), redirect_stdout(buf), patch("mira.team.provider_for", _Talk):
                 code = cmd_team(_args(root, brief=str(path)))
             text = buf.getvalue()
-            self.assertEqual(code, 0)
-            self.assertIn("đã kiểm:", text)
-            self.assertTrue((root / "out").exists())
+            self.assertEqual(code, 3)
+            self.assertIn("đã chạy lệnh, chưa xác minh tiêu chí:", text)
+            self.assertTrue((root / "out" / "withheld.json").is_file())
+            self.assertEqual(list((root / "out").glob("*/result.md")), [])
 
     def test_ngat_roi_resume_khong_goi_lai_buoc_dau(self):
         cmd = shlex.join([sys.executable, "-c", "import sys; raise SystemExit(0)"])
@@ -188,8 +189,8 @@ class FlowTest(unittest.TestCase):
                 code = cmd_team(_args(root, brief=str(path)))
             text = buf.getvalue()
         self.assertEqual(code, 3)
-        self.assertIn("chưa kiểm:", text)
-        self.assertIn("Thêm tiền tố check:", text)
+        self.assertIn("cần xác nhận:", text)
+        self.assertIn("chưa được kiểm tự động", text)
         self.assertIn("bị chặn", text)
 
     def test_provider_loi_khong_bao_xong(self):

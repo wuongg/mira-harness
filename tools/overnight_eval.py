@@ -59,8 +59,8 @@ def _evidence(row, py: str):
     evidence = {"changed": row.get("changed") or []}
     with tempfile.TemporaryDirectory() as tmp:
         cwd = Path(tmp)
-        from mira.obligations import _declared_check
-        granted = {cmd for item in criteria if (cmd := _declared_check(item))}
+        from mira.obligations import criterion_command
+        granted = {cmd for item in criteria if (cmd := criterion_command(item))}
         current = [
             item["state"] for item in judge_obligations(
                 criteria, steps, evidence, cwd=cwd, granted=granted)

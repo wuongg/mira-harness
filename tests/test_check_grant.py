@@ -36,7 +36,9 @@ class CheckGrantTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             rows = judge_obligations(
                 [f"check: {cmd}"], cwd=Path(tmp), granted={cmd})
-        self.assertEqual(rows[0]["state"], "proven")
+        self.assertEqual(rows[0]["state"], "checked")
+        self.assertTrue(rows[0]["check_passed"])
+        self.assertFalse(rows[0]["criterion_verified"])
         self.assertEqual(rows[0]["ref"]["exit"], 0)
         self.assertEqual(rows[0]["ref"]["via"], "run_shell")
 

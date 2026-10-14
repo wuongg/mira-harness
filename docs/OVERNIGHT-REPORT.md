@@ -12,13 +12,13 @@ Link nhánh này: https://github.com/wuongg/mira-harness/compare/main...agent/tr
 
 Thứ tự: R1 quyền chạy check, R2 tiêu chí gắn phép kiểm và artifact, R3 đặt trước ngân sách song song, R4 phục hồi bằng tiến trình thật, R5 đo giá trị đầu-cuối trên tập tách khỏi fixture sửa code. Không thêm agent.
 
-| Mục | Trạng thái |
-| --- | --- |
-| R1 | đạt trên máy; CI của commit này là lần chạy sau khi push |
-| R2 | chưa làm |
-| R3 | chưa làm |
-| R4 | chưa làm |
-| R5 | chưa làm |
+| Mục | Trạng thái | SHA | CI |
+| --- | --- | --- | --- |
+| R1 | đạt | `9dfe1c8` | https://github.com/wuongg/mira-harness/actions/runs/38488932153 success |
+| R2 | đạt trên máy; CI sau khi push | | |
+| R3 | chưa làm | | |
+| R4 | chưa làm | | |
+| R5 | chưa làm | | |
 
 ### R1
 
@@ -29,6 +29,18 @@ Lệnh: `py -3 -m unittest discover -s tests -p "test_check_grant.py" -v`
 Selftest: `Ran 462 tests`, `OK (skipped=2)`.
 
 Tập đóng băng `tools/overnight_eval.py` lệch 1 dòng, không sửa đáp án: E13 có đường dẫn tuyệt đối của Python nằm ở đối số, `run_shell` chặn trước khi chạy, trạng thái `blocked` thay vì `proven`. Marker vẫn không được tạo.
+
+### R2
+
+Mỗi tiêu chí có `criterion_id` (id khai báo, hoặc 16 ký tự sha256 của câu). Phép kiểm ghi `criterion_id`, `kind`, `proves`, `check_passed` và `criterion_verified` riêng. `check:` thoát 0 chỉ là `checked`. Xác minh khi `proves` đúng bằng câu tiêu chí và artifact có hash khớp, `run_id` đúng, file còn trong gốc. File thiếu, hash lệch, hoặc run khác thì không nhận. Tiêu chí không có lệnh là `needs_confirmation`.
+
+Không coi file đổi là xác minh. Không đọc nghĩa của file: nếu người dùng khai `proves` trùng câu tiêu chí trong khi nội dung file sai, harness không phát hiện. Đó là giới hạn.
+
+Lệnh: `py -3 -m unittest discover -s tests -p "test_criterion_bind.py" -v`
+
+Selftest: `Ran 469 tests`, `OK (skipped=2)`.
+
+Tập đóng băng vẫn không sửa. Các dòng kỳ vọng `proven` cho lệnh thoát 0 sẽ lệch vì trạng thái mới là `checked`.
 
 ## 1. Mốc
 

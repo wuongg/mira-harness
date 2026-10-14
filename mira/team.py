@@ -1031,15 +1031,27 @@ def execute_plan(plan: TeamPlan, *, provider_name: str | None = None,
     brief = getattr(plan, "brief", None)
     if (getattr(plan, "require_evidence", False) and isinstance(brief, dict)
             and brief.get("acceptance_criteria")):
-        from .obligations import _declared_check, judge_obligations, unproven
+        from .obligations import criterion_command, judge_obligations, unproven
         criteria = list(brief["acceptance_criteria"])
         origin = getattr(plan, "criteria_origin", None) or "model"
         granted = set()
         if origin == "user":
-            granted = {cmd for item in criteria if (cmd := _declared_check(str(item)))}
+            granted = {cmd for item in criteria if (cmd := criterion_command(item))}
+        records = {}
+        base = staging_box[0] or root
+        if isinstance(evidence, dict) and base is not None:
+            import hashlib
+            for rel in evidence.get("changed") or []:
+                path = Path(base) / str(rel)
+                if path.is_file():
+                    key = str(rel).replace("\\", "/")
+                    records[key] = {
+                        "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+                        "run_id": run_id,
+                    }
         obligations = judge_obligations(
-            criteria, steps, evidence,
-            cwd=staging_box[0] or root, granted=granted)
+            criteria, steps, evidence, cwd=base, granted=granted,
+            run_id=run_id, artifacts=records)
         missing = unproven(obligations)
         if status == "ok" and missing:
             status, fail_reason = "withheld", "còn tiêu chí chưa có bằng chứng"
@@ -1068,13 +1080,17 @@ def execute_plan(plan: TeamPlan, *, provider_name: str | None = None,
 def _obligation_note(row: dict) -> str:
     """Một dòng người đọc được: đã kiểm, chưa kiểm, hoặc bị chặn, kèm cách xử lý."""
     label = {
-        "proven": "đã kiểm", "failed": "bị chặn", "unproven": "chưa kiểm",
+        "verified": "đã xác minh", "checked": "đã chạy lệnh, chưa xác minh tiêu chí",
+        "failed": "bị chặn", "unproven": "chưa kiểm",
+        "needs_confirmation": "chưa kiểm, cần xác nhận",
         "pending": "chờ cấp quyền", "blocked": "bị chặn",
     }.get(row.get("state") or "", row.get("state") or "")
     reason = row.get("reason") or ""
     hint = ""
-    if row.get("state") == "unproven":
-        hint = " Thêm tiền tố check: rồi chạy lại."
+    if row.get("state") in ("unproven", "needs_confirmation"):
+        hint = " Tiêu chí này chưa được kiểm tự động."
+    elif row.get("state") == "checked":
+        hint = " Lệnh thoát 0 chưa chứng minh câu tiêu chí."
     elif row.get("state") == "failed":
         hint = " Sửa cho lệnh thoát 0 rồi chạy lại."
     elif row.get("state") == "pending":
