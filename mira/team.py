@@ -336,6 +336,9 @@ def ledger_from_checkpoint(blob: dict) -> Ledger:
     led.total_in = int(blob.get("total_in", 0))
     led.total_out = int(blob.get("total_out", 0))
     led.subagent_runs = int(blob.get("subagent_runs", 0))
+    led.reserved = float(blob.get("reserved", 0.0))
+    led.uncertain_usd = float(blob.get("uncertain_usd", 0.0))
+    led.uncertain = list(blob.get("uncertain") or [])
     return led
 
 
@@ -419,6 +422,17 @@ def promote_staging(real_root: Path, staging: Path, audit: list) -> list[str]:
     return promoted
 
 
+def estimate_hold(rates: dict, system: str, user: str, max_out: int) -> float:
+    """Trần giữ chỗ, không phải hóa đơn.
+
+    Đầu vào ước lượng 4 ký tự một token, có thể thấp hơn tokenizer của hãng.
+    Đầu ra lấy max_tokens, không phải số token sẽ sinh.
+    """
+    tin = max(1, (len(system) + len(user)) // 4)
+    tout = max(1, int(max_out or 1))
+    return (tin * float(rates["in"]) + tout * float(rates["out"])) / 1e6
+
+
 def expand_roles(roles: list[str], lane: int, workers: int) -> list[str]:
     """N worker / N verifier khi làn 2 chạy song song; ngược lại giữ nguyên."""
     if lane != 2 or workers <= 1:
@@ -440,9 +454,16 @@ class Ledger:
     total_in: int = 0
     total_out: int = 0
     subagent_runs: int = 0          # đếm đội con trong CẢ cây (chặn bùng nổ)
+    reserved: float = 0.0            # tiền đang giữ chỗ, chưa phải usage thật
+    uncertain_usd: float = 0.0       # request có thể đã được xử lý, không coi là miễn phí
+    uncertain: list[dict] = field(default_factory=list)
 
     def __post_init__(self) -> None:
         self._lock = threading.RLock()
+
+    def committed(self) -> float:
+        """Đã chi, đang giữ chỗ, và khoản chưa chắc. Không chỉ total_usd."""
+        return self.total_usd + self.reserved + self.uncertain_usd
 
     def charge(self, role: str, model: str, usage: dict, provider: str,
                *, price: dict | None = None, declared_by_user: bool = False,
@@ -469,7 +490,11 @@ class Ledger:
         by_role: dict[str, float] = {}
         for r in self.rows:
             by_role[r["role"]] = round(by_role.get(r["role"], 0.0) + r["usd"], 6)
-        return {"total_usd": round(self.total_usd, 6), "by_role": by_role,
+        return {"total_usd": round(self.total_usd, 6),
+                "reserved": round(self.reserved, 6),
+                "uncertain_usd": round(self.uncertain_usd, 6),
+                "uncertain": list(self.uncertain),
+                "by_role": by_role,
                 "tokens_in": self.total_in, "tokens_out": self.total_out,
                 "subagent_runs": self.subagent_runs,
                 "all_priced": all(r["priced"] for r in self.rows) if self.rows else True,
@@ -604,6 +629,9 @@ def execute_plan(plan: TeamPlan, *, provider_name: str | None = None,
                 "total_in": ledger.total_in,
                 "total_out": ledger.total_out,
                 "subagent_runs": ledger.subagent_runs,
+                "reserved": round(ledger.reserved, 6),
+                "uncertain_usd": round(ledger.uncertain_usd, 6),
+                "uncertain": list(ledger.uncertain),
             },
             "staging": str(staging_box[0]) if staging_box[0] is not None else None,
             "status": status,
@@ -704,17 +732,34 @@ def execute_plan(plan: TeamPlan, *, provider_name: str | None = None,
             return {"role": role, "model": model, "shard": shard, "blocked": True,
                     "error": f"thiếu key cho {prov.name} — đặt {key}",
                     "context_policy": policy}
+        hold = estimate_hold(rates, ROLE_SYSTEM[role], _user, max_tokens)
+        with lock:
+            if plan.cap_usd and ledger.committed() + hold > plan.cap_usd + 1e-9:
+                return {"role": role, "model": model, "shard": shard, "blocked": True,
+                        "budget": True, "error": "không đủ ngân sách để giữ chỗ",
+                        "context_policy": policy}
+            ledger.reserved += hold
         t0 = time.time()
         try:
             text, usage = prov.call(ROLE_SYSTEM[role], _user)
         except ProviderError as e:
+            with lock:
+                ledger.reserved = max(0.0, ledger.reserved - hold)
+                ledger.uncertain_usd += hold
+                ledger.uncertain.append({
+                    "role": role, "model": model, "usd": round(hold, 6),
+                    "reason": "request có thể đã được xử lý",
+                })
             return {"role": role, "model": model, "shard": shard, "error": str(e),
+                    "uncertain": True, "usd": round(hold, 6),
                     "attempt": getattr(prov, "attempts", 1), "context_policy": policy}
-        with lock:                                  # sổ cái phải nguyên tử (I8)
+        with lock:
+            ledger.reserved = max(0.0, ledger.reserved - hold)
             usd = ledger.charge(role, model, usage, prov.name, price=rates,
                                 declared_by_user=source == "cli", price_source=source)
         return {"role": role, "model": model, "shard": shard, "provider": prov.name,
                 "text": text, "usage": usage, "usd": round(usd, 6),
+                "hold": round(hold, 6),
                 "seconds": round(time.time() - t0, 2),
                 "attempt": getattr(prov, "attempts", 1),
                 "context_policy": policy}
@@ -831,7 +876,7 @@ def execute_plan(plan: TeamPlan, *, provider_name: str | None = None,
                 "context_policy": budget["policy"]}
 
     def _over_cap() -> bool:
-        return bool(plan.cap_usd) and ledger.total_usd >= plan.cap_usd
+        return bool(plan.cap_usd) and ledger.committed() >= plan.cap_usd
 
     oracle_gate = "disabled"
     if oracle == "on" and plan.lane == 2:
@@ -866,6 +911,9 @@ def execute_plan(plan: TeamPlan, *, provider_name: str | None = None,
         st = _reuse(lambda role=role: _call(role, prior=_prior()))
         _log_step(st)
         _note(st)
+        if st.get("budget"):
+            _stop_budget()
+            break
         if st.get("error") or st.get("blocked"):
             status = "blocked" if st.get("blocked") else "error"
             fail_reason = st["error"]
@@ -882,6 +930,9 @@ def execute_plan(plan: TeamPlan, *, provider_name: str | None = None,
                     st2 = _reuse(lambda: _call("planner", prior=_prior() + [f"TỪ CHỐI skill: {', '.join(refused)}"]))
                     _log_step(st2)
                     _note(st2)
+                    if st2.get("budget"):
+                        _stop_budget()
+                        break
                     if st2.get("error") or st2.get("blocked"):
                         status = "blocked" if st2.get("blocked") else "error"
                         fail_reason = st2["error"]
@@ -905,6 +956,9 @@ def execute_plan(plan: TeamPlan, *, provider_name: str | None = None,
                 _log_step(st)
                 _note(st)
                 worker_steps.append(st)
+                if st.get("budget"):
+                    _stop_budget()
+                    break
                 if st.get("error") or st.get("blocked"):
                     status = "blocked" if st.get("blocked") else "error"
                     fail_reason = st["error"]
@@ -924,10 +978,12 @@ def execute_plan(plan: TeamPlan, *, provider_name: str | None = None,
                     _log_step(st)
                     _note(st)
                 bad = next((s for s in worker_steps if s.get("error") or s.get("blocked")), None)
-                if bad:
+                if bad and bad.get("budget"):
+                    _stop_budget()
+                elif bad:
                     status = "blocked" if bad.get("blocked") else "error"
                     fail_reason = bad["error"]
-                if _over_cap():
+                if status == "ok" and _over_cap():
                     _stop_budget()
                 prev = worker_steps[0].get("text") or ""
             else:
@@ -943,10 +999,12 @@ def execute_plan(plan: TeamPlan, *, provider_name: str | None = None,
                     _log_step(st)
                     _note(st)
                 bad = next((s for s in worker_steps if s.get("error") or s.get("blocked")), None)
-                if bad:
+                if bad and bad.get("budget"):
+                    _stop_budget()
+                elif bad:
                     status = "blocked" if bad.get("blocked") else "error"
                     fail_reason = bad["error"]
-                if _over_cap():
+                if status == "ok" and _over_cap():
                     _stop_budget()
                 prev = "\n\n".join(f"[worker {i + 1}] {s.get('text', '')}"
                                    for i, s in enumerate(worker_steps) if s.get("text"))

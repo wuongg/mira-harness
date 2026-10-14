@@ -15,8 +15,8 @@ Thứ tự: R1 quyền chạy check, R2 tiêu chí gắn phép kiểm và artifa
 | Mục | Trạng thái | SHA | CI |
 | --- | --- | --- | --- |
 | R1 | đạt | `9dfe1c8` | https://github.com/wuongg/mira-harness/actions/runs/38488932153 success |
-| R2 | đạt trên máy; CI sau khi push | | |
-| R3 | chưa làm | | |
+| R2 | đạt | `296e187` | https://github.com/wuongg/mira-harness/actions/runs/38489405825 success |
+| R3 | đạt trên máy; CI sau khi push | | |
 | R4 | chưa làm | | |
 | R5 | chưa làm | | |
 
@@ -41,6 +41,14 @@ Lệnh: `py -3 -m unittest discover -s tests -p "test_criterion_bind.py" -v`
 Selftest: `Ran 469 tests`, `OK (skipped=2)`.
 
 Tập đóng băng vẫn không sửa. Các dòng kỳ vọng `proven` cho lệnh thoát 0 sẽ lệch vì trạng thái mới là `checked`.
+
+### R3
+
+Trước mỗi lần gọi model, sổ cái giữ chỗ `estimate_hold`: đầu vào khoảng 4 ký tự một token, đầu ra bằng `max_tokens`. Đây là trần, không phải tokenizer của hãng và không phải hóa đơn. `committed` gồm tiền đã chi, chỗ đang giữ và khoản không chắc. Không đủ chỗ thì không gọi, trạng thái `stopped_budget`. Sau gọi thành công thì trả chỗ và ghi usage thật. `ProviderError` sau khi request đã gửi thì cộng khoản không chắc, không coi là 0 đồng. Chỗ giữ về 0 khi xong.
+
+Lệnh: `py -3 -m unittest discover -s tests -p "test_budget_hold.py" -v`
+
+Selftest: `Ran 471 tests`, `OK (skipped=2)`.
 
 ## 1. Mốc
 
