@@ -23,7 +23,8 @@ Thứ tự: R1 quyền chạy check, R2 tiêu chí gắn phép kiểm và artifa
 | R5 | đạt | `863c27b` | https://github.com/wuongg/mira-harness/actions/runs/38491474015 success |
 | S1 | đạt | `cb37bb0` | https://github.com/wuongg/mira-harness/actions/runs/38508067848 success |
 | S2 | đạt | `61300af` | https://github.com/wuongg/mira-harness/actions/runs/38508501239 success |
-| S3 | đạt trên máy; CI sau khi push | | |
+| S3 | đạt trên máy; CI sau khi push | `92ef473` | |
+| S4 | đạt trên máy; CI sau khi push | | |
 
 ### R1
 
@@ -129,6 +130,31 @@ Mỗi request có `id` và trạng thái `reserved`, `dispatched`, `settled` ho�
 Cùng `tracked_call` cho `_call`, intake, prompt writer, và worker sửa file qua `_priced_call`. Đội con đi qua `_call`. Đường stream của chat không ghi request này.
 
 Lệnh: `py -3 -m unittest discover -s tests -p "test_request_ledger.py" -v`
+
+Selftest: `Ran 495 tests`, `OK (skipped=2)`.
+
+### S4
+
+`tools/trust_eval.py` ghi mỗi dòng là `pass`, `fail` hoặc `not_evaluated`. `remaining` không còn được tính là đạt. `T-REAL` là `not_evaluated`: không có API trả phí được duyệt, nên không có số liệu model thật.
+
+Không thêm file resource. Schema nằm trong `mira/obligations.py`, đã là module của package.
+
+| id | kết quả |
+| --- | --- |
+| T-NOOP | pass, không bàn giao |
+| T-OPEN | pass, có bàn giao |
+| T-MODEL | pass, không chạy lệnh của model |
+| T-CAP | pass, 1 worker, $2.00, trần $2.46 |
+| T-KILL | pass, resume run đã xong không gọi lại worker |
+| T-WRONG | pass, không verified |
+| T-OBJECT | pass, brief object tới bước kiểm |
+| T-DUP | pass, id trùng bị từ chối |
+| T-ARTIFACT | pass, file `return 4` không verified |
+| T-CHANGE | pass, đổi object thì không tiếp tục |
+| T-INTERRUPT | pass, kill giữa request còn khoản uncertain |
+| T-REAL | not_evaluated |
+
+Lệnh: `py -3 tools/trust_eval.py --current-only`
 
 Selftest: `Ran 495 tests`, `OK (skipped=2)`.
 

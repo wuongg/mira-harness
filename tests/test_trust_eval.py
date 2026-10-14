@@ -21,8 +21,12 @@ class TrustEvalTest(unittest.TestCase):
                 cwd=ROOT, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=60)
             self.assertEqual(proc.returncode, 0, proc.stderr.decode("utf-8", "replace"))
             data = json.loads(out.read_text(encoding="utf-8"))
-            failed = [row["id"] for row in data["current"] if row.get("fail")]
+            failed = [row["id"] for row in data["current"] if row.get("status") == "fail"]
             self.assertEqual(failed, [])
+            self.assertTrue(any(row["status"] == "not_evaluated" for row in data["current"]))
+            self.assertFalse(any(row.get("remaining") for row in data["current"]))
+            self.assertTrue(all(row["status"] in ("pass", "fail", "not_evaluated")
+                                for row in data["current"]))
 
 
 if __name__ == "__main__":

@@ -288,12 +288,143 @@ def probe_wrong(tree: Path, task: dict) -> dict:
             "code": 0}
 
 
+def _object(cid: str, text: str, cmd: str = "", validator=None) -> dict:
+    item = {"schema": 1, "id": cid, "text": text, "cmd": cmd, "proves": "", "artifact": ""}
+    if validator is not None:
+        item["validator"] = validator
+    return item
+
+
+def probe_object(tree: Path, task: dict, url: str) -> dict:
+    cmd = sys.executable + " -c \"raise SystemExit(0)\""
+    brief = _brief(task["criterion"], cmd)
+    brief["acceptance_criteria"] = [_object("crit-exit", task["criterion"], cmd)]
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        path = root / "brief.json"
+        path.write_text(json.dumps(brief), encoding="utf-8")
+        proc = _run(tree, root, _base_args(task["task"]) + [
+            "--brief", str(path), "--require-evidence", "--approve"], url)
+        held = root / "out" / "withheld.json"
+        rows = []
+        if held.exists():
+            rows = json.loads(held.read_text(encoding="utf-8")).get("obligations") or []
+        ok = bool(rows) and rows[0].get("criterion_id") == "crit-exit"
+        return {"id": task["id"], "kind": task["kind"], "fail": not ok,
+                "detail": "" if ok else "object khong toi buoc kiem", "code": proc.returncode}
+
+
+def probe_dup(tree: Path, task: dict, url: str) -> dict:
+    cmd = "py -c \"raise SystemExit(0)\""
+    brief = _brief("cau", cmd)
+    brief["acceptance_criteria"] = [_object("same", "cau mot", cmd), _object("same", "cau hai", cmd)]
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        path = root / "brief.json"
+        path.write_text(json.dumps(brief), encoding="utf-8")
+        proc = _run(tree, root, _base_args(task["task"]) + ["--brief", str(path),
+                    "--require-evidence"], url)
+        text = _text(proc)
+        ok = proc.returncode == 8 and "trùng" in text
+        return {"id": task["id"], "kind": task["kind"], "fail": not ok,
+                "detail": "" if ok else "id trung khong bi tu choi", "code": proc.returncode}
+
+
+def probe_artifact(tree: Path, task: dict, url: str) -> dict:
+    brief = _brief(task["criterion"], "")
+    brief["acceptance_criteria"] = [_object("bad-file", task["criterion"], validator={
+        "kind": "contains", "path": "calc.py", "must_contain": ["return 5"],
+        "must_not_contain": [],
+    })]
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        (root / "calc.py").write_text("return 4\n", encoding="utf-8")
+        path = root / "brief.json"
+        path.write_text(json.dumps(brief), encoding="utf-8")
+        proc = _run(tree, root, _base_args(task["task"]) + [
+            "--brief", str(path), "--require-evidence", "--approve"], url)
+        held = root / "out" / "withheld.json"
+        if not held.exists():
+            return {"id": task["id"], "kind": task["kind"], "fail": True,
+                    "detail": "khong co ho so giu lai", "code": proc.returncode}
+        rows = json.loads(held.read_text(encoding="utf-8")).get("obligations") or []
+        verified = bool(rows and rows[0].get("criterion_verified"))
+        return {"id": task["id"], "kind": task["kind"], "fail": verified or not rows,
+                "detail": "artifact sai van verified" if verified else "khong verified",
+                "code": proc.returncode}
+
+
+def probe_change(tree: Path, task: dict, url: str) -> dict:
+    _clear()
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        first = _brief("co so", "py -c \"raise SystemExit(0)\"")
+        first["acceptance_criteria"] = [_object("c1", "co so", "py -c \"raise SystemExit(0)\"")]
+        path = root / "brief.json"
+        path.write_text(json.dumps(first), encoding="utf-8")
+        _run(tree, root, _base_args(task["task"]) + [
+            "--brief", str(path), "--approve"], url)
+        data = _checkpoint(root)
+        if data is None or not data.get("brief"):
+            return {"id": task["id"], "kind": task["kind"], "not_evaluated": True,
+                    "detail": "run khong co brief de doi", "code": 2}
+        new = json.loads(json.dumps(data["brief"]))
+        new["acceptance_criteria"] = [_object("c1", "tieu chi da doi", "py -c \"raise SystemExit(0)\"")]
+        path = root / "next.json"
+        path.write_text(json.dumps(new), encoding="utf-8")
+        proc = _run(tree, root, ["--resume", data["id"], "--brief", str(path)], url)
+        text = _text(proc)
+        ok = proc.returncode == 2 and "không tiếp tục" in text
+        return {"id": task["id"], "kind": task["kind"], "fail": not ok,
+                "detail": "" if ok else "doi object van chay tiep", "code": proc.returncode}
+
+
+def probe_kill(tree: Path, task: dict, url: str) -> dict:
+    del url
+    script = tree / "tests" / "test_request_ledger.py"
+    if not script.exists():
+        return {"id": task["id"], "kind": task["kind"], "not_evaluated": True,
+                "detail": "cay goc khong co bai kill", "code": 0}
+    proc = subprocess.run(
+        [sys.executable, "-m", "unittest", "discover", "-s", str(tree / "tests"),
+         "-p", "test_request_ledger.py", "-k", "test_kill_giua_request"],
+        cwd=tree, env=_env(tree), stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+        timeout=40)
+    return {"id": task["id"], "kind": task["kind"], "fail": proc.returncode != 0,
+            "detail": "" if proc.returncode == 0 else "kill giua request that bai",
+            "code": proc.returncode}
+
+
+def probe_real(tree: Path, task: dict, url: str) -> dict:
+    del tree, url
+    return {"id": task["id"], "kind": task["kind"], "not_evaluated": True,
+            "detail": "khong co API tra phi duoc duyet", "code": 0}
+
+
+def _finish(row: dict) -> dict:
+    if row.get("not_evaluated") or row.get("remaining"):
+        row["status"] = "not_evaluated"
+        row["fail"] = False
+    elif row.get("fail"):
+        row["status"] = "fail"
+    else:
+        row["status"] = "pass"
+    row.pop("remaining", None)
+    return row
+
+
 PROBES = {
     "false_delivery": probe_delivery,
     "false_block": probe_block,
     "unauthorized": probe_unauth,
     "budget": probe_budget,
     "repeat": probe_repeat,
+    "object_brief": probe_object,
+    "duplicate_id": probe_dup,
+    "bad_artifact": probe_artifact,
+    "object_change": probe_change,
+    "kill_request": probe_kill,
+    "real_model": probe_real,
 }
 
 
@@ -312,7 +443,7 @@ def run_tree(tree: Path, url: str) -> list[dict]:
         except Exception as exc:
             rows.append({"id": task["id"], "kind": kind, "fail": True,
                          "detail": type(exc).__name__ + ": " + str(exc), "code": -1})
-    return rows
+    return [_finish(row) for row in rows]
 
 
 def main() -> int:
@@ -339,7 +470,7 @@ def main() -> int:
     else:
         sys.stdout.buffer.write(text.encode("utf-8"))
         sys.stdout.buffer.write(b"\n")
-    failed = [row for row in current if row.get("fail")]
+    failed = [row for row in current if row.get("status") == "fail"]
     return 1 if failed else 0
 
 
