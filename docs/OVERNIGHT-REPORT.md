@@ -87,6 +87,8 @@ Lệnh: `py -3 tools/trust_eval.py --current-only` và `py -3 tools/trust_eval.p
 
 Selftest: `Ran 477 tests`, `OK (skipped=2)`.
 
+Commit ghi URL này là `763d3b3`. CI: https://github.com/wuongg/mira-harness/actions/runs/38491621204 success.
+
 ## 1. Mốc
 
 Mục 1 đến hết là nhật ký Q1–Q8. Nhánh làm việc hiện tại là mục 0.
