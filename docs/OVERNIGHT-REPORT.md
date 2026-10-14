@@ -25,6 +25,7 @@ Thứ tự: R1 quyền chạy check, R2 tiêu chí gắn phép kiểm và artifa
 | S2 | đạt | `61300af` | https://github.com/wuongg/mira-harness/actions/runs/38508501239 success |
 | S3 | đạt | `92ef473` | https://github.com/wuongg/mira-harness/actions/runs/38509001523 success |
 | S4 | đạt | `e965c49` | https://github.com/wuongg/mira-harness/actions/runs/38509232763 success |
+| V1 | đạt trên máy; CI sau khi push | | |
 
 ### R1
 
@@ -157,6 +158,14 @@ Không thêm file resource. Schema nằm trong `mira/obligations.py`, đã là m
 Lệnh: `py -3 tools/trust_eval.py --current-only`
 
 Selftest: `Ran 495 tests`, `OK (skipped=2)`.
+
+### V1
+
+`json_keys` với `expect: array` áp `required` và `forbidden` cho từng phần tử. Phần tử không phải object thì thất bại. Mảng rỗng thất bại, trừ khi người dùng đặt `allow_empty: true`. `[{}]` với `required: ["invoice_id"]` không còn `verified`.
+
+Lệnh: `py -3 -m unittest discover -s tests -p "test_validators.py" -k array`
+
+Selftest: `Ran 502 tests`, `OK (skipped=2)`.
 
 ## 1. Mốc
 

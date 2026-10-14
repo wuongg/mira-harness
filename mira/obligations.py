@@ -70,16 +70,20 @@ def _parse_validator(raw) -> tuple[dict | None, str]:
         required = raw.get("required", [])
         forbidden = raw.get("forbidden", [])
         expect = raw.get("expect", "object")
+        allow_empty = raw.get("allow_empty", False)
         if path is None:
             return None, why
         if not _str_list(required) or not _str_list(forbidden) or not required:
             return None, "validator json_keys thiếu khóa"
         if expect not in ("object", "array"):
             return None, "validator json_keys expect không hỗ trợ"
-        if set(raw) - {"kind", "path", "required", "forbidden", "expect"}:
+        if not isinstance(allow_empty, bool):
+            return None, "validator json_keys allow_empty sai kiểu"
+        if set(raw) - {"kind", "path", "required", "forbidden", "expect", "allow_empty"}:
             return None, "validator có khóa lạ"
         return {"kind": "json_keys", "path": path, "required": list(required),
-                "forbidden": list(forbidden), "expect": expect}, ""
+                "forbidden": list(forbidden), "expect": expect,
+                "allow_empty": allow_empty}, ""
     if kind == "shape":
         path, why = _rel_path(str(raw.get("path") or ""))
         suffixes = raw.get("suffixes", [])
@@ -292,21 +296,36 @@ def _apply_validator(spec: dict, root: Path | None, allowed: set[str]) -> dict:
             return {"state": "failed", "verified": False, "command_passed": False,
                     "reason": "không phải JSON", "proves": "",
                     "does_not_prove": "không kiểm giá trị ngoài khóa đã khai"}
-        if spec["expect"] == "object" and not isinstance(loaded, dict):
+
+        def keys_ok(item) -> bool:
+            return (isinstance(item, dict)
+                    and all(key in item for key in spec["required"])
+                    and not any(key in item for key in spec["forbidden"]))
+
+        if spec["expect"] == "object":
+            ok = keys_ok(loaded)
+            reason = "object đủ khóa đã khai" if ok else "JSON lệch khóa hoặc không phải object"
+            proves = "object JSON có đúng các khóa đã khai"
+        elif not isinstance(loaded, list):
             ok = False
-        elif spec["expect"] == "array" and not isinstance(loaded, list):
+            reason = "JSON không phải mảng"
+            proves = ""
+        elif not loaded and not spec.get("allow_empty"):
             ok = False
-        elif isinstance(loaded, dict):
-            ok = all(key in loaded for key in spec["required"]) and not any(
-                key in loaded for key in spec["forbidden"])
+            reason = "mảng rỗng không được cho phép"
+            proves = ""
         else:
-            ok = True
+            bad = [item for item in loaded if not keys_ok(item)]
+            ok = not bad
+            reason = ("từng phần tử là object và đủ khóa đã khai" if ok
+                      else "phần tử không phải object hoặc lệch khóa")
+            proves = "từng phần tử là object và có đúng các khóa đã khai"
         return {
             "state": "verified" if ok else "failed",
             "verified": ok,
             "command_passed": False,
-            "reason": "JSON đúng kiểu và khóa đã khai" if ok else "JSON lệch khóa hoặc kiểu",
-            "proves": "JSON phân tích được và có đúng các khóa đã khai",
+            "reason": reason,
+            "proves": proves,
             "does_not_prove": "không kiểm giá trị ngoài khóa đã khai",
         }
     if kind == "shape":

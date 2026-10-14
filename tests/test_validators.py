@@ -85,6 +85,51 @@ class ValidatorTest(unittest.TestCase):
         self.assertTrue(rows[0]["criterion_verified"])
         self.assertIn("không kiểm giá trị", rows[0]["does_not_prove"])
 
+    def _array(self, body: str, *, allow_empty: bool = False):
+        spec = {
+            "kind": "json_keys", "path": "rows.json",
+            "required": ["invoice_id"], "forbidden": ["token"], "expect": "array",
+        }
+        if allow_empty:
+            spec["allow_empty"] = True
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "rows.json").write_text(body, encoding="utf-8")
+            item = {"schema": 1, "id": "arr", "text": "moi phan tu co invoice_id",
+                    "validator": spec}
+            return judge_obligations([item], cwd=root, run_id="run-a")[0]
+
+    def test_array_phan_tu_rong_khong_dat(self):
+        row = self._array("[{}]")
+        self.assertFalse(row["criterion_verified"])
+        self.assertEqual(row["state"], "failed")
+
+    def test_array_thieu_khoa_khong_dat(self):
+        row = self._array('[{"invoice_id":"a"},{"name":"b"}]')
+        self.assertFalse(row["criterion_verified"])
+
+    def test_array_khoa_cam_khong_dat(self):
+        row = self._array('[{"invoice_id":"a","token":"x"}]')
+        self.assertFalse(row["criterion_verified"])
+
+    def test_array_hon_hop_kieu_khong_dat(self):
+        row = self._array('[{"invoice_id":"a"}, "chuoi"]')
+        self.assertFalse(row["criterion_verified"])
+
+    def test_array_rong_khong_dat_ngam(self):
+        row = self._array("[]")
+        self.assertFalse(row["criterion_verified"])
+        self.assertIn("rỗng", row["reason"])
+
+    def test_array_rong_khi_nguoi_dung_cho_phep(self):
+        row = self._array("[]", allow_empty=True)
+        self.assertTrue(row["criterion_verified"])
+
+    def test_array_hop_le(self):
+        row = self._array('[{"invoice_id":"a"},{"invoice_id":"b","name":"n"}]')
+        self.assertTrue(row["criterion_verified"])
+        self.assertIn("từng phần tử", row["proves"])
+
     def test_shape_dung_duoi(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
