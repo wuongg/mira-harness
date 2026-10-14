@@ -37,7 +37,7 @@ Thứ tự: R1 quyền chạy check, R2 tiêu chí gắn phép kiểm và artifa
 | L2 | đạt | `0719f51` | https://github.com/wuongg/mira-harness/actions/runs/38515440770 success |
 | L3 | đạt | `063e993` | https://github.com/wuongg/mira-harness/actions/runs/38516162248 success |
 | L4 | đạt | `2f7d6fd` | https://github.com/wuongg/mira-harness/actions/runs/38518143543 success |
-| P1 | đạt, chờ CI |  |  |
+| P1 | đạt | `e7a7f36` | https://github.com/wuongg/mira-harness/actions/runs/38529381006 success |
 
 ### R1
 
@@ -331,6 +331,8 @@ Sau promote, cây nguồn có thêm file ngoài snapshot staging (ví dụ `.mir
 Lệnh: `py -3 -m unittest discover -s tests -p "test_evidence_bind.py" -v`
 
 Selftest: `Ran 543 tests`, `OK (skipped=2)`.
+
+CI: https://github.com/wuongg/mira-harness/actions/runs/38529381006 success. SHA `e7a7f36`.
 
 ## 1. Mốc
 
