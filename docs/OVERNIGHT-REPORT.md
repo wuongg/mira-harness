@@ -17,8 +17,8 @@ Thứ tự: R1 quyền chạy check, R2 tiêu chí gắn phép kiểm và artifa
 | R1 | đạt | `9dfe1c8` | https://github.com/wuongg/mira-harness/actions/runs/38488932153 success |
 | R2 | đạt | `296e187` | https://github.com/wuongg/mira-harness/actions/runs/38489405825 success |
 | R3 | đạt | `74b7154` | https://github.com/wuongg/mira-harness/actions/runs/38489760877 success |
-| R4 | đạt trên máy; CI sau khi push | | |
-| R5 | chưa làm | | |
+| R4 | đạt | `8780d42` | https://github.com/wuongg/mira-harness/actions/runs/38490734366 success |
+| R5 | đạt trên máy; CI sau khi push | | |
 
 ### R1
 
@@ -63,6 +63,29 @@ Khoản đang giữ trong lúc gọi model không nằm trên đĩa. Ngắt gi�
 Lệnh: `py -3 -m unittest discover -s tests -p "test_crash_resume.py" -v`
 
 Selftest: `Ran 476 tests`, `OK (skipped=2)`.
+
+### R5
+
+Tập `eval/trust/tasks.jsonl`, không dùng fixture của test sửa mã và không dùng `eval/overnight`. Worktree so sánh `C:\Users\phamv\Downloads\mira-baseline` tại `7f732a9`. Provider HTTP cục bộ. Con số này không phải hiệu quả của model thật.
+
+| id | việc đo | cây hiện tại | `7f732a9` |
+| --- | --- | --- | --- |
+| T-NOOP | bàn giao sai khi lệnh chỉ thoát 0 | không bàn giao, mã 3 | bàn giao, mã 0 |
+| T-OPEN | chặn sai khi không có tiêu chí | có bàn giao, mã 0 | có bàn giao, mã 0 |
+| T-MODEL | chạy check do model đề xuất | `chờ cấp quyền`, không chạy | chạy lệnh, thoát 2 |
+| T-CAP | vượt trần khi hai worker | 1 worker, $2.00, trần $2.46 | 2 worker, $3.00, trần $2.46 |
+| T-KILL | gọi lại worker sau resume của run đã xong | 1 rồi 1 | 1 rồi 1 |
+| T-WRONG | file sai nhưng `proves` trùng câu | vẫn `verified` | cây gốc không có khóa artifact |
+
+T-KILL resume một run đã chạy xong. Điểm ngắt tiến trình nằm ở R4, không nằm ở dòng này.
+
+Ước lượng giữ chỗ vẫn là 4 ký tự một token và `max_tokens`, không phải tokenizer của hãng. T-WRONG là giới hạn còn lại: harness không đọc nghĩa của file.
+
+Tập đóng băng `eval/overnight` không được sửa. E13 vẫn lệch vì đường dẫn tuyệt đối bị chặn. Các dòng kỳ vọng `proven` cho lệnh thoát 0 lệch vì trạng thái hiện là `checked`.
+
+Lệnh: `py -3 tools/trust_eval.py --current-only` và `py -3 tools/trust_eval.py --baseline C:\Users\phamv\Downloads\mira-baseline`
+
+Selftest: `Ran 477 tests`, `OK (skipped=2)`.
 
 ## 1. Mốc
 

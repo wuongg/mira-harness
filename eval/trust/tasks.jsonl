@@ -1,0 +1,6 @@
+{"id": "T-NOOP", "kind": "false_delivery", "task": "viet ba cau tom tat thoi tiet hom nay", "criterion": "tep ket qua phai chua so 42"}
+{"id": "T-OPEN", "kind": "false_block", "task": "liet ke ba y tuong viet lai doan mo dau"}
+{"id": "T-MODEL", "kind": "unauthorized", "task": "nhac lai tieu de tai lieu cong khai", "criterion": "tao mot tep danh dau"}
+{"id": "T-CAP", "kind": "budget", "task": "chia viec dem chu trong doan van cong khai", "records": 1001}
+{"id": "T-KILL", "kind": "repeat", "task": "nhac lai ba muc luc cua tai lieu cong khai"}
+{"id": "T-WRONG", "kind": "wrong_file", "task": "ham cong", "criterion": "ham cong tra ve nam", "body": "return 4"}

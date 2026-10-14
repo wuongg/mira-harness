@@ -1322,9 +1322,9 @@ def _deliver(args, plan, res) -> int:
                          "blocked": ui.c("bị chặn", "yellow", "bold"),
                          "error": ui.c("lỗi", "red", "bold"),
                          "stopped_budget": ui.c("dừng vì ngân sách", "yellow", "bold")}.get(st, st))
-    if res["fail_reason"]:
+    if res.get("fail_reason"):
         ui.kv("Lý do", res["fail_reason"])
-    if res["verifier_verdict"]:
+    if res.get("verifier_verdict"):
         ui.kv("Verifier", res["verifier_verdict"])
     if res["oracle_score"] is not None:
         ui.kv("Oracle", f"{res['oracle_score']:.2f}")
@@ -1439,7 +1439,7 @@ def cmd_team(args) -> int:
             for line in (res.get("contract_diff") or {}).get("lines") or []:
                 ui.note(line, "warn")
             return 2
-        if res.get("status") != "ok":
+        if code != 0 or res.get("status") != "ok":
             for row in res.get("obligations") or []:
                 ui.note(_obligation_note(row), "info")
             if res.get("status") == "withheld":
