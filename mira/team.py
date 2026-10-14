@@ -17,6 +17,7 @@ fail-closed vẫn do code quyết.
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import random
@@ -313,13 +314,41 @@ def checkpoint_path(root: Path, run_id: str) -> Path:
     return Path(root) / ".mira" / "runs" / run_id / "checkpoint.json"
 
 
+def tree_hash(path: Path) -> str:
+    """Hash nội dung file trong một cây. Đổi một byte là hash khác."""
+    digest = hashlib.sha256()
+    root = Path(path)
+    for item in sorted(p for p in root.rglob("*") if p.is_file()):
+        rel = item.relative_to(root).as_posix().encode("utf-8")
+        digest.update(rel)
+        digest.update(b"\0")
+        digest.update(item.read_bytes())
+        digest.update(b"\0")
+    return digest.hexdigest()
+
+
+def _test_pause(name: str) -> None:
+    """Điểm dừng chỉ khi test đặt MIRA_PAUSE. Mặc định không chờ."""
+    if os.environ.get("MIRA_PAUSE") != name:
+        return
+    flag = os.environ.get("MIRA_PAUSE_FLAG")
+    if flag:
+        Path(flag).write_text(name, encoding="utf-8")
+    time.sleep(20)
+
+
+_CHECKPOINT_LOCK = threading.Lock()
+
+
 def write_checkpoint(root: Path, payload: dict) -> None:
     """Ghi nguyên tử. File tạm cùng thư mục rồi os.replace."""
     dest = checkpoint_path(root, payload["id"])
-    dest.parent.mkdir(parents=True, exist_ok=True)
-    tmp = dest.with_suffix(".json.tmp")
-    tmp.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
-    os.replace(tmp, dest)
+    with _CHECKPOINT_LOCK:
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        tmp = dest.with_suffix(".json.tmp")
+        tmp.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+        _test_pause("checkpoint")
+        os.replace(tmp, dest)
 
 
 def _ledger_ok(blob: dict) -> bool:
@@ -336,6 +365,10 @@ def ledger_from_checkpoint(blob: dict) -> Ledger:
     led.total_in = int(blob.get("total_in", 0))
     led.total_out = int(blob.get("total_out", 0))
     led.subagent_runs = int(blob.get("subagent_runs", 0))
+    led.reserved = float(blob.get("reserved", 0.0))
+    led.uncertain_usd = float(blob.get("uncertain_usd", 0.0))
+    led.uncertain = list(blob.get("uncertain") or [])
+    led.requests = list(blob.get("requests") or [])
     return led
 
 
@@ -419,6 +452,19 @@ def promote_staging(real_root: Path, staging: Path, audit: list) -> list[str]:
     return promoted
 
 
+ESTIMATE_METHOD = (
+    "heuristic: khoảng 4 ký tự một token cho đầu vào, max_tokens cho đầu ra; "
+    "không phải tokenizer và không phải trần trên"
+)
+
+
+def estimate_hold(rates: dict, system: str, user: str, max_out: int) -> float:
+    """Ước lượng để giữ chỗ. Có thể thấp hơn hoặc cao hơn usage thật."""
+    tin = max(1, (len(system) + len(user)) // 4)
+    tout = max(1, int(max_out or 1))
+    return (tin * float(rates["in"]) + tout * float(rates["out"])) / 1e6
+
+
 def expand_roles(roles: list[str], lane: int, workers: int) -> list[str]:
     """N worker / N verifier khi làn 2 chạy song song; ngược lại giữ nguyên."""
     if lane != 2 or workers <= 1:
@@ -440,9 +486,106 @@ class Ledger:
     total_in: int = 0
     total_out: int = 0
     subagent_runs: int = 0          # đếm đội con trong CẢ cây (chặn bùng nổ)
+    reserved: float = 0.0            # tiền đang giữ chỗ, chưa phải usage thật
+    uncertain_usd: float = 0.0       # request có thể đã được xử lý, không coi là miễn phí
+    uncertain: list[dict] = field(default_factory=list)
+    requests: list[dict] = field(default_factory=list)
 
     def __post_init__(self) -> None:
         self._lock = threading.RLock()
+        self.on_persist = None
+
+    def _flush(self) -> None:
+        hook = self.on_persist
+        if hook is not None:
+            hook()
+
+    def begin_request(self, role: str, model: str, hold: float) -> str:
+        rid = uuid.uuid4().hex[:12]
+        with self._lock:
+            self.requests.append({
+                "id": rid, "role": role, "model": model, "state": "reserved",
+                "hold": round(float(hold), 6), "usd": 0.0, "exceeded": False,
+                "estimate": ESTIMATE_METHOD,
+            })
+            self.reserved += float(hold)
+        return rid
+
+    def mark_request(self, rid: str, state: str) -> None:
+        with self._lock:
+            for req in self.requests:
+                if req["id"] == rid:
+                    req["state"] = state
+
+    def settle_request(self, rid: str, usd: float) -> None:
+        with self._lock:
+            for req in self.requests:
+                if req["id"] != rid or req["state"] == "settled":
+                    continue
+                self.reserved = max(0.0, self.reserved - float(req["hold"]))
+                req["state"] = "settled"
+                req["usd"] = round(float(usd), 6)
+                req["exceeded"] = float(usd) > float(req["hold"]) + 1e-9
+
+    def lose_request(self, rid: str, reason: str) -> None:
+        with self._lock:
+            for req in self.requests:
+                if req["id"] != rid or req["state"] not in ("reserved", "dispatched"):
+                    continue
+                self.reserved = max(0.0, self.reserved - float(req["hold"]))
+                self.uncertain_usd += float(req["hold"])
+                req["state"] = "uncertain"
+                req["reason"] = reason
+                self.uncertain.append({
+                    "id": rid, "role": req["role"], "model": req["model"],
+                    "usd": round(float(req["hold"]), 6), "reason": reason,
+                })
+
+    def reconcile_interrupted(self) -> int:
+        """Request còn reserved hoặc dispatched sau khi tiến trình chết không được xóa."""
+        changed = 0
+        with self._lock:
+            open_ids = [req["id"] for req in self.requests
+                        if req["state"] in ("reserved", "dispatched")]
+        for rid in open_ids:
+            self.lose_request(rid, "gián đoạn trước khi đối soát")
+            changed += 1
+        return changed
+
+    def tracked_call(self, role: str, model: str, prov, system: str, user: str,
+                     rates: dict, *, source: str, max_out: int,
+                     declared_by_user: bool = False):
+        """Ghi dispatched trước khi gửi. Usage vượt ước lượng vẫn bị tính."""
+        from .providers import ProviderError
+        hold = estimate_hold(rates, system, user, max_out)
+        rid = self.begin_request(role, model, hold)
+        self._flush()
+        self.mark_request(rid, "dispatched")
+        self._flush()
+        try:
+            text, usage = prov.call(system, user)
+        except ProviderError as exc:
+            self.lose_request(rid, "request có thể đã được xử lý")
+            self._note_attempts(rid, getattr(prov, "attempts", 1))
+            self._flush()
+            raise exc
+        usd = self.charge(role, model, usage or {}, getattr(prov, "name", "") or "",
+                          price=rates, declared_by_user=declared_by_user,
+                          price_source=source)
+        self.settle_request(rid, usd)
+        self._note_attempts(rid, getattr(prov, "attempts", 1))
+        return text, usage, usd, rid
+
+    def _note_attempts(self, rid: str, n: int) -> None:
+        with self._lock:
+            for req in self.requests:
+                if req["id"] == rid:
+                    req["attempts"] = max(int(n or 1), 1)
+                    return
+
+    def committed(self) -> float:
+        """Đã chi, đang giữ chỗ, và khoản chưa chắc. Không chỉ total_usd."""
+        return self.total_usd + self.reserved + self.uncertain_usd
 
     def charge(self, role: str, model: str, usage: dict, provider: str,
                *, price: dict | None = None, declared_by_user: bool = False,
@@ -469,7 +612,12 @@ class Ledger:
         by_role: dict[str, float] = {}
         for r in self.rows:
             by_role[r["role"]] = round(by_role.get(r["role"], 0.0) + r["usd"], 6)
-        return {"total_usd": round(self.total_usd, 6), "by_role": by_role,
+        return {"total_usd": round(self.total_usd, 6),
+                "reserved": round(self.reserved, 6),
+                "uncertain_usd": round(self.uncertain_usd, 6),
+                "uncertain": list(self.uncertain),
+                "requests": list(self.requests),
+                "by_role": by_role,
                 "tokens_in": self.total_in, "tokens_out": self.total_out,
                 "subagent_runs": self.subagent_runs,
                 "all_priced": all(r["priced"] for r in self.rows) if self.rows else True,
@@ -578,6 +726,7 @@ def execute_plan(plan: TeamPlan, *, provider_name: str | None = None,
     staging_box: list[Path | None] = [None]
     status = "ok"
     fail_reason = None
+    hold = None
     run_id = run_id or uuid.uuid4().hex[:12]
     pending = [dict(step) for step in (resume_steps or [])]
     if resume_staging:
@@ -604,8 +753,13 @@ def execute_plan(plan: TeamPlan, *, provider_name: str | None = None,
                 "total_in": ledger.total_in,
                 "total_out": ledger.total_out,
                 "subagent_runs": ledger.subagent_runs,
+                "reserved": round(ledger.reserved, 6),
+                "uncertain_usd": round(ledger.uncertain_usd, 6),
+                "uncertain": list(ledger.uncertain),
+                "requests": list(ledger.requests),
             },
             "staging": str(staging_box[0]) if staging_box[0] is not None else None,
+            "staging_hash": tree_hash(staging_box[0]) if staging_box[0] is not None else None,
             "status": status,
             "fail_reason": fail_reason,
             "hints": {
@@ -627,7 +781,19 @@ def execute_plan(plan: TeamPlan, *, provider_name: str | None = None,
                 "parent": None,
             },
             "require_evidence": bool(getattr(plan, "require_evidence", False)),
+            "criteria_origin": getattr(plan, "criteria_origin", None) or "model",
         })
+
+    previous_persist = ledger.on_persist
+
+    def _flush_ledger() -> None:
+        _snapshot()
+        if previous_persist is not None:
+            previous_persist()
+
+    ledger.on_persist = _flush_ledger
+    if resume_steps is not None and ledger.reconcile_interrupted():
+        _snapshot()
 
     def _note(st: dict) -> dict:
         steps.append(st)
@@ -703,17 +869,24 @@ def execute_plan(plan: TeamPlan, *, provider_name: str | None = None,
             return {"role": role, "model": model, "shard": shard, "blocked": True,
                     "error": f"thiếu key cho {prov.name} — đặt {key}",
                     "context_policy": policy}
+        hold = estimate_hold(rates, ROLE_SYSTEM[role], _user, max_tokens)
+        with lock:
+            if plan.cap_usd and ledger.committed() + hold > plan.cap_usd + 1e-9:
+                return {"role": role, "model": model, "shard": shard, "blocked": True,
+                        "budget": True, "error": "không đủ ngân sách để giữ chỗ",
+                        "context_policy": policy}
         t0 = time.time()
         try:
-            text, usage = prov.call(ROLE_SYSTEM[role], _user)
+            text, usage, usd, rid = ledger.tracked_call(
+                role, model, prov, ROLE_SYSTEM[role], _user, rates,
+                source=source, max_out=max_tokens, declared_by_user=source == "cli")
         except ProviderError as e:
             return {"role": role, "model": model, "shard": shard, "error": str(e),
+                    "uncertain": True, "usd": round(hold, 6),
                     "attempt": getattr(prov, "attempts", 1), "context_policy": policy}
-        with lock:                                  # sổ cái phải nguyên tử (I8)
-            usd = ledger.charge(role, model, usage, prov.name, price=rates,
-                                declared_by_user=source == "cli", price_source=source)
         return {"role": role, "model": model, "shard": shard, "provider": prov.name,
                 "text": text, "usage": usage, "usd": round(usd, 6),
+                "hold": round(hold, 6), "request_id": rid,
                 "seconds": round(time.time() - t0, 2),
                 "attempt": getattr(prov, "attempts", 1),
                 "context_policy": policy}
@@ -816,13 +989,14 @@ def execute_plan(plan: TeamPlan, *, provider_name: str | None = None,
         child = Session(root=staging_box[0], mode="acceptEdits", approve=lambda _t, _a: True)
         child.gate_task = plan.task_text
         child.recruited = True
+        child.ledger = ledger
+        before_edit = ledger.total_usd
         res = run_turn(task=shown, session=child, model=model,
                        provider_name=provider_name, base_url=base_url, api_key=api_key,
                        max_tokens=max_tokens, protocol="text", no_stream=True,
                        price_in=plan.declared_price)
         usage = res.get("usage") or {"in": 0, "out": 0}
-        usd = ledger.charge("worker", model, usage, "run_turn", price=rates,
-                            declared_by_user=source == "cli", price_source=source)
+        usd = round(ledger.total_usd - before_edit, 6)
         return {"role": "worker", "model": _model_of("worker"), "provider": "run_turn",
                 "text": res.get("final") or "", "usage": usage,
                 "usd": usd, "seconds": float(res.get("seconds") or 0),
@@ -830,7 +1004,7 @@ def execute_plan(plan: TeamPlan, *, provider_name: str | None = None,
                 "context_policy": budget["policy"]}
 
     def _over_cap() -> bool:
-        return bool(plan.cap_usd) and ledger.total_usd >= plan.cap_usd
+        return bool(plan.cap_usd) and ledger.committed() >= plan.cap_usd
 
     oracle_gate = "disabled"
     if oracle == "on" and plan.lane == 2:
@@ -865,6 +1039,9 @@ def execute_plan(plan: TeamPlan, *, provider_name: str | None = None,
         st = _reuse(lambda role=role: _call(role, prior=_prior()))
         _log_step(st)
         _note(st)
+        if st.get("budget"):
+            _stop_budget()
+            break
         if st.get("error") or st.get("blocked"):
             status = "blocked" if st.get("blocked") else "error"
             fail_reason = st["error"]
@@ -881,6 +1058,9 @@ def execute_plan(plan: TeamPlan, *, provider_name: str | None = None,
                     st2 = _reuse(lambda: _call("planner", prior=_prior() + [f"TỪ CHỐI skill: {', '.join(refused)}"]))
                     _log_step(st2)
                     _note(st2)
+                    if st2.get("budget"):
+                        _stop_budget()
+                        break
                     if st2.get("error") or st2.get("blocked"):
                         status = "blocked" if st2.get("blocked") else "error"
                         fail_reason = st2["error"]
@@ -904,6 +1084,9 @@ def execute_plan(plan: TeamPlan, *, provider_name: str | None = None,
                 _log_step(st)
                 _note(st)
                 worker_steps.append(st)
+                if st.get("budget"):
+                    _stop_budget()
+                    break
                 if st.get("error") or st.get("blocked"):
                     status = "blocked" if st.get("blocked") else "error"
                     fail_reason = st["error"]
@@ -917,16 +1100,19 @@ def execute_plan(plan: TeamPlan, *, provider_name: str | None = None,
             skill_at[0] = -1
         elif has_worker:
             from .tools import shape_of
-            if root is not None and shape_of(plan.task_text) == "edit":
+            if root is not None and (
+                    shape_of(plan.task_text) == "edit" or getattr(plan, "stage_worker", False)):
                 worker_steps = [_reuse(lambda: _worker_edit(_prior()))]
                 for st in worker_steps:
                     _log_step(st)
                     _note(st)
                 bad = next((s for s in worker_steps if s.get("error") or s.get("blocked")), None)
-                if bad:
+                if bad and bad.get("budget"):
+                    _stop_budget()
+                elif bad:
                     status = "blocked" if bad.get("blocked") else "error"
                     fail_reason = bad["error"]
-                if _over_cap():
+                if status == "ok" and _over_cap():
                     _stop_budget()
                 prev = worker_steps[0].get("text") or ""
             else:
@@ -942,10 +1128,12 @@ def execute_plan(plan: TeamPlan, *, provider_name: str | None = None,
                     _log_step(st)
                     _note(st)
                 bad = next((s for s in worker_steps if s.get("error") or s.get("blocked")), None)
-                if bad:
+                if bad and bad.get("budget"):
+                    _stop_budget()
+                elif bad:
                     status = "blocked" if bad.get("blocked") else "error"
                     fail_reason = bad["error"]
-                if _over_cap():
+                if status == "ok" and _over_cap():
                     _stop_budget()
                 prev = "\n\n".join(f"[worker {i + 1}] {s.get('text', '')}"
                                    for i, s in enumerate(worker_steps) if s.get("text"))
@@ -1030,12 +1218,35 @@ def execute_plan(plan: TeamPlan, *, provider_name: str | None = None,
     brief = getattr(plan, "brief", None)
     if (getattr(plan, "require_evidence", False) and isinstance(brief, dict)
             and brief.get("acceptance_criteria")):
-        from .obligations import judge_obligations, unproven
+        from .obligations import criterion_commands, judge_obligations, unproven
+        criteria = list(brief["acceptance_criteria"])
+        origin = getattr(plan, "criteria_origin", None) or "model"
+        granted = set()
+        trusted = origin == "user"
+        if trusted:
+            all_cmds = {cmd for item in criteria for cmd in criterion_commands(item)}
+            explicit = getattr(plan, "granted_cmds", None)
+            granted = all_cmds if explicit is None else set(explicit) & all_cmds
+        records = {}
+        base = staging_box[0] or root
+        if isinstance(evidence, dict) and base is not None:
+            import hashlib
+            for rel in evidence.get("changed") or []:
+                path = Path(base) / str(rel)
+                if path.is_file():
+                    key = str(rel).replace("\\", "/")
+                    records[key] = {
+                        "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+                        "run_id": run_id,
+                    }
         obligations = judge_obligations(
-            list(brief["acceptance_criteria"]), steps, evidence,
-            cwd=staging_box[0] or root)
+            criteria, steps, evidence, cwd=base, granted=granted,
+            run_id=run_id, artifacts=records, validators=trusted,
+            brief_hash=getattr(plan, "brief_hash", None) or "")
         missing = unproven(obligations)
         if status == "ok" and missing:
+            states = {row.get("state") for row in missing}
+            hold = "needs_confirmation" if states == {"needs_confirmation"} else "unproven"
             status, fail_reason = "withheld", "còn tiêu chí chưa có bằng chứng"
 
     staging_out = None
@@ -1046,7 +1257,8 @@ def execute_plan(plan: TeamPlan, *, provider_name: str | None = None,
             staging_out = str(staging_box[0])
 
     _snapshot()
-    return {"id": run_id, "status": status, "fail_reason": fail_reason,
+    ledger.on_persist = previous_persist
+    return {"id": run_id, "status": status, "fail_reason": fail_reason, "hold": hold,
             "verifier_verdict": verifier_verdict, "oracle_score": oracle_score,
             "verdict_raw": verifier_raw, "verdict_parsed": verifier_parsed,
             "oracle_gate": oracle_gate,
@@ -1061,14 +1273,27 @@ def execute_plan(plan: TeamPlan, *, provider_name: str | None = None,
 
 def _obligation_note(row: dict) -> str:
     """Một dòng người đọc được: đã kiểm, chưa kiểm, hoặc bị chặn, kèm cách xử lý."""
-    label = {"proven": "đã kiểm", "failed": "bị chặn", "unproven": "chưa kiểm"}.get(
-        row.get("state") or "", row.get("state") or "")
+    label = {
+        "verified": "đã xác minh",
+        "checked": "đã chạy lệnh, chưa xác minh tiêu chí",
+        "unverified": "đã chạy lệnh, chưa xác minh tiêu chí" if row.get("command_passed")
+        else "chưa xác minh",
+        "failed": "bị chặn", "unproven": "chưa kiểm",
+        "needs_confirmation": "chưa kiểm, cần xác nhận",
+        "pending": "chờ cấp quyền", "blocked": "bị chặn",
+    }.get(row.get("state") or "", row.get("state") or "")
     reason = row.get("reason") or ""
     hint = ""
-    if row.get("state") == "unproven":
-        hint = " Thêm tiền tố check: rồi chạy lại."
+    if row.get("state") in ("unproven", "needs_confirmation"):
+        hint = " Tiêu chí này chưa được kiểm tự động."
+    elif row.get("state") in ("checked", "unverified") and row.get("command_passed"):
+        hint = " Lệnh thoát 0 chưa chứng minh câu tiêu chí."
+    elif row.get("state") == "unverified":
+        hint = " Chưa có validator phù hợp."
     elif row.get("state") == "failed":
         hint = " Sửa cho lệnh thoát 0 rồi chạy lại."
+    elif row.get("state") == "pending":
+        hint = " Đưa đúng lệnh trong file --brief. Model không tự được chạy."
     text = f"{label}: {row.get('criterion') or ''}"
     if reason:
         text += f" — {reason}."
@@ -1162,13 +1387,16 @@ def resume_team(root: Path, run_id: str, **kw) -> tuple[int, dict]:
     price = data.get("declared_price")
     if price:
         plan.declared_price = (float(price[0]), float(price[1]))
+    origin_arg = kw.pop("criteria_origin", None)
     if new_brief is not None:
         from .intake import brief_hash
         plan.brief = new_brief
         plan.brief_hash = brief_hash(new_brief)
+        plan.criteria_origin = origin_arg or "user"
     elif stored:
         plan.brief = stored
         plan.brief_hash = data.get("brief_hash")
+        plan.criteria_origin = data.get("criteria_origin") or "model"
     passed_flag = bool(kw.pop("require_evidence", False))
     plan.require_evidence = bool(data.get("require_evidence")) or passed_flag
     workers = int(data.get("workers") or 1)
@@ -1187,11 +1415,115 @@ def resume_team(root: Path, run_id: str, **kw) -> tuple[int, dict]:
         if not path.exists():
             return 2, {"status": "error", "error": "staging của checkpoint không còn",
                        "fail_reason": "staging của checkpoint không còn"}
+        saved_hash = data.get("staging_hash")
+        if saved_hash and tree_hash(path) != saved_hash:
+            why = "artifact đã đổi — không tiếp tục kế hoạch cũ"
+            return 2, {"status": "error", "error": why, "fail_reason": why}
     led = ledger_from_checkpoint(data["ledger"])
     res = execute_plan(
         plan, ledger=led, root=root, run_id=run_id, workers=workers,
         resume_steps=steps, resume_staging=staging, **kw)
     return (0 if res.get("status") == "ok" else 3), res
+
+
+def _deliver(args, plan, res) -> int:
+    """Cổng người và bàn giao. Resume thành công đi vào đây, không gọi lại bước đã xong."""
+    from . import ui
+
+    ui.title("KẾT LUẬN")
+    st = res["status"]
+    ui.kv("Trạng thái", {"ok": ui.c("đã làm", "green", "bold"),
+                         "withheld": ui.c("bị chặn", "yellow", "bold"),
+                         "blocked": ui.c("bị chặn", "yellow", "bold"),
+                         "error": ui.c("lỗi", "red", "bold"),
+                         "stopped_budget": ui.c("dừng vì ngân sách", "yellow", "bold")}.get(st, st))
+    if res.get("fail_reason"):
+        ui.kv("Lý do", res["fail_reason"])
+    if res.get("verifier_verdict"):
+        ui.kv("Verifier", res["verifier_verdict"])
+    if res["oracle_score"] is not None:
+        ui.kv("Oracle", f"{res['oracle_score']:.2f}")
+    led = res["ledger"]
+    ui.kv("Chi phí", f"${led['total_usd']:.6f} · {led['tokens_in']}+{led['tokens_out']} tok"
+          + ("" if led["all_priced"] else "  (có model chưa có giá trong bảng)"))
+    for k, v in led["by_role"].items():
+        ui.kv("  " + k, f"${v:.6f}")
+    for row in res.get("obligations") or []:
+        ui.note(_obligation_note(row), "info")
+
+    if st != "ok":
+        print()
+        ui.note("fail-closed (I2): KHÔNG ghi gì ra ngoài.", "warn")
+        if getattr(args, "out", None):
+            d = Path(args.out)
+            d.mkdir(parents=True, exist_ok=True)
+            (d / "withheld.json").write_text(json.dumps(res, ensure_ascii=False, indent=2),
+                                             encoding="utf-8")
+            ui.note(f"hồ sơ giữ lại: {d}/withheld.json", "info")
+        return 3
+
+    def _hold() -> None:
+        if res.get("staging"):
+            held = withhold_staging(Path(res["staging"]))
+            res["staging"] = str(held)
+
+    need = plan.gate_tier >= 2
+    approved = True
+    if need and plan.dual_approval:
+        phrases = two_phrases(plan.plan_hash)
+        seen: list[str] = []
+        people: list[dict] = []
+        reject = 0
+        for index, phrase in enumerate(phrases, 1):
+            try:
+                name = input(ui.c(f"\n  Người {index} — tên: ", "bold")).strip()
+                got = input(ui.c(f"  Nhập cụm: {phrase} ", "bold")).strip()
+            except (EOFError, KeyboardInterrupt):
+                name, got = "", ""
+            if name and name in seen:
+                reject = 5
+                break
+            if not name or got != phrase:
+                reject = 4
+                break
+            seen.append(name)
+            people.append({"name": name, "time": time.strftime("%Y-%m-%dT%H:%M:%S"),
+                           "plan_hash": plan.plan_hash})
+        if reject:
+            print()
+            ui.note("hai người chưa duyệt — Executor không ghi.", "warn")
+            _hold()
+            return reject
+        res["gate_person"] = people
+        approved = True
+    elif need and not getattr(args, "approve", False):
+        try:
+            ans = input(ui.c(f"\n  Cổng tầng {plan.gate_tier} — duyệt để ghi? [y/N] ", "bold")).strip().lower()
+        except (EOFError, KeyboardInterrupt):
+            ans = "n"
+        approved = ans in ("y", "yes", "có", "co")
+    if need and not approved:
+        print()
+        ui.note("chưa duyệt — Executor không ghi (đúng I1/I2).", "warn")
+        _hold()
+        return 4
+
+    if res.get("staging"):
+        staging = Path(res["staging"])
+        if staging.is_dir() and not staging.name.endswith(".withheld"):
+            audit: list[dict] = []
+            res["promoted"] = promote_staging(Path.cwd(), staging, audit)
+            res["promote_audit"] = audit
+            shutil.rmtree(staging, ignore_errors=True)
+
+    if not getattr(args, "out", None):
+        ui.note("không có --out nên không ghi gì", "info")
+        return 0
+    _test_pause("handoff")
+    d = _executor_write(Path(args.out), plan, res)
+    print()
+    ui.note(f"Executor đã ghi: {d}/result.md · {d}/trace.json", "ok")
+    return 0
 
 
 def cmd_team(args) -> int:
@@ -1215,19 +1547,24 @@ def cmd_team(args) -> int:
             oracle=getattr(args, "oracle", None),
             on_step=lambda m: print("  " + m),
             brief=brief,
+            criteria_origin="user" if brief is not None else None,
             require_evidence=bool(getattr(args, "require_evidence", False)))
-        for row in res.get("obligations") or []:
-            ui.note(_obligation_note(row), "info")
         if code == 2:
             ui.note(res.get("error") or "không có checkpoint cho id này", "bad")
             for line in (res.get("contract_diff") or {}).get("lines") or []:
                 ui.note(line, "warn")
             return 2
-        if res.get("status") == "withheld":
-            ui.note(res.get("fail_reason") or "còn tiêu chí chưa có bằng chứng", "warn")
-            ui.note("GIỮ LẠI — không giao", "warn")
-            return 3
-        return code
+        if code != 0 or res.get("status") != "ok":
+            for row in res.get("obligations") or []:
+                ui.note(_obligation_note(row), "info")
+            if res.get("status") == "withheld":
+                ui.note(res.get("fail_reason") or "còn tiêu chí chưa có bằng chứng", "warn")
+                ui.note("GIỮ LẠI — không giao", "warn")
+            return code
+        data = load_checkpoint(Path.cwd(), args.resume)
+        hints = dict(data.get("hints") or {})
+        plan = build_plan(data.get("task") or "", **hints)
+        return _deliver(args, plan, res)
     if not getattr(args, "task", None):
         ui.note("thiếu yêu cầu", "bad")
         return 2
@@ -1322,6 +1659,7 @@ def cmd_team(args) -> int:
             from_file = False
         plan.brief = obj
         plan.brief_hash = brief_hash(obj)
+        plan.criteria_origin = "user" if from_file else "model"
         plan.require_evidence = bool(getattr(args, "require_evidence", False))
         print(canonical_brief(obj))
         if not from_file:
@@ -1348,6 +1686,7 @@ def cmd_team(args) -> int:
             return 8
         plan.brief = obj
         plan.brief_hash = brief_hash(obj)
+        plan.criteria_origin = "user"
     if getattr(args, "require_evidence", False):
         plan.require_evidence = True
     if plan.dual_approval and args.approve:
@@ -1363,97 +1702,4 @@ def cmd_team(args) -> int:
                        oracle=oracle, ledger=intake_ledger,
                        on_step=lambda m: print("  " + m))
 
-    ui.title("KẾT LUẬN")
-    st = res["status"]
-    ui.kv("Trạng thái", {"ok": ui.c("đã làm", "green", "bold"),
-                         "withheld": ui.c("bị chặn", "yellow", "bold"),
-                         "blocked": ui.c("bị chặn", "yellow", "bold"),
-                         "error": ui.c("lỗi", "red", "bold"),
-                         "stopped_budget": ui.c("dừng vì ngân sách", "yellow", "bold")}.get(st, st))
-    if res["fail_reason"]:
-        ui.kv("Lý do", res["fail_reason"])
-    if res["verifier_verdict"]:
-        ui.kv("Verifier", res["verifier_verdict"])
-    if res["oracle_score"] is not None:
-        ui.kv("Oracle", f"{res['oracle_score']:.2f}")
-    led = res["ledger"]
-    ui.kv("Chi phí", f"${led['total_usd']:.6f} · {led['tokens_in']}+{led['tokens_out']} tok"
-          + ("" if led["all_priced"] else "  (có model chưa có giá trong bảng)"))
-    for k, v in led["by_role"].items():
-        ui.kv("  " + k, f"${v:.6f}")
-    for row in res.get("obligations") or []:
-        ui.note(_obligation_note(row), "info")
-
-    # ---- cổng người + Executor ----
-    if st != "ok":
-        print()
-        ui.note("fail-closed (I2): KHÔNG ghi gì ra ngoài.", "warn")
-        if args.out:
-            d = Path(args.out)
-            d.mkdir(parents=True, exist_ok=True)
-            (d / "withheld.json").write_text(json.dumps(res, ensure_ascii=False, indent=2),
-                                             encoding="utf-8")
-            ui.note(f"hồ sơ giữ lại: {d}/withheld.json", "info")
-        return 3
-
-    def _hold() -> None:
-        if res.get("staging"):
-            held = withhold_staging(Path(res["staging"]))
-            res["staging"] = str(held)
-
-    need = plan.gate_tier >= 2
-    approved = True
-    if need and plan.dual_approval:
-        phrases = two_phrases(plan.plan_hash)
-        seen: list[str] = []
-        people: list[dict] = []
-        reject = 0
-        for index, phrase in enumerate(phrases, 1):
-            try:
-                name = input(ui.c(f"\n  Người {index} — tên: ", "bold")).strip()
-                got = input(ui.c(f"  Nhập cụm: {phrase} ", "bold")).strip()
-            except (EOFError, KeyboardInterrupt):
-                name, got = "", ""
-            if name and name in seen:
-                reject = 5
-                break
-            if not name or got != phrase:
-                reject = 4
-                break
-            seen.append(name)
-            people.append({"name": name, "time": time.strftime("%Y-%m-%dT%H:%M:%S"),
-                           "plan_hash": plan.plan_hash})
-        if reject:
-            print()
-            ui.note("hai người chưa duyệt — Executor không ghi.", "warn")
-            _hold()
-            return reject
-        res["gate_person"] = people
-        approved = True
-    elif need and not args.approve:
-        try:
-            ans = input(ui.c(f"\n  Cổng tầng {plan.gate_tier} — duyệt để ghi? [y/N] ", "bold")).strip().lower()
-        except (EOFError, KeyboardInterrupt):
-            ans = "n"
-        approved = ans in ("y", "yes", "có", "co")
-    if need and not approved:
-        print()
-        ui.note("chưa duyệt — Executor không ghi (đúng I1/I2).", "warn")
-        _hold()
-        return 4
-
-    if res.get("staging"):
-        staging = Path(res["staging"])
-        if staging.is_dir() and not staging.name.endswith(".withheld"):
-            audit: list[dict] = []
-            res["promoted"] = promote_staging(Path.cwd(), staging, audit)
-            res["promote_audit"] = audit
-            shutil.rmtree(staging, ignore_errors=True)
-
-    if not args.out:
-        ui.note("không có --out nên không ghi gì", "info")
-        return 0
-    d = _executor_write(Path(args.out), plan, res)
-    print()
-    ui.note(f"Executor đã ghi: {d}/result.md · {d}/trace.json", "ok")
-    return 0
+    return _deliver(args, plan, res)

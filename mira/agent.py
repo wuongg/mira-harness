@@ -105,6 +105,22 @@ def _shrink(convo: list[dict], audit: list[dict]) -> list[dict]:
     return [{"role": "user", "content": event["summary"]}, *convo[-kept:]]
 
 
+def _priced_call(session, prov, model: str, system: str, user: str):
+    """Có sổ cái thì ghi dispatched trước khi gửi. Không có thì gọi thẳng."""
+    ledger = getattr(session, "ledger", None)
+    if ledger is None:
+        return prov.call(system, user)
+    from .prices import resolve_price
+    rates, source = resolve_price(model, getattr(session, "declared_price", None))
+    if rates is None:
+        return prov.call(system, user)
+    text, usage, _usd, _rid = ledger.tracked_call(
+        "worker", model, prov, system, user, rates, source=source,
+        max_out=int(getattr(prov, "max_tokens", None) or 4096),
+        declared_by_user=source == "cli")
+    return text, usage or {"in": 0, "out": 0}
+
+
 def _recruit(session: Session, task: str, prov, model: str, provider_name, base_url, api_key,
              max_tokens, max_turns, max_budget_usd) -> tuple[dict | None, tuple | None]:
     """Chỉ dạng hỏi mới tuyển. Không có dòng VAI thì trả lời đó đi tiếp vòng tool."""
@@ -113,12 +129,13 @@ def _recruit(session: Session, task: str, prov, model: str, provider_name, base_
     from .tools import Session as ToolSession
     if session.shape != "ask" or session.recruited:
         return None, None
-    text, usage = prov.call(DIRECTOR_SYSTEM, task)
+    text, usage = _priced_call(session, prov, model, DIRECTOR_SYSTEM, task)
     if "VAI:" not in text:
         return None, (text, usage)
     ok, why, roles, steps = vet_roster(text, session.root, allow_write=False)
     if not ok:
-        text, usage2 = prov.call(DIRECTOR_SYSTEM, task + "\nTỪ CHỐI đội: " + why)
+        text, usage2 = _priced_call(session, prov, model, DIRECTOR_SYSTEM,
+                                    task + "\nTỪ CHỐI đội: " + why)
         usage = {"in": usage.get("in", 0) + usage2.get("in", 0),
                  "out": usage.get("out", 0) + usage2.get("out", 0)}
         if "VAI:" not in text:
@@ -508,7 +525,7 @@ def _run_text_loop(*, task: str, session: Session, model: str,
                 text, u = forced.pop(0)
                 emit(text)
             elif no_stream:
-                text, u = prov.call(sys_prompt, prompt)
+                text, u = _priced_call(session, prov, model, sys_prompt, prompt)
                 emit(text)
             else:
                 text, u = stream(prov, sys_prompt, prompt, on_text=emit)

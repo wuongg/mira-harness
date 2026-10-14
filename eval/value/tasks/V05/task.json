@@ -1,0 +1,55 @@
+{
+  "group": "data",
+  "expect": "deliver",
+  "prompt": "Ghi people.json từ people.csv. Mỗi phần tử có id và name dạng chuỗi",
+  "allow": [
+    "people.csv",
+    "people.json"
+  ],
+  "forbidden": [
+    "Không thêm cột email"
+  ],
+  "fail_if": [
+    "Thiếu An hoặc Bo",
+    "id không phải chuỗi"
+  ],
+  "interventions": [
+    "approve",
+    "run"
+  ],
+  "grant": [],
+  "brief": {
+    "goal": "Ghi people.json",
+    "deliverables": [
+      "people.json"
+    ],
+    "acceptance_criteria": [
+      {
+        "schema": 1,
+        "id": "rows",
+        "text": "co id va name",
+        "validator": {
+          "kind": "json_keys",
+          "path": "people.json",
+          "expect": "array",
+          "required": [
+            "id",
+            "name"
+          ],
+          "forbidden": []
+        }
+      }
+    ],
+    "constraints": [],
+    "assumptions": [],
+    "questions": [],
+    "per_role_hints": {
+      "planner": "",
+      "worker": "",
+      "verifier": ""
+    }
+  },
+  "mutable": [
+    "people.json"
+  ]
+}

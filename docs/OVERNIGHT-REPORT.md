@@ -1,12 +1,429 @@
 # Báo cáo đêm 2026-10-13
 
+## 0. Vòng kiểm chứng — kế hoạch ngắn
+
+Nhánh `agent/trust-limits-2026-10-14`, tách từ `7f732a9`, không tách từ `main` cục bộ `bb58700`. Không merge vào `main`.
+
+Câu cũ nói `mira/obligations.py` không có trên `main` là lỗi thời. `origin/main` hiện tại là `81dbbcd` (merge PR overnight) và đã có `mira/obligations.py` với `judge_obligations`.
+
+Link so sánh cũ của nhánh overnight không còn là nhánh làm việc: https://github.com/wuongg/mira-harness/compare/main...agent/overnight-rd-2026-10-13?expand=1
+
+Link nhánh này: https://github.com/wuongg/mira-harness/compare/main...agent/trust-limits-2026-10-14?expand=1
+
+`gh` vẫn chưa đăng nhập, nên chưa mở pull request.
+
+Thứ tự: R1 quyền chạy check, R2 tiêu chí gắn phép kiểm và artifact, R3 đặt trước ngân sách song song, R4 phục hồi bằng tiến trình thật, R5 đo giá trị đầu-cuối trên tập tách khỏi fixture sửa code. Không thêm agent.
+
+| Mục | Trạng thái | SHA | CI |
+| --- | --- | --- | --- |
+| R1 | đạt | `9dfe1c8` | https://github.com/wuongg/mira-harness/actions/runs/38488932153 success |
+| R2 | đạt | `296e187` | https://github.com/wuongg/mira-harness/actions/runs/38489405825 success |
+| R3 | đạt | `74b7154` | https://github.com/wuongg/mira-harness/actions/runs/38489760877 success |
+| R4 | đạt | `8780d42` | https://github.com/wuongg/mira-harness/actions/runs/38490734366 success |
+| R5 | đạt | `863c27b` | https://github.com/wuongg/mira-harness/actions/runs/38491474015 success |
+| S1 | đạt | `cb37bb0` | https://github.com/wuongg/mira-harness/actions/runs/38508067848 success |
+| S2 | đạt | `61300af` | https://github.com/wuongg/mira-harness/actions/runs/38508501239 success |
+| S3 | đạt | `92ef473` | https://github.com/wuongg/mira-harness/actions/runs/38509001523 success |
+| S4 | đạt | `e965c49` | https://github.com/wuongg/mira-harness/actions/runs/38509232763 success |
+| V1 | đạt | `f1e9537` | https://github.com/wuongg/mira-harness/actions/runs/38509821752 success |
+| V2 | CI đỏ một job Windows | `cbc4f7f` | https://github.com/wuongg/mira-harness/actions/runs/38510168826 failure |
+| UX | đạt | `4f6ec72` | https://github.com/wuongg/mira-harness/actions/runs/38510764742 success |
+| H1 | đạt | `b4bbd75` | https://github.com/wuongg/mira-harness/actions/runs/38511813897 success |
+| H2 | đạt | `f0b3db1` | https://github.com/wuongg/mira-harness/actions/runs/38512453126 success |
+| H3 | đạt | `d3d7b28` | https://github.com/wuongg/mira-harness/actions/runs/38512806091 success |
+| H4 | đạt | `5a3dfed` | https://github.com/wuongg/mira-harness/actions/runs/38513177620 success |
+| H5 | đạt | `5aead5e` | https://github.com/wuongg/mira-harness/actions/runs/38513574605 success |
+| L1 | đạt | `d4a538b` | https://github.com/wuongg/mira-harness/actions/runs/38514566409 success |
+| L2 | đạt | `0719f51` | https://github.com/wuongg/mira-harness/actions/runs/38515440770 success |
+| L3 | đạt | `063e993` | https://github.com/wuongg/mira-harness/actions/runs/38516162248 success |
+| L4 | đạt | `2f7d6fd` | https://github.com/wuongg/mira-harness/actions/runs/38518143543 success |
+| P1 | đạt | `e7a7f36` | https://github.com/wuongg/mira-harness/actions/runs/38529381006 success |
+| P2 | đạt | `0a6784d` | https://github.com/wuongg/mira-harness/actions/runs/38531132701 success |
+| P3 | đạt | `54d7b47` | https://github.com/wuongg/mira-harness/actions/runs/38532489685 success |
+| P4 | ghi nghiệm thu | `a998067` | https://github.com/wuongg/mira-harness/actions/runs/38533090283 success |
+
+### R1
+
+`check:` không còn gọi `subprocess.run` riêng. Lệnh chỉ chạy khi `criteria_origin` là `user` (file `--brief` do người đưa) và đi qua `Session.run_shell`: xin phép, chặn path ngoài gốc, env đã bỏ key, timeout 30s, đầu ra cắt 8000 ký tự. Brief do intake/model tạo ra để trạng thái `pending` và không gọi subprocess. Duyệt câu brief trên màn hình không phải cấp quyền shell. Bản sao của `run_shell` không phải sandbox.
+
+Lệnh: `py -3 -m unittest discover -s tests -p "test_check_grant.py" -v`
+
+Selftest: `Ran 462 tests`, `OK (skipped=2)`.
+
+Tập đóng băng `tools/overnight_eval.py` lệch 1 dòng, không sửa đáp án: E13 có đường dẫn tuyệt đối của Python nằm ở đối số, `run_shell` chặn trước khi chạy, trạng thái `blocked` thay vì `proven`. Marker vẫn không được tạo.
+
+### R2
+
+Mỗi tiêu chí có `criterion_id` (id khai báo, hoặc 16 ký tự sha256 của câu). Phép kiểm ghi `criterion_id`, `kind`, `proves`, `check_passed` và `criterion_verified` riêng. `check:` thoát 0 chỉ là `checked`. Xác minh khi `proves` đúng bằng câu tiêu chí và artifact có hash khớp, `run_id` đúng, file còn trong gốc. File thiếu, hash lệch, hoặc run khác thì không nhận. Tiêu chí không có lệnh là `needs_confirmation`.
+
+Không coi file đổi là xác minh. Không đọc nghĩa của file: nếu người dùng khai `proves` trùng câu tiêu chí trong khi nội dung file sai, harness không phát hiện. Đó là giới hạn.
+
+Lệnh: `py -3 -m unittest discover -s tests -p "test_criterion_bind.py" -v`
+
+Selftest: `Ran 469 tests`, `OK (skipped=2)`.
+
+Tập đóng băng vẫn không sửa. Các dòng kỳ vọng `proven` cho lệnh thoát 0 sẽ lệch vì trạng thái mới là `checked`.
+
+### R3
+
+Trước mỗi lần gọi model, sổ cái giữ chỗ `estimate_hold`: đầu vào khoảng 4 ký tự một token, đầu ra bằng `max_tokens`. Đây là trần, không phải tokenizer của hãng và không phải hóa đơn. `committed` gồm tiền đã chi, chỗ đang giữ và khoản không chắc. Không đủ chỗ thì không gọi, trạng thái `stopped_budget`. Sau gọi thành công thì trả chỗ và ghi usage thật. `ProviderError` sau khi request đã gửi thì cộng khoản không chắc, không coi là 0 đồng. Chỗ giữ về 0 khi xong.
+
+Lệnh: `py -3 -m unittest discover -s tests -p "test_budget_hold.py" -v`
+
+Selftest: `Ran 471 tests`, `OK (skipped=2)`.
+
+### R4
+
+Năm lần thử đều khởi chạy `mira team` trong subprocess và ngắt bằng `TerminateProcess`. Provider là HTTP giả trên `127.0.0.1`, không gọi API trả phí.
+
+Sau worker, checkpoint đã có `next_index` từ 1. Resume không tăng số lần gọi worker và sổ cái còn một dòng worker. Lúc ghi checkpoint, tiến trình dừng sau file `.json.tmp` và trước `os.replace` khi `MIRA_PAUSE=checkpoint`. Kill thì không còn `checkpoint.json`. Resume thoát 2, không gọi thêm worker, không bàn giao. Trước bàn giao, `MIRA_PAUSE=handoff` dừng trước `_executor_write`. Resume đi vào `_deliver`, ghi một `result.md`, không gọi lại worker. Đổi brief thì thoát 2 và không ghi đè brief đã lưu. Đổi một byte trong staging đã có `staging_hash` thì thoát 2 với `artifact đã đổi` và không bàn giao.
+
+`MIRA_PAUSE` chỉ ngủ khi biến đó được đặt. Mặc định không chờ. Điểm dừng này để giết tiến trình thật, không thay cho snapshot trong cùng process.
+
+Khoản đang giữ trong lúc gọi model không nằm trên đĩa. Ngắt giữa call thì mất chỗ giữ và không ghi khoản không chắc. Chưa chứng minh phục hồi khoản đó.
+
+Lệnh: `py -3 -m unittest discover -s tests -p "test_crash_resume.py" -v`
+
+Selftest: `Ran 476 tests`, `OK (skipped=2)`.
+
+### R5
+
+Tập `eval/trust/tasks.jsonl`, không dùng fixture của test sửa mã và không dùng `eval/overnight`. Worktree so sánh `C:\Users\phamv\Downloads\mira-baseline` tại `7f732a9`. Provider HTTP cục bộ. Con số này không phải hiệu quả của model thật.
+
+| id | việc đo | cây hiện tại | `7f732a9` |
+| --- | --- | --- | --- |
+| T-NOOP | bàn giao sai khi lệnh chỉ thoát 0 | không bàn giao, mã 3 | bàn giao, mã 0 |
+| T-OPEN | chặn sai khi không có tiêu chí | có bàn giao, mã 0 | có bàn giao, mã 0 |
+| T-MODEL | chạy check do model đề xuất | `chờ cấp quyền`, không chạy | chạy lệnh, thoát 2 |
+| T-CAP | vượt trần khi hai worker | 1 worker, $2.00, trần $2.46 | 2 worker, $3.00, trần $2.46 |
+| T-KILL | gọi lại worker sau resume của run đã xong | 1 rồi 1 | 1 rồi 1 |
+| T-WRONG | file sai nhưng `proves` trùng câu | vẫn `verified` | cây gốc không có khóa artifact |
+
+T-KILL resume một run đã chạy xong. Điểm ngắt tiến trình nằm ở R4, không nằm ở dòng này.
+
+Ước lượng giữ chỗ vẫn là 4 ký tự một token và `max_tokens`, không phải tokenizer của hãng. T-WRONG là giới hạn còn lại: harness không đọc nghĩa của file.
+
+Tập đóng băng `eval/overnight` không được sửa. E13 vẫn lệch vì đường dẫn tuyệt đối bị chặn. Các dòng kỳ vọng `proven` cho lệnh thoát 0 lệch vì trạng thái hiện là `checked`.
+
+Lệnh: `py -3 tools/trust_eval.py --current-only` và `py -3 tools/trust_eval.py --baseline C:\Users\phamv\Downloads\mira-baseline`
+
+Selftest: `Ran 477 tests`, `OK (skipped=2)`.
+
+Commit ghi URL này là `763d3b3`. CI: https://github.com/wuongg/mira-harness/actions/runs/38491621204 success.
+
+### S1
+
+Tiêu chí object dùng schema `1`, khóa `id`, `text`, và tùy chọn `cmd`, `proves`, `artifact`. Chuỗi cũ vẫn là schema 0. `validate_criteria` là luật chung của intake, đọc brief, obligations. `contract_diff` giữ nguyên object, không rút thành chuỗi rồi bỏ. Chưa có liên kết tiêu chí sang từng bước, nên đổi tiêu chí hủy cả run (`scope` = `run`). ID trống hoặc trùng thì brief bị từ chối trước khi chạy.
+
+Ví dụ nạp từ CLI, `--intake off --brief` file này, `--require-evidence`. Lệnh đi tới bước kiểm và ghi `criterion_id` `crit-exit` trong `out/withheld.json`:
+
+```json
+{"schema":1,"id":"crit-exit","text":"lenh thoat 0 la buoc kiem","cmd":"python -c \"raise SystemExit(0)\"","proves":"","artifact":""}
+```
+
+Lệnh: `py -3 -m unittest discover -s tests -p "test_criteria_schema.py" -v`
+
+Selftest: `Ran 483 tests`, `OK (skipped=2)`.
+
+### S2
+
+`command_passed` là mã thoát. `artifact_integrity` là hash đúng run. `criterion_verified` chỉ khi validator chạy đúng. Câu `proves` trùng tiêu chí được giữ ở `claim`, không biến thành bằng chứng.
+
+Validator schema 1: `contains` (chuỗi bắt buộc/cấm), `json_keys` (JSON và khóa), `shape` (đuôi file), `behavior` (lệnh đã cấp quyền, đúng mã thoát và một chuỗi đầu ra). Mỗi dòng ghi `proves` và `does_not_prove`. Không có validator thì `needs_confirmation` hoặc `unverified`.
+
+T-WRONG: file `return 4`, claim trùng câu, hash khớp. Kết quả `unverified`, không còn `verified`.
+
+Lệnh: `py -3 -m unittest discover -s tests -p "test_validators.py" -v`
+
+Selftest: `Ran 490 tests`, `OK (skipped=2)`.
+
+### S3
+
+Mỗi request có `id` và trạng thái `reserved`, `dispatched`, `settled` hoặc `uncertain`. Checkpoint ghi `dispatched` trước `prov.call`. Kill giữa call rồi resume vẫn thấy request đó ở `uncertain` và `uncertain_usd`; không xóa và không coi là chưa gửi. Usage thật lớn hơn ước lượng thì vẫn ghi đủ và đặt `exceeded`.
+
+Ước lượng là heuristic 4 ký tự/token và `max_tokens`. Không phải tokenizer và không phải trần trên. Trần làn không được tuyên bố là tuyệt đối khi usage vượt ước lượng.
+
+Cùng `tracked_call` cho `_call`, intake, prompt writer, và worker sửa file qua `_priced_call`. Đội con đi qua `_call`. Đường stream của chat không ghi request này.
+
+Lệnh: `py -3 -m unittest discover -s tests -p "test_request_ledger.py" -v`
+
+Selftest: `Ran 495 tests`, `OK (skipped=2)`.
+
+### S4
+
+`tools/trust_eval.py` ghi mỗi dòng là `pass`, `fail` hoặc `not_evaluated`. `remaining` không còn được tính là đạt. `T-REAL` là `not_evaluated`: không có API trả phí được duyệt, nên không có số liệu model thật.
+
+Không thêm file resource. Schema nằm trong `mira/obligations.py`, đã là module của package.
+
+| id | kết quả |
+| --- | --- |
+| T-NOOP | pass, không bàn giao |
+| T-OPEN | pass, có bàn giao |
+| T-MODEL | pass, không chạy lệnh của model |
+| T-CAP | pass, 1 worker, $2.00, trần $2.46 |
+| T-KILL | pass, resume run đã xong không gọi lại worker |
+| T-WRONG | pass, không verified |
+| T-OBJECT | pass, brief object tới bước kiểm |
+| T-DUP | pass, id trùng bị từ chối |
+| T-ARTIFACT | pass, file `return 4` không verified |
+| T-CHANGE | pass, đổi object thì không tiếp tục |
+| T-INTERRUPT | pass, kill giữa request còn khoản uncertain |
+| T-REAL | not_evaluated |
+
+Lệnh: `py -3 tools/trust_eval.py --current-only`
+
+Selftest: `Ran 495 tests`, `OK (skipped=2)`.
+
+### V1
+
+`json_keys` với `expect: array` áp `required` và `forbidden` cho từng phần tử. Phần tử không phải object thì thất bại. Mảng rỗng thất bại, trừ khi người dùng đặt `allow_empty: true`. `[{}]` với `required: ["invoice_id"]` không còn `verified`.
+
+Lệnh: `py -3 -m unittest discover -s tests -p "test_validators.py" -k array`
+
+Selftest: `Ran 502 tests`, `OK (skipped=2)`.
+
+### V2
+
+`behavior` chỉ so `expects_stdout` với stdout thật. Chuỗi nằm ở stderr, ở dòng `[mã thoát 0]`, hoặc ở câu hiển thị của harness không làm check đạt. `run_shell` vẫn trả chuỗi hiển thị cũ. `run_shell_result` trả `exit_code`, `stdout`, `stderr`, `timed_out`, `truncated` và trạng thái quyền. Timeout hoặc output bị cắt mà không thấy chuỗi đã khai thì trạng thái là `unverified`.
+
+Lệnh: `py -3 -m unittest discover -s tests -p "test_validators.py"`
+
+Selftest: `Ran 508 tests`, `OK (skipped=2)`.
+
+CI `cbc4f7f`: https://github.com/wuongg/mira-harness/actions/runs/38510168826 failure. Job `unittest (windows-latest / 3.12)` lỗi `PermissionError` khi đọc `checkpoint.json` trong `test_doi_artifact_sau_kill_khong_ban_giao`. Vòng chờ của test đó giờ thử lại khi file đang bị khóa, cùng cách nó đã thử lại khi JSON còn dở. Các job unittest còn lại và quality-gate đều success.
+
+### UX
+
+Lệnh `mira giao` nhận câu nói thường, gọi intake sẵn có, rồi in mục tiêu, deliverable, ràng buộc và từng tiêu chí là tự động hay cần người xác nhận. Dòng lệnh cần cấp quyền được in riêng. Duyệt phiếu không ghi grant. `--run` chỉ chạy validator với các lệnh đã `--grant` đúng chuỗi.
+
+Đổi yêu cầu bằng `--change` in khác biệt, id run cũ và bước tạo run mới `--previous`. Run mới không nhận grant cũ.
+
+`giao --run` không gọi worker. Người dùng hoặc fixture sửa file; lệnh này chỉ kiểm. Provider giả chỉ chứng minh luồng và chính sách.
+
+Ba demo, provider giả, subprocess thật: `py -3 -m unittest discover -s tests -p "test_giao_demo.py" -v`
+
+| Demo | Thao tác người dùng | Đã kiểm | Chưa kiểm | Bàn giao sai | Chặn sai | Tiếp tục sau chặn hoặc đổi yêu cầu |
+| --- | --- | --- | --- | --- | --- | --- |
+| A sửa `add` | 4: mở phiếu, chạy chưa cấp lệnh, sửa file, cấp đúng lệnh | 1 behavior sau khi cấp đúng lệnh | cùng tiêu chí khi chưa cấp hoặc cấp `echo sai` | không: hai lần đầu `bàn giao: chưa` | không: lần cấp đúng lệnh ra `verified` | được: lệnh sai vẫn `pending`, lần sau cấp đúng thì đạt |
+| B JSON | 4: file `[{}]`, mở phiếu, chạy, sửa file rồi chạy lại | 1 `json_keys` khi file đủ khóa | lần `[{}]` là `failed` | không | không | được: chạy lại cùng run sau khi sửa file |
+| C báo cáo | 3: ghi file, mở phiếu, chạy | 1 `contains` | 1 tiêu chí không có validator, `needs_confirmation` | không: vẫn `bàn giao: chưa` | không: tiêu chí tự động vẫn `verified` | không cần lệnh; tiêu chí người vẫn mở |
+
+Ví dụ A, câu `Sua ham add va kiem bang test` ra phiếu có tiêu chí `[tự động] add-ok` và đúng một lệnh. Chưa `--grant` thì bảng là `pending` và `bàn giao: chưa`. Sau khi `calc.add` trả tổng và cấp đúng lệnh, bảng là `verified` và `bàn giao: đủ`.
+
+Selftest: `Ran 512 tests`, `OK (skipped=2)`.
+
+### H1
+
+Hai phản chứng tại `e240749`: sửa validator mà giữ `brief_hash` cũ vẫn `verified` và exit 0; `_dir(root, "../../other")` thoát khỏi thư mục run.
+
+Sau: run id chỉ nhận 8 ký tự hex thường. Separator, `..` và đường dẫn tuyệt đối bị từ chối, rồi đường dẫn được resolve và phải nằm trong `.mira-giao`. Load kiểm schema, hash phiếu và hash state. JSON cụt in `state hỏng: JSON cụt`, exit 2, không traceback. Duyệt lưu `approved_hash`. Đổi brief làm duyệt cũ hết hiệu lực. Grant chỉ nhận lệnh có trong phiếu đã duyệt và gắn với hash đó. Ghi state bằng file tạm rồi `os.replace`. Hash phát hiện thay đổi, không chống người sửa trực tiếp file.
+
+Lệnh: `py -3 -m unittest discover -s tests -p "test_handoff_lock.py" -v`
+
+Selftest: `Ran 518 tests`, `OK (skipped=2)`.
+
+### H2
+
+`mira giao --run` gọi `execute_plan`. Worker sửa trong staging bằng tool thật, validator chạy trên staging, rồi file được promote nếu cổng bàn giao đạt. Ledger và checkpoint nằm trong `.mira/runs/<id>/`, cùng chỗ với `handoff.json`. Không còn `.mira-giao`.
+
+`--check-only` chỉ kiểm file có sẵn và in `chưa phải hoàn thành nhiệm vụ`. Nó không được tính là bàn giao.
+
+Lệnh worker: `py -3 -m unittest discover -s tests -p "test_giao_execute.py" -v`
+
+Selftest: `Ran 520 tests`, `OK (skipped=2)`.
+
+### H3
+
+Ba demo do worker tạo kết quả qua tool, provider giả. Test chỉ dựng file sai hoặc thư mục trống, không viết kết quả đúng.
+
+| Demo | Bước người dùng | Worker | Kiểm | Chưa chứng minh | Bàn giao |
+| --- | --- | --- | --- | --- | --- |
+| A sửa `add` | 2: duyệt phiếu, cấp đúng lệnh rồi chạy | `edit_file` trong staging, file nguồn thành `return a + b` | behavior `verified` | không | đủ |
+| B JSON | 2: duyệt phiếu, chạy | `write_file` tạo `rows.json` | `json_keys` `verified` | không | đủ |
+| C báo cáo | 3: duyệt phiếu, chạy, rồi `--confirm` tiêu chí tay | `write_file` trong staging | `contains` `verified`; tiêu chí tay là `người dùng xác nhận` | trước xác nhận là `needs_confirmation` | sau xác nhận thì bàn giao và file vào cây nguồn |
+| Worker làm sai | 2 | staging thành `return 0` | behavior không đạt | tiêu chí hành vi | chưa, cây nguồn giữ hàm trừ |
+| Không cấp lệnh | 2 | không gọi | không chạy | lệnh chưa cấp | `không thực thi`, không checkpoint |
+| Đổi yêu cầu | 3: chạy cũ, `--change`, run mới | không | grant mới rỗng | lệnh của run cũ không sang | chưa |
+
+Lệnh: `py -3 -m unittest discover -s tests -p "test_giao_execute.py" -v`
+
+Selftest: `Ran 525 tests`, `OK (skipped=2)`.
+
+### H4
+
+`mira giao --run ID --confirm <id tiêu chí> --artifact <tệp>` ghi xác nhận của người dùng. Xác nhận gắn `criterion_id`, hash file và hash phiếu. Đổi file thì xác nhận cũ hết hiệu lực. Dòng kết quả là `người dùng xác nhận` và `does_not_prove` ghi không phải kiểm chứng tự động. `criterion_verified` vẫn false. Tiêu chí đã có validator không nhận xác nhận tay. Brief không có khóa để model tự ký.
+
+Selftest: `Ran 527 tests`, `OK (skipped=2)`.
+
+### H5
+
+Bảng bàn giao có cột `id | tiêu chí | kết quả | phép kiểm | chứng minh | không chứng minh`. Mỗi dòng là một `criterion_id` và nội dung tiêu chí đó. `proves` và `does_not_prove` vẫn hiện khi validator đạt. Nhãn tách `validator đã kiểm`, `người dùng xác nhận`, `chưa chứng minh`, `chưa cấp lệnh`, `validator không đạt`, `bị chặn`. Đổi artifact sau xác nhận thì cột không chứng minh ghi `artifact đã đổi, xác nhận cũ hết hiệu lực`.
+
+Lệnh gợi ý dùng `sys.executable -m mira giao` và quote theo hệ điều hành (`list2cmdline` trên Windows, `shlex.join` chỗ khác). Không hardcode `py -3`.
+
+Lệnh: `py -3 -m unittest discover -s tests -p "test_handoff_lock.py" -v`
+
+Selftest: `Ran 528 tests`, `OK (skipped=2)`.
+
+Giới hạn còn lại: provider giả chỉ chứng minh luồng, không chứng minh chất lượng model thật. `team --brief` vẫn cấp mọi lệnh tiêu chí của người dùng; chỉ `mira giao` gắn grant với hash phiếu. Hash phát hiện sửa file, không chống người có quyền sửa cùng lúc `approved_hash`, `brief_hash` và `state_hash`. `--check-only` không phải bàn giao. Xác nhận tay không đặt `criterion_verified`. Lần `--confirm` chạy lại worker. V2 `cbc4f7f` vẫn đỏ một job Windows; các SHA sau đã xanh. Không PR, không merge `main`.
+
+### L1
+
+Trước khi sửa, tại `fd7d83e`, `execute_plan` trả `error`, `stopped_budget`, `blocked` hoặc verifier `FAIL` trong khi validator file cũ vẫn `verified`: `mira giao` exit 0 và in `bàn giao: đủ`.
+
+Sau: bàn giao chỉ khi trạng thái team là `ok` và mọi tiêu chí đã chốt, hoặc `withheld` với `hold=needs_confirmation` rồi xác nhận tay làm mọi dòng được chốt. `error`, `blocked`, `stopped_budget` và verifier `FAIL` thành `bàn giao: chặn`, exit 3. Không nhận diện ca được phép bàn giao bằng chuỗi `fail_reason`. `giao` dùng làn 1 nên cổng verifier của team vẫn chạy.
+
+Lệnh: `py -3 -m unittest discover -s tests -p "test_giao_gates.py" -v`
+
+Selftest: `Ran 532 tests`, `OK (skipped=2)`.
+
+### L2
+
+Trước khi sửa, gọi `execute` hai lần trên cùng run thì `execute_plan` chạy hai lần, mỗi lần một `Ledger()` mới. Lần hai có thể bị `diff trống` vì file đã được sửa.
+
+Sau: run có `phase` là chờ duyệt, chờ quyền, chờ chạy, đang thực thi, chờ xác nhận, thất bại, đã bàn giao. Run đã bàn giao hoặc đã thất bại mà mở lại chỉ in kết quả, không gọi model, không promote lại. Xác nhận tay khi đang chờ xác nhận chỉ chốt và promote một lần. `--retry` tạo attempt mới, giữ `history`, và cộng tiếp sổ cái cũ. Intake nằm trong cùng ledger với worker và verifier. Dòng `chi phí tích lũy` in tổng đó.
+
+Mở lại run đã bàn giao hai lần: 0 request mới, file nguồn không bị ghi lại. Xác nhận báo cáo: 0 request mới, một lần promote. `--retry` sau khi dựng lại file sai: request tăng, `attempt` = 2, `total_usd` không nhỏ hơn attempt trước.
+
+Lệnh: `py -3 -m unittest discover -s tests -p "test_giao_lifecycle.py" -v`
+
+Selftest: `Ran 536 tests`, `OK (skipped=2)`.
+
+### L3
+
+Xác nhận không còn quét mọi thư mục staging rồi lấy file đầu tiên, và không lấy `report.md` cũ ở cây nguồn khi run còn bản đang chờ. File được lấy từ `staging` đã ghi trong state của đúng run. Xác nhận lưu `run_id`, `criterion_id`, hash phiếu và hash artifact. Hai run cùng tên `report.md` nhưng nội dung `Nguon: A` và `Nguon: B`: xác nhận của A không áp được cho B. Promote dùng `os.replace` nên file rời staging sau khi bàn giao.
+
+Lệnh: `py -3 -m unittest discover -s tests -p "test_giao_artifact.py" -v`
+
+Selftest: `Ran 537 tests`, `OK (skipped=2)`.
+
+### L4
+
+Các ca đi qua CLI và HTTP giả, không phải model thật.
+
+| Ca | Call thêm khi mở lại | Promote |
+| --- | --- | --- |
+| A. Run đã bàn giao, mở lại hai lần | 0 | 0 |
+| B. Thiếu xác nhận, rồi `--confirm` | 0 | 1 |
+| C. Provider HTTP 500, validator file cũ vẫn đạt | có call lỗi | 0, exit khác 0 |
+| D. Kill trước promote, rồi tiếp tục | 0 | 1 |
+| D. Kill sau promote, rồi tiếp tục | 0 | 0, mtime không đổi |
+| E. Hai tiến trình cùng run | một lần thực thi; tiến trình sau in `không gọi lại` | 1 |
+| F. Hai `report.md` khác nội dung | xác nhận A không áp cho B | chỉ A |
+
+Kill dùng tiến trình thật và `MIRA_PAUSE`, không phải mock trong process. Tiếp tục sau kill không gọi model. Hai tiến trình dùng mutex của hệ điều hành; tiến trình chết thì lock được nhả. Chi phí in trên dòng `chi phí tích lũy` gồm intake và thực thi của cùng ledger.
+
+Lệnh: `py -3 -m unittest discover -s tests -p "test_giao_e2e.py" -v`
+
+`9822bad` xin lock lần hai trong cùng tiến trình. CI của SHA đó đỏ bốn job Ubuntu: https://github.com/wuongg/mira-harness/actions/runs/38517050383 failure. Windows và quality-gate của SHA đó xanh. Bản `2f7d6fd` chỉ lấy lock hệ điều hành một lần mỗi tiến trình và CI xanh.
+
+Selftest: `Ran 540 tests`, `OK (skipped=2)`.
+
+Giới hạn: provider giả không chứng minh chất lượng model. `team --brief` vẫn cấp mọi lệnh tiêu chí của người dùng. Hash không chống người sửa cùng lúc các hash trong file. `--check-only` không phải bàn giao. Xác nhận tay không đặt `criterion_verified`. V2 `cbc4f7f` vẫn đỏ một job Windows. Không PR, không merge `main`.
+
+### P1
+
+Phản chứng tại `29b77f9`: tiêu chí `contains` trên `report.md` đã lưu `verified`. Run đang chờ xác nhận tay. Đổi staging thành `NO REQUIRED CONTENT`, xác nhận tiêu chí thủ công rồi settle vẫn thoát 0 và promote file không còn `SOURCE`.
+
+Sau sửa, mỗi kết quả tự động ghi `evidence`: `brief_hash`, `validator_sha256`, và `scope`. Validator file ghi hash của file đó. Validator `behavior` ghi manifest cả cây (`paths` và `tree_sha256`) trước khi so, không giả định một file. `refresh_evidence` chỉ đối chiếu hash, không chạy lại lệnh.
+
+Ba trạng thái: `còn hiệu lực` khi hash khớp; `hết hiệu lực` khi artifact, dependency, brief hoặc validator đổi; `chưa kiểm lại` khi dòng `verified` không có `evidence`. Xác nhận tay không đặt lại `criterion_verified` cho dòng tự động đã hết hiệu lực, và không promote.
+
+Sau promote, cây nguồn có thêm file ngoài snapshot staging (ví dụ `.mira/runs`, `.git`). Lúc đó so từng path đã ghi, không so hash cả cây nguồn với cây staging. Trước promote, hash cây phải khớp đúng thư mục đã kiểm.
+
+Lệnh: `py -3 -m unittest discover -s tests -p "test_evidence_bind.py" -v`
+
+Selftest: `Ran 543 tests`, `OK (skipped=2)`.
+
+CI: https://github.com/wuongg/mira-harness/actions/runs/38529381006 success. SHA `e7a7f36`.
+
+### P2
+
+Manifest được niêm khi worker xong, trước mọi `os.replace`. Khóa: `run_id`, `attempt`, `brief_hash`, và từng file sẽ đưa ra cây nguồn kèm sha256 của byte trong staging. Gọi niêm lần hai không đọc byte mới. `--retry` xóa manifest để lần thử mới tự niêm lại.
+
+Bốn đường dùng cùng `promote_sealed`: bàn giao thường, settle sau xác nhận, phục hồi trước promote, phục hồi sau promote. File đã nằm ở nguồn với đúng hash thì không copy lại. File trong staging lệch hash thì chặn, không promote file nào, không chạy lại lệnh behavior.
+
+Dừng giữa hai file (`MIRA_PAUSE=mid-promote` sau file thứ nhất): một file đã ra nguồn, `promoted` vẫn false, báo cáo không có `bàn giao: đủ`. Phục hồi chỉ copy nốt nếu byte còn khớp. File đã copy không bị hoàn tác.
+
+Giới hạn: tiến trình ngoài harness vẫn sửa được filesystem trong khoảng giữa lúc đọc hash và lúc `os.replace` trả về. Hash không tạo cô lập và không phải giao dịch nguyên tử nhiều file.
+
+Mẫu manifest:
+
+```json
+{"run_id":"0123456789ab","attempt":1,"brief_hash":"<sha256 brief>","files":[{"path":"extra.txt","sha256":"<sha256 byte luc niem>"},{"path":"report.md","sha256":"<sha256 byte luc niem>"}]}
+```
+
+Lệnh: `py -3 -m unittest discover -s tests -p "test_delivery_manifest.py" -v`
+
+Selftest: `Ran 546 tests`, `OK (skipped=2)`.
+
+CI: https://github.com/wuongg/mira-harness/actions/runs/38531132701 success. SHA `0a6784d`.
+
+Commit docs `cd70217` chỉ ghi URL của P1. CI của SHA đó đỏ một job Windows 3.11, test `test_cay_hien_tai_khong_loi_da_cham`, stderr rỗng, thoát 1: https://github.com/wuongg/mira-harness/actions/runs/38530067925 failure. SHA mã `e7a7f36` và SHA P2 `0a6784d` xanh cùng test đó. Không sửa đáp án.
+
+### P3
+
+Sáu ca đi qua `mira giao` trong subprocess và HTTP giả.
+
+| Ca | Kết quả |
+| --- | --- |
+| 1. `report.md` đổi sau validator, trước xác nhận tay | không promote, không `bàn giao: đủ` |
+| 2. `dep.txt` đổi, `calc.py` giữ nguyên, trước promote | `hết hiệu lực`, nguồn vẫn `return a - b` |
+| 3. File đổi sau xác nhận, trước promote | không promote |
+| 4. Kill giữa promote nhiều file | `phase` vẫn `executing`, `b.txt` còn trong staging, không `bàn giao: đủ` |
+| 5. Mở lại run đã bàn giao | 0 call thêm, mtime không đổi, `không gọi lại` |
+| 6. Run không đổi | thoát 0, `bàn giao: đủ` |
+
+Ca 2 đối chiếu lại cây behavior sau `MIRA_PAUSE=before-promote`, không chạy lại lệnh. Ca 4 dừng sau file đầu của manifest (thứ tự tên), không phải sau đủ hai deliverable.
+
+Lệnh: `py -3 -m unittest discover -s tests -p "test_delivery_cli.py" -v`
+
+Selftest: `Ran 552 tests`, `OK (skipped=2)`.
+
+CI P3: https://github.com/wuongg/mira-harness/actions/runs/38532489685 success. SHA `54d7b47`.
+
+### P4
+
+Ba nhiệm vụ chạy bằng worker thật trong staging và provider HTTP giả. Không có API trả phí. Người dùng ở đây là số lệnh CLI, không phải một người ngồi bấm ngoài phiên này.
+
+| Nhiệm vụ | Thao tác người dùng | Call HTTP | Kết quả kiểm | Bàn giao |
+| --- | --- | --- | --- | --- |
+| Sửa `calc.py` thành phép cộng | 2: duyệt phiếu, chạy và `--grant` | 4 | `verified`, `còn hiệu lực` | đủ, thoát 0 |
+| Ghi `rows.json` | 2: duyệt phiếu, chạy | 4 | `verified`, `còn hiệu lực` | đủ, thoát 0 |
+| Ghi `report.md` có tiêu chí tay | 3: duyệt, chạy, `--confirm` | 4 (xác nhận thêm 0 call) | `contains` verified; `tone` là `user_confirmed` | người dùng xác nhận, thoát 0 |
+
+Chi phí in trên phiếu giả: `$0.120000` mỗi run. Xác nhận tay không đặt `criterion_verified`.
+
+Cài từ wheel trong thư mục venv trống `C:\Users\phamv\AppData\Local\Temp\mira-p4-clean`: gói `mira` 2.5.0, file `Lib\site-packages\mira\__init__.py`, `python -m mira giao --help` thoát 0 và có `--confirm`. Wheel lúc cài: `mira-2.5.0-py3-none-any.whl`, sha256 `f106dad62eebeb9931fb5a3fdcb4fbb58d7ecb41dbe011197192598688ad20aa`.
+
+Chạy lại không cần API trả phí:
+
+```
+py -3 -m unittest discover -s tests -p "test_giao_execute.py" -k "sua_file|tao_json|tao_bao_cao" -v
+py -3 -m unittest discover -s tests -p "test_delivery_cli.py" -v
+```
+
+Cài vào môi trường trống:
+
+```
+py -3 -m venv .venv-clean
+.venv-clean\Scripts\python.exe -m pip install .
+.venv-clean\Scripts\python.exe -m mira giao --help
+```
+
+Thư mục venv phải trống trước khi tạo. Nếu prefix đã có một cây `mira\` cũ, Python nhập cây đó trước `site-packages` và lệnh `giao` biến mất.
+
+Kết luận: chưa đủ thử nghiệm người dùng. Ba nhiệm vụ chỉ chứng minh luồng với provider giả. Số đo lấy trên cây `54d7b47`. Commit ghi báo cáo là `a998067`, CI https://github.com/wuongg/mira-harness/actions/runs/38533090283 success. Blocker: chưa được duyệt API trả phí nên chưa có model thật; `T-REAL` vẫn `not_evaluated`; xác nhận `tone` không phải kiểm tự động; `team --brief` vẫn cấp mọi lệnh tiêu chí của người dùng; hash không phải cô lập và không phải giao dịch nguyên tử nhiều file; tập đóng băng `eval/overnight` vẫn lệch và không được sửa; chưa có pull request vì `gh` chưa đăng nhập. Test xanh không phải hết nợ kỹ thuật và không phải so sánh với công cụ khác.
+
 ## 1. Mốc
+
+Mục 1 đến hết là nhật ký Q1–Q8. Nhánh làm việc hiện tại là mục 0.
 
 - SHA đầu vào: `bb587009da2b4d90edc6eeb0384114e5e83ba797`.
 - Nhánh: `agent/overnight-rd-2026-10-13`. Worktree `C:\Users\phamv\Downloads\mira-overnight`.
 - SHA cuối của mã: `38ed912`. CI: https://github.com/wuongg/mira-harness/actions/runs/38434179075 success.
 - Ba file markdown kế hoạch chưa commit ở checkout gốc không được đụng.
-- Pull request: chưa tạo. `gh` chưa đăng nhập. Link: https://github.com/wuongg/mira-harness/compare/main...agent/overnight-rd-2026-10-13?expand=1
+- Pull request: chưa tạo. `gh` chưa đăng nhập. Link overnight này không còn là nhánh làm việc. Link hiện tại nằm ở mục 0.
 
 ## 2. Hàng đợi
 

@@ -1,0 +1,52 @@
+{
+  "group": "data",
+  "expect": "deliver",
+  "prompt": "Ghi iso.txt từ dates.txt. Ngày dạng D/M/Y thành YYYY-MM-DD, mỗi ngày một dòng",
+  "allow": [
+    "dates.txt",
+    "iso.txt"
+  ],
+  "forbidden": [
+    "Không đổi dates.txt"
+  ],
+  "fail_if": [
+    "01/02/2026 thành tháng 1"
+  ],
+  "interventions": [
+    "approve",
+    "run"
+  ],
+  "grant": [],
+  "brief": {
+    "goal": "Ghi iso.txt",
+    "deliverables": [
+      "iso.txt"
+    ],
+    "acceptance_criteria": [
+      {
+        "schema": 1,
+        "id": "iso",
+        "text": "co ngay iso",
+        "validator": {
+          "kind": "contains",
+          "path": "iso.txt",
+          "must_contain": [
+            "2026-10-14"
+          ],
+          "must_not_contain": []
+        }
+      }
+    ],
+    "constraints": [],
+    "assumptions": [],
+    "questions": [],
+    "per_role_hints": {
+      "planner": "",
+      "worker": "",
+      "verifier": ""
+    }
+  },
+  "mutable": [
+    "iso.txt"
+  ]
+}

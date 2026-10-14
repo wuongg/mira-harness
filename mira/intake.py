@@ -18,6 +18,7 @@ INTAKE_SYSTEM = (
     "Bạn là INTAKE. Trả đúng một object JSON với các khóa goal, deliverables, "
     "acceptance_criteria, constraints, assumptions, questions, per_role_hints. "
     "Không được trả surface, lane, floor, labels, records, dollars, roles hay gate. "
+    "acceptance_criteria là danh sách chuỗi, hoặc object schema 1 gồm id và text. "
     "Nếu câu còn mơ hồ, đặt câu hỏi trong questions. Không tự bịa tiêu chí khi chưa đủ dữ liệu."
 )
 
@@ -50,8 +51,10 @@ def validate_brief(obj) -> tuple[bool, str]:
         return False, "brief thiếu goal"
     if not _string_list(obj["deliverables"], allow_empty=True):
         return False, "deliverables phải là danh sách chuỗi"
-    if not _string_list(obj["acceptance_criteria"], allow_empty=False):
-        return False, "brief thiếu acceptance_criteria"
+    from .obligations import validate_criteria
+    parsed, why = validate_criteria(obj["acceptance_criteria"])
+    if parsed is None:
+        return False, why
     if not _string_list(obj["constraints"], allow_empty=True):
         return False, "constraints phải là danh sách chuỗi"
     if not _string_list(obj["assumptions"], allow_empty=True):
@@ -82,10 +85,15 @@ def charged_call(ledger: Ledger, role: str, model: str, prov, system: str, user:
     rates, source = resolve_price(model, declared_price)
     if rates is None:
         return "", {"blocked": True, "error": f"model {model} chưa có giá"}
-    text, usage = prov.call(system, user)
-    ledger.charge(role, model, usage or {}, getattr(prov, "name", "") or "",
-                  price=rates, declared_by_user=source == "cli", price_source=source)
-    return text, {"blocked": False, "usage": usage}
+    from .providers import ProviderError
+    max_out = int(getattr(prov, "max_tokens", None) or 4096)
+    try:
+        text, usage, _usd, rid = ledger.tracked_call(
+            role, model, prov, system, user, rates, source=source, max_out=max_out,
+            declared_by_user=source == "cli")
+    except ProviderError as exc:
+        return "", {"blocked": False, "error": str(exc), "uncertain": True}
+    return text, {"blocked": False, "usage": usage, "request_id": rid}
 
 
 def _questions(obj: dict) -> list[str]:

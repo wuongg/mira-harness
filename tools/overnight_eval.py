@@ -59,8 +59,11 @@ def _evidence(row, py: str):
     evidence = {"changed": row.get("changed") or []}
     with tempfile.TemporaryDirectory() as tmp:
         cwd = Path(tmp)
+        from mira.obligations import criterion_command
+        granted = {cmd for item in criteria if (cmd := criterion_command(item))}
         current = [
-            item["state"] for item in judge_obligations(criteria, steps, evidence, cwd=cwd)
+            item["state"] for item in judge_obligations(
+                criteria, steps, evidence, cwd=cwd, granted=granted)
         ]
         marker = cwd / "marker.txt"
         marker_ok = not row.get("marker_absent") or not marker.exists()

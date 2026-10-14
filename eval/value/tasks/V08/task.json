@@ -1,0 +1,56 @@
+{
+  "group": "data",
+  "expect": "deliver",
+  "prompt": "Ghi merged.json ghép left.json và right.json theo id. Giữ city và score",
+  "allow": [
+    "left.json",
+    "right.json",
+    "merged.json"
+  ],
+  "forbidden": [
+    "Không xóa left.json hoặc right.json"
+  ],
+  "fail_if": [
+    "Mất city hoặc score"
+  ],
+  "interventions": [
+    "approve",
+    "run"
+  ],
+  "grant": [],
+  "brief": {
+    "goal": "Ghi merged.json",
+    "deliverables": [
+      "merged.json"
+    ],
+    "acceptance_criteria": [
+      {
+        "schema": 1,
+        "id": "rows",
+        "text": "co id city score",
+        "validator": {
+          "kind": "json_keys",
+          "path": "merged.json",
+          "expect": "array",
+          "required": [
+            "id",
+            "city",
+            "score"
+          ],
+          "forbidden": []
+        }
+      }
+    ],
+    "constraints": [],
+    "assumptions": [],
+    "questions": [],
+    "per_role_hints": {
+      "planner": "",
+      "worker": "",
+      "verifier": ""
+    }
+  },
+  "mutable": [
+    "merged.json"
+  ]
+}

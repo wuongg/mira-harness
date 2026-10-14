@@ -69,7 +69,7 @@ class ObligationTest(unittest.TestCase):
         self.plan.require_evidence = True
         res = self._run()
         self.assertEqual(res["status"], "withheld")
-        self.assertEqual(res["obligations"][0]["state"], "unproven")
+        self.assertEqual(res["obligations"][0]["state"], "needs_confirmation")
         self.assertIn("chưa có bằng chứng", res["fail_reason"])
 
     def test_khong_brief_van_nhan_pass(self):
@@ -84,14 +84,17 @@ class ObligationTest(unittest.TestCase):
             ["app.py có hàm mới"],
             [{"verdict_parsed": {"evidence": ["app.py có hàm mới"]}}],
             {"changed": ["app.py"]})
-        self.assertEqual(rows[0]["state"], "unproven")
+        self.assertEqual(rows[0]["state"], "needs_confirmation")
         self.assertIsNone(rows[0]["ref"])
 
     def test_check_thoat_0_co_tham_chieu(self):
         cmd = shlex.join([sys.executable, "-c", "import sys; raise SystemExit(0)"])
         with tempfile.TemporaryDirectory() as tmp:
-            rows = judge_obligations([f"check: {cmd}"], [], None, cwd=Path(tmp))
-        self.assertEqual(rows[0]["state"], "proven")
+            rows = judge_obligations(
+                [f"check: {cmd}"], [], None, cwd=Path(tmp), granted={cmd})
+        self.assertEqual(rows[0]["state"], "unverified")
+        self.assertTrue(rows[0]["check_passed"])
+        self.assertFalse(rows[0]["criterion_verified"])
         self.assertEqual(rows[0]["ref"]["exit"], 0)
         self.assertEqual(rows[0]["ref"]["cmd"], cmd)
 
@@ -99,16 +102,19 @@ class ObligationTest(unittest.TestCase):
         cmd = shlex.join([sys.executable, "-c", "import sys; raise SystemExit(0)"])
         self.plan.brief = _brief()
         self.plan.brief["acceptance_criteria"] = [f"check: {cmd}"]
+        self.plan.criteria_origin = "user"
         self.plan.require_evidence = True
         res = self._run()
-        self.assertEqual(res["status"], "ok")
-        self.assertEqual(res["obligations"][0]["state"], "proven")
+        self.assertEqual(res["status"], "withheld")
+        self.assertEqual(res["obligations"][0]["state"], "unverified")
+        self.assertFalse(res["obligations"][0]["criterion_verified"])
         self.assertEqual(res["obligations"][0]["ref"]["kind"], "check")
 
     def test_check_thoat_loi_khong_giao(self):
         cmd = shlex.join([sys.executable, "-c", "import sys; raise SystemExit(1)"])
         self.plan.brief = _brief()
         self.plan.brief["acceptance_criteria"] = [f"check: {cmd}"]
+        self.plan.criteria_origin = "user"
         self.plan.require_evidence = True
         res = self._run()
         self.assertEqual(res["status"], "withheld")
@@ -135,7 +141,7 @@ class ObligationTest(unittest.TestCase):
             plan.require_evidence = True
             with patch("mira.team.provider_for", _Prov), patch("mira.agent.run_turn", fake_turn):
                 res = team.execute_plan(plan, api_key="k", root=root, on_step=lambda _m: None)
-        self.assertEqual(res["obligations"][0]["state"], "unproven")
+        self.assertEqual(res["obligations"][0]["state"], "needs_confirmation")
         self.assertEqual(res["status"], "withheld")
 
     def test_duong_dan_tho_tren_windows_van_chay(self):
@@ -143,12 +149,14 @@ class ObligationTest(unittest.TestCase):
             self.skipTest("backslash chỉ là escape trên Windows")
         cmd = f'{sys.executable} -c "import sys; raise SystemExit(0)"'
         with tempfile.TemporaryDirectory() as tmp:
-            rows = judge_obligations([f"check: {cmd}"], cwd=Path(tmp))
-        self.assertEqual(rows[0]["state"], "proven")
+            rows = judge_obligations(
+                [f"check: {cmd}"], cwd=Path(tmp), granted={cmd})
+        self.assertEqual(rows[0]["state"], "unverified")
         self.assertEqual(rows[0]["ref"]["exit"], 0)
         bad = f'{sys.executable} -c "import sys; raise SystemExit(2)"'
         with tempfile.TemporaryDirectory() as tmp:
-            rows = judge_obligations([f"check: {bad}"], cwd=Path(tmp))
+            rows = judge_obligations(
+                [f"check: {bad}"], cwd=Path(tmp), granted={bad})
         self.assertEqual(rows[0]["state"], "failed")
         self.assertEqual(rows[0]["ref"]["exit"], 2)
 

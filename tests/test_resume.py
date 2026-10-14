@@ -74,7 +74,7 @@ class ResumeTest(unittest.TestCase):
 
         with patch("mira.team.write_checkpoint", spy):
             res = self._run()
-        self.assertEqual(seen[:2], [1, 2])
+        self.assertLess(seen.index(1), seen.index(2))
         data = json.loads(team.checkpoint_path(self.root, res["id"]).read_text(encoding="utf-8"))
         self.assertEqual(data["next_index"], 2)
         rows = data["ledger"]["rows"]

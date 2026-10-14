@@ -1,0 +1,51 @@
+{
+  "group": "code",
+  "expect": "deliver",
+  "prompt": "Sửa names.py để get_name đọc khóa name",
+  "allow": [
+    "names.py"
+  ],
+  "forbidden": [
+    "Không đổi chữ An thành giá trị khác"
+  ],
+  "fail_if": [
+    "get_name({'name': 'An'}) khác An"
+  ],
+  "interventions": [
+    "approve",
+    "run"
+  ],
+  "grant": [],
+  "brief": {
+    "goal": "Sua names",
+    "deliverables": [
+      "names.py"
+    ],
+    "acceptance_criteria": [
+      {
+        "schema": 1,
+        "id": "key",
+        "text": "doc khoa name",
+        "validator": {
+          "kind": "contains",
+          "path": "names.py",
+          "must_contain": [
+            "row[\"name\"]"
+          ],
+          "must_not_contain": []
+        }
+      }
+    ],
+    "constraints": [],
+    "assumptions": [],
+    "questions": [],
+    "per_role_hints": {
+      "planner": "",
+      "worker": "",
+      "verifier": ""
+    }
+  },
+  "mutable": [
+    "names.py"
+  ]
+}
