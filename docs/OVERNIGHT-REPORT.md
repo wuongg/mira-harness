@@ -32,7 +32,7 @@ Thứ tự: R1 quyền chạy check, R2 tiêu chí gắn phép kiểm và artifa
 | H2 | đạt | `f0b3db1` | https://github.com/wuongg/mira-harness/actions/runs/38512453126 success |
 | H3 | đạt | `d3d7b28` | https://github.com/wuongg/mira-harness/actions/runs/38512806091 success |
 | H4 | đạt | `5a3dfed` | https://github.com/wuongg/mira-harness/actions/runs/38513177620 success |
-| H5 | đạt trên máy; CI sau khi push | | |
+| H5 | đạt | `5aead5e` | https://github.com/wuongg/mira-harness/actions/runs/38513574605 success |
 
 ### R1
 
