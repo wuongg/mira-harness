@@ -35,7 +35,8 @@ Thứ tự: R1 quyền chạy check, R2 tiêu chí gắn phép kiểm và artifa
 | H5 | đạt | `5aead5e` | https://github.com/wuongg/mira-harness/actions/runs/38513574605 success |
 | L1 | đạt | `d4a538b` | https://github.com/wuongg/mira-harness/actions/runs/38514566409 success |
 | L2 | đạt | `0719f51` | https://github.com/wuongg/mira-harness/actions/runs/38515440770 success |
-| L3 | đạt trên máy; CI sau khi push | | |
+| L3 | đạt | `063e993` | https://github.com/wuongg/mira-harness/actions/runs/38516162248 success |
+| L4 | đạt trên máy; CI sau khi push | | |
 
 ### R1
 
@@ -291,6 +292,28 @@ Xác nhận không còn quét mọi thư mục staging rồi lấy file đầu t
 Lệnh: `py -3 -m unittest discover -s tests -p "test_giao_artifact.py" -v`
 
 Selftest: `Ran 537 tests`, `OK (skipped=2)`.
+
+### L4
+
+Các ca đi qua CLI và HTTP giả, không phải model thật.
+
+| Ca | Call thêm khi mở lại | Promote |
+| --- | --- | --- |
+| A. Run đã bàn giao, mở lại hai lần | 0 | 0 |
+| B. Thiếu xác nhận, rồi `--confirm` | 0 | 1 |
+| C. Provider HTTP 500, validator file cũ vẫn đạt | có call lỗi | 0, exit khác 0 |
+| D. Kill trước promote, rồi tiếp tục | 0 | 1 |
+| D. Kill sau promote, rồi tiếp tục | 0 | 0, mtime không đổi |
+| E. Hai tiến trình cùng run | một lần thực thi; tiến trình sau in `không gọi lại` | 1 |
+| F. Hai `report.md` khác nội dung | xác nhận A không áp cho B | chỉ A |
+
+Kill dùng tiến trình thật và `MIRA_PAUSE`, không phải mock trong process. Tiếp tục sau kill không gọi model. Hai tiến trình dùng mutex của hệ điều hành; tiến trình chết thì lock được nhả. Chi phí in trên dòng `chi phí tích lũy` gồm intake và thực thi của cùng ledger.
+
+Lệnh: `py -3 -m unittest discover -s tests -p "test_giao_e2e.py" -v`
+
+Selftest: `Ran 540 tests`, `OK (skipped=2)`.
+
+Giới hạn: provider giả không chứng minh chất lượng model. `team --brief` vẫn cấp mọi lệnh tiêu chí của người dùng. Hash không chống người sửa cùng lúc các hash trong file. `--check-only` không phải bàn giao. Xác nhận tay không đặt `criterion_verified`. V2 `cbc4f7f` vẫn đỏ một job Windows. Không PR, không merge `main`.
 
 ## 1. Mốc
 

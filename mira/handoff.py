@@ -14,6 +14,7 @@ import shlex
 import subprocess
 import sys
 import threading
+import time
 import uuid
 from pathlib import Path
 
@@ -39,7 +40,7 @@ _STATE_FIELDS = (
     "id", "request", "brief", "brief_hash", "approved", "approved_hash",
     "grants", "confirmations", "previous",
     "phase", "attempt", "history", "ledger", "obligations", "hold",
-    "staging", "promoted",
+    "staging", "promoted", "want_deliver",
 )
 _SAVE_LOCK = threading.Lock()
 
@@ -114,13 +115,24 @@ def _ledger_blob(ledger) -> dict:
     }
 
 
+def _read_text(path: Path) -> str:
+    last: Exception | None = None
+    for _ in range(30):
+        try:
+            return path.read_text(encoding="utf-8")
+        except PermissionError as exc:
+            last = exc
+            time.sleep(0.05)
+    raise HandoffError("run đang được thao tác") from last
+
+
 def _load(root: Path, run_id: str) -> dict:
     _check_run_id(run_id)
     path = _dir(root, run_id) / "handoff.json"
     if not path.is_file():
         raise FileNotFoundError(run_id)
     try:
-        state = json.loads(path.read_text(encoding="utf-8"))
+        state = json.loads(_read_text(path))
     except json.JSONDecodeError:
         raise HandoffError("state hỏng: JSON cụt") from None
     if not isinstance(state, dict) or set(state) != set(_STATE_FIELDS) | {"state_hash"}:
@@ -147,7 +159,7 @@ def _load(root: Path, run_id: str) -> dict:
         raise HandoffError("state hỏng: sai schema")
     if not isinstance(state.get("hold"), str) or not isinstance(state.get("staging"), str):
         raise HandoffError("state hỏng: sai schema")
-    if not isinstance(state.get("promoted"), bool):
+    if not isinstance(state.get("promoted"), bool) or not isinstance(state.get("want_deliver"), bool):
         raise HandoffError("state hỏng: sai schema")
     ok, why = validate_brief(state.get("brief"))
     if not ok:
@@ -173,7 +185,14 @@ def _save(root: Path, state: dict) -> None:
         folder.mkdir(parents=True, exist_ok=True)
         tmp = dest.with_suffix(".json.tmp")
         tmp.write_text(json.dumps(state, ensure_ascii=False, indent=2), encoding="utf-8")
-        os.replace(tmp, dest)
+        for _ in range(20):
+            try:
+                os.replace(tmp, dest)
+                break
+            except PermissionError:
+                time.sleep(0.05)
+        else:
+            raise HandoffError("run đang được thao tác")
 
 
 def _argv(args: list[str]) -> str:
@@ -275,6 +294,7 @@ def open_run(root: Path, request: str, brief: dict, previous: str | None = None,
         "hold": "",
         "staging": "",
         "promoted": False,
+        "want_deliver": False,
     }
     _save(root, state)
     return state
@@ -506,27 +526,116 @@ def begin_retry(root: Path, run_id: str) -> dict:
     state["confirmations"] = []
     state["staging"] = ""
     state["promoted"] = False
+    state["want_deliver"] = False
     _save(root, state)
     return state
 
 
+def _acquire_run(root: Path, run_id: str):
+    """Một tiến trình giữ lock. Tiến trình chết thì lock được nhả."""
+    if os.name == "nt":
+        import ctypes
+        kernel = ctypes.WinDLL("kernel32", use_last_error=True)
+        kernel.CreateMutexW.argtypes = [ctypes.c_void_p, ctypes.c_bool, ctypes.c_wchar_p]
+        kernel.CreateMutexW.restype = ctypes.c_void_p
+        kernel.WaitForSingleObject.argtypes = [ctypes.c_void_p, ctypes.c_uint32]
+        kernel.WaitForSingleObject.restype = ctypes.c_uint32
+        kernel.CloseHandle.argtypes = [ctypes.c_void_p]
+        handle = kernel.CreateMutexW(None, False, "Local\\mira-giao-" + run_id)
+        if not handle:
+            raise HandoffError("run đang được thao tác")
+        waited = kernel.WaitForSingleObject(handle, 30000)
+        if waited not in (0, 0x00000080):
+            kernel.CloseHandle(handle)
+            raise HandoffError("run đang được thao tác")
+        return handle
+    import fcntl
+    path = _dir(root, run_id) / "run.lock"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd = os.open(str(path), os.O_CREAT | os.O_RDWR)
+    try:
+        deadline = time.time() + 30
+        while True:
+            try:
+                fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                return fd
+            except OSError:
+                if time.time() > deadline:
+                    raise HandoffError("run đang được thao tác")
+                time.sleep(0.05)
+    except Exception:
+        os.close(fd)
+        raise
+
+
+def _release_run(token) -> None:
+    if os.name == "nt":
+        import ctypes
+        kernel = ctypes.WinDLL("kernel32", use_last_error=True)
+        kernel.ReleaseMutex.argtypes = [ctypes.c_void_p]
+        kernel.CloseHandle.argtypes = [ctypes.c_void_p]
+        kernel.ReleaseMutex(token)
+        kernel.CloseHandle(token)
+        return
+    import fcntl
+    try:
+        fcntl.flock(token, fcntl.LOCK_UN)
+    except OSError:
+        pass
+    os.close(token)
+
+
+def _finish_saved(root: Path, state: dict) -> tuple[list[dict], str, int]:
+    """Team đã xong. Không gọi model. Promote tối đa một lần."""
+    from .team import promote_staging
+    rows = list(state.get("obligations") or [])
+    if state.get("want_deliver") and not state.get("promoted"):
+        folder = Path(state["staging"]) if state.get("staging") else None
+        if folder is not None and folder.is_dir():
+            promote_staging(root, folder, [])
+        state["promoted"] = True
+    if state.get("want_deliver") or state.get("promoted"):
+        state["phase"] = "delivered"
+        status, code = _delivery(rows)
+    elif state.get("hold") == "needs_confirmation":
+        state["phase"] = "awaiting_confirmation"
+        status, code = "bàn giao: chưa", 4
+    else:
+        state["phase"] = "failed"
+        status, code = "bàn giao: chặn", 3
+    _save(root, state)
+    body = "\n".join([
+        render_table(state["request"], rows), status,
+        _phase_line(state), _cost_line(state),
+    ])
+    _write_table(root, state["id"], body)
+    return rows, body, code
+
+
 def _record(root: Path, state: dict, res: dict, ledger, rows: list[dict],
             status: str, code: int, deliver: bool) -> tuple[list[dict], str, int]:
-    from .team import promote_staging
+    from .team import _test_pause, promote_staging
     state["obligations"] = rows
     state["hold"] = str(res.get("hold") or "")
     state["ledger"] = _ledger_blob(ledger)
     state["staging"] = str(res.get("staging") or "")
+    state["want_deliver"] = bool(deliver)
+    state["phase"] = "executing"
+    _save(root, state)
+    _test_pause("before-promote")
     if deliver and not state["promoted"]:
         folder = Path(state["staging"]) if state["staging"] else None
         if folder is not None and folder.is_dir():
             promote_staging(root, folder, [])
         state["promoted"] = True
+        _save(root, state)
+    _test_pause("after-promote")
+    if deliver:
         state["phase"] = "delivered"
     elif res.get("hold") == "needs_confirmation" and res.get("status") == "withheld":
         state["phase"] = "awaiting_confirmation"
     else:
-        state["phase"] = "failed" if not deliver else "delivered"
+        state["phase"] = "failed"
     _save(root, state)
     edited = any(step.get("edited") for step in res.get("steps") or [])
     head = "worker: đã sửa trong staging" if edited else "worker: không sửa"
@@ -571,7 +680,22 @@ def execute(root: Path, run_id: str, *, provider: str | None, model: str | None,
             base_url: str | None, max_tokens: int, price,
             resume: bool = False) -> tuple[list[dict], str, int]:
     """Chạy team/execute_plan trên ledger và checkpoint đã có của run."""
+    lock = _acquire_run(root, run_id)
+    try:
+        return _execute_locked(
+            root, run_id, provider=provider, model=model, base_url=base_url,
+            max_tokens=max_tokens, price=price, resume=resume)
+    finally:
+        _release_run(lock)
+
+
+def _execute_locked(root: Path, run_id: str, *, provider: str | None, model: str | None,
+                    base_url: str | None, max_tokens: int, price,
+                    resume: bool = False) -> tuple[list[dict], str, int]:
     state = _load(root, run_id)
+    if state["phase"] == "executing" and (
+            state.get("want_deliver") or state.get("promoted") or state.get("obligations")):
+        return _finish_saved(root, state)
     if state["phase"] == "delivered":
         return _view(root, state)
     if state["phase"] == "failed":
@@ -676,40 +800,48 @@ def cmd_giao(args) -> int:
         return 2
     if run_id:
         try:
-            if getattr(args, "approve_brief", False):
-                approve(root, run_id)
-            else:
-                state = _load(root, run_id)
-                if not _approval_current(state):
-                    print("chưa duyệt phiếu — không chạy" if not state.get("approved")
-                          else "duyệt cũ hết hiệu lực vì phiếu đã đổi")
-                    return 8
-            for cmd in getattr(args, "grant", None) or []:
-                remember_grant(root, run_id, cmd)
-            if getattr(args, "retry", False):
-                begin_retry(root, run_id)
-            if getattr(args, "confirm", None):
-                confirm(root, run_id, args.confirm, getattr(args, "artifact", None) or "")
-            state = _load(root, run_id)
-            if getattr(args, "check_only", False):
-                _rows, body, code = check_only(root, run_id)
-            elif state["phase"] == "awaiting_confirmation" and getattr(args, "confirm", None):
-                _rows, body, code = settle(root, run_id)
-            else:
-                _rows, body, code = execute(
-                    root, run_id, provider=getattr(args, "provider", None),
-                    model=getattr(args, "model", None),
-                    base_url=getattr(args, "base_url", None),
-                    max_tokens=int(getattr(args, "max_tokens", 4096) or 4096),
-                    price=_price(getattr(args, "price_in", None)))
-        except FileNotFoundError:
-            print(f"không có run {run_id}")
-            return 2
+            lock = _acquire_run(root, run_id)
         except HandoffError as exc:
             print(str(exc))
             return 2
-        print(body)
-        return code
+        try:
+            try:
+                if getattr(args, "approve_brief", False):
+                    approve(root, run_id)
+                else:
+                    state = _load(root, run_id)
+                    if not _approval_current(state):
+                        print("chưa duyệt phiếu — không chạy" if not state.get("approved")
+                              else "duyệt cũ hết hiệu lực vì phiếu đã đổi")
+                        return 8
+                for cmd in getattr(args, "grant", None) or []:
+                    remember_grant(root, run_id, cmd)
+                if getattr(args, "retry", False):
+                    begin_retry(root, run_id)
+                if getattr(args, "confirm", None):
+                    confirm(root, run_id, args.confirm, getattr(args, "artifact", None) or "")
+                state = _load(root, run_id)
+                if getattr(args, "check_only", False):
+                    _rows, body, code = check_only(root, run_id)
+                elif state["phase"] == "awaiting_confirmation" and getattr(args, "confirm", None):
+                    _rows, body, code = settle(root, run_id)
+                else:
+                    _rows, body, code = execute(
+                        root, run_id, provider=getattr(args, "provider", None),
+                        model=getattr(args, "model", None),
+                        base_url=getattr(args, "base_url", None),
+                        max_tokens=int(getattr(args, "max_tokens", 4096) or 4096),
+                        price=_price(getattr(args, "price_in", None)))
+            except FileNotFoundError:
+                print(f"không có run {run_id}")
+                return 2
+            except HandoffError as exc:
+                print(str(exc))
+                return 2
+            print(body)
+            return code
+        finally:
+            _release_run(lock)
     task = getattr(args, "task", None)
     if not task:
         print("thiếu yêu cầu")
