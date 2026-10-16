@@ -48,7 +48,7 @@ jobs:
         with:
           python-version: "3.12"
       - name: Chạy shadow
-        run: python -m mira run --out out --quiet
+        run: python -m frog run --out out --quiet
 
   quality-gate:
     name: quality-gate
@@ -63,7 +63,7 @@ jobs:
       # Lệnh in bảng sáu nhóm ra stdout trước, rồi trả 1 nếu có nhóm dưới ngưỡng.
       # Không hạ ngưỡng trên dòng lệnh. Job này đứng riêng, không nằm trong ma trận 8 ô.
       - name: In bảng rồi so ngưỡng
-        run: python -m mira eval --suite adversarial
+        run: python -m frog eval --suite adversarial
 
   commit-lint:
     name: commit-lint

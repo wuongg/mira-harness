@@ -567,3 +567,37 @@ Vẫn `shell=False`. Selftest: `Ran 457 tests`, `OK (skipped=2)`.
 - Đăng nhập `gh` để mở PR. Không merge, không push `main`.
 - Có bật `--require-evidence` mặc định khi đã có brief hay không.
 - Ngân sách API nếu muốn đo trên model thật.
+
+## RENAME
+
+Đổi tên cơ khí `mira` → `frog` trên nhánh `agent/rename-frog-2026-10-16`, tách từ `main` `959e041`. Không merge trong đợt này.
+
+| Commit | SHA | Phạm vi |
+| --- | --- | --- |
+| RENAME-1 | `5f73f32` | package `frog`, distribution `frog-harness`, shim `mira` / `r0` / `r0-shadow` |
+| RENAME-2 | `f57629d` | `~/.frog`, runtime `.frog`, đọc run cũ `.mira`, không xóa `keys.json.migrated` |
+| RENAME-3 | `a341f13` | ghi `FROG_*`, vẫn đọc `MIRA_*` |
+| FIX-1 | `e189634` | seed cụm từ rỗng giữ chuỗi lịch sử, không đi cùng rename |
+| RENAME-4 | commit tài liệu này | README, CI, Dockerfile, Makefile |
+
+Shim `mira`, `r0`, `r0-shadow` in một cảnh báo rồi gọi `frog.cli` trực tiếp. Hạn xóa: 2027-04-16. `r0` không gọi qua `mira`.
+
+Giá trong `prices.toml` vẫn là khóa nội bộ (`sonnet-5.5`, …), không phải API ID. API ID đã đối chiếu 2026-10-14 là `claude-sonnet-5-5`.
+
+Selftest sau RENAME-3: 580 tests, OK, skipped=2.
+
+`mira` còn lại, đếm chuỗi thường, không tính `docs/PLAN*.md` và repo `mira-harness`:
+
+| Chỗ | Số lần `mira` | Vì sao còn |
+| --- | --- | --- |
+| `frog/` | 25 | đọc `.mira` cũ, shim cảnh báo, seed lịch sử, URL repo |
+| `tests/` | 15 | test migration, resume, shim |
+| `tools/` | 1 | bỏ qua side effect của `.mira/` |
+| `pyproject.toml` | 2 | entry point shim |
+| `Dockerfile`, `.github/` | 0 | |
+
+Wheel `frog_harness-2.5.0` cài vào venv trống: `len(frog.config.PRICES)` là 7. `frog giao --help` thoát 0.
+
+CI của SHA cuối ghi tiếp khi push xong.
+
+Bước tiếp theo không làm trong đợt này: chạy V01, V05, V10 bằng model thật. Cần duyệt ngân sách riêng. Trần đã xin trước là $2.

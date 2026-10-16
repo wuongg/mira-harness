@@ -1,39 +1,39 @@
-mira 2.2.0 — CÀI MỘT LẦN, GÕ TÊN LÀ MỞ
+frog 2.2.0 — CÀI MỘT LẦN, GÕ TÊN LÀ MỞ
 ========================================
 CÀI (một lần):  pip install -e .   (hoặc run.bat / ./run.sh)
 
 WINDOWS — NẾU GẶP LỖI:
-  "An Application Control policy has blocked this file" khi gõ `mira`
-  → KHÔNG phải lỗi của mira. Đây là chính sách AppLocker/WDAC của Windows
-    chặn file mira.exe do pip tạo trong thư mục người dùng.
+  "An Application Control policy has blocked this file" khi gõ `frog`
+  → KHÔNG phải lỗi của frog. Đây là chính sách AppLocker/WDAC của Windows
+    chặn file frog.exe do pip tạo trong thư mục người dùng.
   → CÁCH CHẠY (không dùng .exe):
         python -m r0                 mở thẳng phiên làm việc
         python -m r0 menu            menu 4 việc
         python -m r0 logs            xem log
         py -m r0                     (bản Windows, nếu `python` không có)
-  → Hoặc chạy file mira.cmd trong thư mục cài (gọi python -m r0).
-  → Muốn dùng đúng chữ `mira`: thêm thư mục Scripts của Python vào
+  → Hoặc chạy file frog.cmd trong thư mục cài (gọi python -m r0).
+  → Muốn dùng đúng chữ `frog`: thêm thư mục Scripts của Python vào
     danh sách cho phép của AppLocker (cần quyền quản trị), hoặc cài bằng
     `pip install --user` rồi thêm alias trong PowerShell:
-        Set-Alias mira "python -m r0"
+        Set-Alias frog "python -m r0"
 
 DÙNG (khi đã chạy được):
-  mira            → mở THẲNG phiên làm việc (như claude / openclaw)
-  mira menu       → menu 4 việc
-  Gõ "hello"      → Mira chào lại bình thường, không gọi công cụ nào.
+  frog            → mở THẲNG phiên làm việc (như claude / openclaw)
+  frog menu       → menu 4 việc
+  Gõ "hello"      → Frog chào lại bình thường, không gọi công cụ nào.
 
 Trong phiên, /help:
   /mode /model /team /tools /cost /audit /diff /undo /memory /compact
   /clear /save /sessions /resume /exit
 
-BỐN VIỆC (mira menu):
+BỐN VIỆC (frog menu):
   1 Giao việc cho agent   2 Xem log agent   3 Bảng điều khiển   4 Cài khoá API
 
 LỆNH KHI CẦN:
-  mira export                tải dữ liệu chi tiết ra .md / .json / .csv
-  mira keys set --provider   cắm khoá (anthropic · openai · xai · tavily · brave · serper)
-  mira logs <id>             chi tiết một phiên
-  mira team "…" --dry-run    giao việc cho đội nhiều vai (xem trước)
+  frog export                tải dữ liệu chi tiết ra .md / .json / .csv
+  frog keys set --provider   cắm khoá (anthropic · openai · xai · tavily · brave · serper)
+  frog logs <id>             chi tiết một phiên
+  frog team "…" --dry-run    giao việc cho đội nhiều vai (xem trước)
 
 Linh vật: MIRA — chồn đất (meerkat) đứng gác.
 r0-shadow vẫn chạy như bí danh.  KIỂM CHỨNG: selftest 230/230 XANH.

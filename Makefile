@@ -14,13 +14,13 @@ install: venv
 	. .venv/bin/activate && pip install -e .
 
 test:
-	. .venv/bin/activate && mira selftest
+	. .venv/bin/activate && frog selftest
 
 run:
-	. .venv/bin/activate && mira run --out out
+	. .venv/bin/activate && frog run --out out
 
 labels:
-	. .venv/bin/activate && mira labels export --out out/labels.csv
+	. .venv/bin/activate && frog labels export --out out/labels.csv
 
 clean:
 	rm -rf out out-* .venv build *.egg-info

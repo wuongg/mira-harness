@@ -1,4 +1,6 @@
-# Mira — harness đo lường cho SPEC đội nhóm agent
+# Frog — harness đo lường cho SPEC đội nhóm agent
+
+`mira` là tên cũ của package và lệnh này. Repo GitHub vẫn là `mira-harness`.
 
 Chạy toàn bộ đường ống của SPEC (**T1a → T1b → T2 → sàn động → cổng người →
 oracle/verifier → D1–D4 → sổ cái**) ở chế độ **shadow**: ghi log, **không hành động**.
@@ -11,26 +13,26 @@ Quy ước tên package, shape, file và commit nằm ở [CONTRIBUTING.md](CONT
 
 ---
 
-## Cài một lần — rồi gõ `mira`
+## Cài một lần — rồi gõ `frog`
 
-Giống Claude Code: cài xong, mở terminal mới, gõ `mira` là vào phiên.
+Giống Claude Code: cài xong, mở terminal mới, gõ `frog` là vào phiên.
 Không cần kích hoạt môi trường ảo, không cần đứng trong thư mục này.
 
 ```bat
 install.bat
 ```
 
-Linux / macOS: `python3 -m mira install`
+Linux / macOS: `python3 -m frog install`
 
-Lệnh này ghi `mira` vào `%USERPROFILE%\.local\bin` và thêm thư mục đó vào PATH.
-Launcher là file `.cmd` gọi `python -m mira`, nên không dính file `mira.exe`
+Lệnh này ghi `frog` vào `%USERPROFILE%\.local\bin` và thêm thư mục đó vào PATH.
+Launcher là file `.cmd` gọi `python -m frog`, nên không dính file `frog.exe`
 mà AppLocker trên Windows hay chặn.
 Lệnh `r0-shadow` còn chạy được đến phiên bản kế tiếp, in cảnh báo, rồi bị gỡ.
 
 Mở **terminal mới**, gõ:
 
 ```text
-mira
+frog
 ```
 
 ## CHẠY NGAY — ba cách
@@ -38,7 +40,7 @@ mira
 ### Cách 1 · một lệnh, tự lo hết (dễ nhất)
 
 ```bash
-cd mira-install
+cd frog-install
 ./run.sh          # Linux / macOS
 run.bat           # Windows (bấm đúp cũng được)
 ```
@@ -48,33 +50,33 @@ run.bat           # Windows (bấm đúp cũng được)
 ### Cách 2 · tự cài rồi dùng
 
 ```bash
-cd mira-install
+cd frog-install
 python3 -m venv .venv
 source .venv/bin/activate        # Linux/macOS
 .venv\Scripts\activate          # Windows
 pip install -e .
-mira                        # vào phiên — hoặc `python -m mira install` để gõ được ở mọi terminal
+frog                        # vào phiên — hoặc `python -m frog install` để gõ được ở mọi terminal
 ```
 
 ### Cách 3 · không cài gì cả
 
 ```bash
-python3 -m mira                    # vào phiên, chạy thẳng từ mã nguồn
-python3 -m mira selftest           # chạy bộ kiểm tra
+python3 -m frog                    # vào phiên, chạy thẳng từ mã nguồn
+python3 -m frog selftest           # chạy bộ kiểm tra
 ```
 
 ---
 
 ## Vào phiên
 
-Gõ **`mira`** rồi Enter — **không kèm tham số nào**. Lần đầu chưa có khoá API thì nó hỏi khoá, rồi vào phiên luôn.
+Gõ **`frog`** rồi Enter — **không kèm tham số nào**. Lần đầu chưa có khoá API thì nó hỏi khoá, rồi vào phiên luôn.
 
-Menu 4 việc vẫn còn, gọi riêng: `mira menu`.
+Menu 4 việc vẫn còn, gọi riêng: `frog menu`.
 
-Gõ **`mira menu`** nếu muốn danh sách việc:
+Gõ **`frog menu`** nếu muốn danh sách việc:
 
 ```
-  mira  harness R0
+  frog  harness R0
   ────────────────────────────────────────────────
   1  Chạy shadow (320 tác vụ)
   2  Xem báo cáo
@@ -89,7 +91,7 @@ Gõ **`mira menu`** nếu muốn danh sách việc:
 ```
 
 Menu chỉ hiện khi gõ trong **terminal thật**. Nếu chuyển hướng đầu ra
-(`mira > file.txt`) thì nó in trợ giúp thay vì vào phiên — vì không có bàn phím
+(`frog > file.txt`) thì nó in trợ giúp thay vì vào phiên — vì không có bàn phím
 để bấm.
 
 ---
@@ -97,8 +99,8 @@ Menu chỉ hiện khi gõ trong **terminal thật**. Nếu chuyển hướng đ�
 ## TUI toàn màn hình
 
 ```bash
-mira run --out out      # phải có số trước đã
-mira tui --run out      # mở TUI (màn hình thay thế, có chuột)
+frog run --out out      # phải có số trước đã
+frog tui --run out      # mở TUI (màn hình thay thế, có chuột)
 ```
 
 Trong TUI: `↑↓` cuộn · `tab` đổi mục · `1`–`5` nhảy mục · `enter` chi tiết ·
@@ -107,8 +109,8 @@ Trong TUI: `↑↓` cuộn · `tab` đổi mục · `1`–`5` nhảy mục · `e
 Máy không có `curses` (Windows) hoặc không có TTY: dùng bản tĩnh
 
 ```bash
-mira tui --run out --dump        # in một khung ra văn bản
-mira stats --run out             # bảng điều khiển một màn hình
+frog tui --run out --dump        # in một khung ra văn bản
+frog stats --run out             # bảng điều khiển một màn hình
 ```
 
 ---
@@ -126,25 +128,25 @@ mira stats --run out             # bảng điều khiển một màn hình
 ## 1. Cài
 
 ```bash
-cd mira-install
+cd frog-install
 python3 -m venv .venv
 source .venv/bin/activate          # Linux/macOS
 .venv\Scripts\activate             # Windows
 pip install -e .
 ```
 
-Xong. Kiểm tra: `mira doctor` — phải báo **môi trường OK**.
-Rồi `mira selftest` — selftest là unittest, phải PASS, không cần thư mục out.
+Xong. Kiểm tra: `frog doctor` — phải báo **môi trường OK**.
+Rồi `frog selftest` — selftest là unittest, phải PASS, không cần thư mục out.
 
-Không muốn cài? Chạy thẳng: `python3 -m mira <lệnh>`
-Không có Python? `docker build -t mira . && docker run --rm -v "$PWD/out:/app/out" mira run`
+Không muốn cài? Chạy thẳng: `python3 -m frog <lệnh>`
+Không có Python? `docker build -t frog . && docker run --rm -v "$PWD/out:/app/out" frog run`
 
 ---
 
 ## 2. Dùng nhanh nhất: menu
 
 ```bash
-mira
+frog
 ```
 
 Gõ số để chọn. Menu tự dẫn qua đúng thứ tự công việc:
@@ -168,17 +170,17 @@ Gõ số để chọn. Menu tự dẫn qua đúng thứ tự công việc:
 ## 3. Dùng bằng lệnh
 
 ```bash
-mira run                       # chạy shadow, in bảng kết quả
-mira report                    # xem lại kết quả đã chạy
-mira report --top 5            # kèm 5 tác vụ tốn kém nhất
-mira task T0007                # xem chi tiết một tác vụ
-mira labels export             # sinh phiếu gán nhãn
-mira labels status             # đã điền bao nhiêu dòng
-mira labels check              # kiểm tra phiếu hợp lệ
-mira run --out out-lab --labels out/labels.csv   # chấm bằng nhãn người
-mira compare --a out --b out-cache0              # so hai lần chạy
-mira doctor                    # kiểm tra môi trường
-mira selftest                  # kiểm tra bất biến
+frog run                       # chạy shadow, in bảng kết quả
+frog report                    # xem lại kết quả đã chạy
+frog report --top 5            # kèm 5 tác vụ tốn kém nhất
+frog task T0007                # xem chi tiết một tác vụ
+frog labels export             # sinh phiếu gán nhãn
+frog labels status             # đã điền bao nhiêu dòng
+frog labels check              # kiểm tra phiếu hợp lệ
+frog run --out out-lab --labels out/labels.csv   # chấm bằng nhãn người
+frog compare --a out --b out-cache0              # so hai lần chạy
+frog doctor                    # kiểm tra môi trường
+frog selftest                  # kiểm tra bất biến
 ```
 
 ### Tùy chọn của `run`
@@ -200,8 +202,8 @@ mira selftest                  # kiểm tra bất biến
 | `out/trace.jsonl` | một dòng JSON mỗi tác vụ — toàn bộ quyết định, đủ để audit |
 | `out/metrics.json` | 16 chỉ số §19 + khoảng Wilson + quy tắc 3/n |
 
-Muốn máy đọc: `mira report --json`. Muốn tắt màu: `--no-color` hoặc `NO_COLOR=1`.
-Màu cũng tự tắt khi ghi ra tệp: `mira report > bao-cao.txt`.
+Muốn máy đọc: `frog report --json`. Muốn tắt màu: `--no-color` hoặc `NO_COLOR=1`.
+Màu cũng tự tắt khi ghi ra tệp: `frog report > bao-cao.txt`.
 
 ---
 
@@ -212,14 +214,14 @@ chẻ vai, chạy từng vai, rồi mới ghi kết quả — nếu qua được
 
 ```bash
 # 1) xem kế hoạch phân vai, KHÔNG gọi model, KHÔNG tốn tiền
-mira team "soạn báo cáo tổng kết quý" --dry-run
+frog team "soạn báo cáo tổng kết quý" --dry-run
 
 # 2) chạy thật (cần API key trong biến môi trường)
 export ANTHROPIC_API_KEY=sk-ant-...
-mira team "soạn báo cáo tổng kết quý" --records 5000 --out ket-qua
+frog team "soạn báo cáo tổng kết quý" --records 5000 --out ket-qua
 
 # 3) tác vụ ghi ra hệ thống ngoài — cổng tầng 2/3 sẽ hỏi duyệt
-mira team "cập nhật 300 bản ghi lên CRM" --surface write_external \
+frog team "cập nhật 300 bản ghi lên CRM" --surface write_external \
   --labels confidential --records 300 --dollars 400 --out ket-qua
 ```
 
@@ -257,7 +259,7 @@ OPENAI_API_KEY=...      # cho model gpt
 XAI_API_KEY=...         # cho model grok
 ```
 
-Thứ tự đọc khóa: tham số `--api-key`, rồi biến môi trường, rồi `~/.mira/keys.json` plaintext mode 0600. Windows bỏ qua chmod. Không in đầy đủ khóa ra màn hình.
+Thứ tự đọc khóa: tham số `--api-key`, rồi biến môi trường, rồi `~/.frog/keys.json` plaintext mode 0600. Windows bỏ qua chmod. Không in đầy đủ khóa ra màn hình.
 
 ### Fail-closed — điều quan trọng nhất
 
@@ -269,7 +271,7 @@ Thứ tự đọc khóa: tham số `--api-key`, rồi biến môi trường, r�
 | Thiếu API key | Dừng ngay, **không gọi** model nào |
 | Vượt trần ngân sách làn | Dừng, giữ phần đã làm |
 
-Cửa ghi duy nhất là hàm `_executor_write()` trong `mira/team.py` — không có đường
+Cửa ghi duy nhất là hàm `_executor_write()` trong `frog/team.py` — không có đường
 vòng nào khác (I1).
 
 ### Kiểm chứng không cần API key
@@ -280,7 +282,7 @@ kiểm cả nhánh `PASS` lẫn nhánh fail-closed. Nên bạn không phải là
 thử đầu tiên.
 
 ```bash
-mira selftest        # chạy tất cả, gồm cả test đội agent
+frog selftest        # chạy tất cả, gồm cả test đội agent
 ```
 
 ---
@@ -290,22 +292,22 @@ mira selftest        # chạy tất cả, gồm cả test đội agent
 Hai chế độ, giống cách các agent CLI quen thuộc chia việc:
 
 ```bash
-mira chat                       # phiên tương tác (REPL)
-mira chat --mode plan           # chỉ đề xuất, KHÔNG ghi, KHÔNG chạy lệnh
-mira chat --team               # định tuyến qua làn + đội nhiều vai của SPEC
-mira chat --resume 20261011-2201-ab12
+frog chat                       # phiên tương tác (REPL)
+frog chat --mode plan           # chỉ đề xuất, KHÔNG ghi, KHÔNG chạy lệnh
+frog chat --team               # định tuyến qua làn + đội nhiều vai của SPEC
+frog chat --resume 20261011-2201-ab12
 
-mira agent "đọc README rồi tóm tắt"        # một lượt headless
-mira agent "..." --json                    # envelope JSON cho script/CI
-mira agent "..." --yes                     # tự duyệt mọi cổng (CẨN THẬN)
+frog agent "đọc README rồi tóm tắt"        # một lượt headless
+frog agent "..." --json                    # envelope JSON cho script/CI
+frog agent "..." --yes                     # tự duyệt mọi cổng (CẨN THẬN)
 
-mira agent "..." --protocol native         # ép gọi công cụ GỐC (native tool-calling)
-mira agent "..." --protocol text           # ép giao thức văn bản <tool>{...}</tool>
-mira agent "..." --no-stream               # tắt streaming (dễ ghi log)
-mira agent "..." --max-turns 8             # trần vòng gọi công cụ (mặc định 25)
-mira agent "..." --max-budget-usd 0.50     # dừng ngay khi lượt vượt $0,50
-mira team "..." --workers 4                # làn 2: 4 worker + 4 verifier song song
-mira team "..." --workers 2 --sub-depth 2  # mỗi worker mở đội con, lồng 2 cấp
+frog agent "..." --protocol native         # ép gọi công cụ GỐC (native tool-calling)
+frog agent "..." --protocol text           # ép giao thức văn bản <tool>{...}</tool>
+frog agent "..." --no-stream               # tắt streaming (dễ ghi log)
+frog agent "..." --max-turns 8             # trần vòng gọi công cụ (mặc định 25)
+frog agent "..." --max-budget-usd 0.50     # dừng ngay khi lượt vượt $0,50
+frog team "..." --workers 4                # làn 2: 4 worker + 4 verifier song song
+frog team "..." --workers 2 --sub-depth 2  # mỗi worker mở đội con, lồng 2 cấp
 ```
 
 ### Trong phiên, gõ `/` để điều khiển
@@ -450,14 +452,14 @@ Mã thoát: `0` xong · `1` lỗi/chặn · `2` đầu vào sai.
 
 ### Phiên lưu ở đâu
 
-`~/.mira/sessions/<id>.jsonl` — mỗi dòng một sự kiện. `/sessions` liệt kê, `/resume <id>` mở lại.
+`~/.frog/sessions/<id>.jsonl` — mỗi dòng một sự kiện. `/sessions` liệt kê, `/resume <id>` mở lại.
 
 ---
 
 ## 4. Tự kiểm tra các bất biến
 
 ```bash
-mira selftest
+frog selftest
 ```
 
 | Bài kiểm tra | Bất biến / tuyên bố |
@@ -479,13 +481,13 @@ mira selftest
 ## 5. Cấu trúc
 
 ```
-mira-install/
-├── pyproject.toml          # gói cài được, console script `mira`
+frog-install/
+├── pyproject.toml          # gói cài được, console script `frog`
 ├── Makefile                # make install | test | run | labels
 ├── run.sh / run.bat        # chạy một phát, tự tạo venv
 ├── Dockerfile              # tự chạy selftest lúc build
 ├── labels.csv              # phiếu gán nhãn 320 dòng (bản mẫu)
-├── mira/
+├── frog/
 │   ├── cli.py              # dòng lệnh + menu tương tác
 │   ├── ui.py               # bảng, màu, thanh tiến độ (thuần thư viện chuẩn)
 │   ├── config.py           # ngưỡng, giá model, mô hình dùng lượng token
@@ -500,11 +502,11 @@ mira-install/
 
 | Muốn đổi | Sửa tệp |
 |---|---|
-| Ngưỡng, giá model, mô hình token | `mira/config.py` |
-| Bộ tác vụ mẫu | `mira/tasks.py` — hàm `load_tasks()` |
-| Logic đường ống | `mira/pipeline.py` |
-| Chỉ số báo cáo | `mira/metrics.py` |
-| Thêm lệnh CLI | `mira/cli.py` |
+| Ngưỡng, giá model, mô hình token | `frog/config.py` |
+| Bộ tác vụ mẫu | `frog/tasks.py` — hàm `load_tasks()` |
+| Logic đường ống | `frog/pipeline.py` |
+| Chỉ số báo cáo | `frog/metrics.py` |
+| Thêm lệnh CLI | `frog/cli.py` |
 
 ---
 
@@ -522,7 +524,7 @@ Những gì **KHÔNG** được chứng minh:
 - Nhánh **hạ sàn chưa hề chạy** (0/151 lượt) ⇒ nửa tá số liên quan vẫn trống.
 
 Muốn có số thật: điền cột `human_injection` (`yes`/`no`) trong `labels.csv` rồi chạy
-`mira run --out out-lab --labels labels.csv`.
+`frog run --out out-lab --labels labels.csv`.
 
 ---
 

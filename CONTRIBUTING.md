@@ -7,9 +7,9 @@ Ví dụ sai: `Sửa cổng giá và đổi tên gói` (có dấu, không có ID
 
 Năm luật:
 
-1. Một tên `mira` cho package, lệnh, `~/.mira/` và `.mira/`. `r0` và `r0-shadow` chỉ là vỏ có cảnh báo, gỡ sau phiên bản kế tiếp.
+1. Một tên `frog` cho package, lệnh, `~/.frog/` và `.frog/`. `mira`, `r0` và `r0-shadow` là shim một bậc, in cảnh báo rồi gọi `frog`, gỡ sau 2027-04-16.
 2. Định danh code bằng tiếng Anh, PEP 8. Hằng số `UPPER_SNAKE`. Cờ CLI `--kebab-case`. Shape là `"edit"`, `"run"`, `"read"`, `"ask"`.
-3. Tên file và thư mục là `lower_snake` hoặc kebab, ASCII, không khoảng trắng, không dấu ngoặc. Không commit `out/`, `.mira/`, `*.withheld/`.
+3. Tên file và thư mục là `lower_snake` hoặc kebab, ASCII, không khoảng trắng, không dấu ngoặc. Không commit `out/`, `.frog/`, `*.withheld/`.
 4. Tiêu đề commit không quá 72 ký tự ASCII, không BOM, không zero-width. Một commit một mục. Không viết lại lịch sử đã public.
 5. Không đổi tên trong lúc sửa logic khác. Commit đổi tên chỉ chứa rename.
 

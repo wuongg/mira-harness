@@ -22,7 +22,7 @@ Lần selftest trước đợt này: 552 test, `OK (skipped=2)`.
 | Test | Lý do | Phần chưa được kiểm |
 | --- | --- | --- |
 | `tests/test_disk_guard.py` `test_symlink_thoat_goc` | Máy không cho tạo symlink (`OSError`) | Nhánh symlink thoát gốc của `read_file` |
-| `tests/test_mascot_art.py` `test_half_block_truecolor` | Không có `mira/mascot_rgba.png` | Ảnh mascot truecolor |
+| `tests/test_mascot_art.py` `test_half_block_truecolor` | Không có `frog/mascot_rgba.png` | Ảnh mascot truecolor |
 
 Không bị skip trên máy này: `test_duong_dan_tho_tren_windows_van_chay` (chỉ skip khi không phải Windows) và `test_goc_chua_resolve_van_phan_dung_path_escape` (chỉ skip khi không tạo được path khác `resolve()`). Job Ubuntu bỏ qua case đường dẫn Windows.
 
@@ -32,26 +32,26 @@ Không bị skip trên máy này: `test_duong_dan_tho_tren_windows_van_chay` (ch
 
 `giao --help` thoát 0 không chứng minh giá, intake, validator hay promote.
 
-Trước khi thêm package-data, wheel cài sạch import được và `giao --help` chạy, nhưng `mira/prices.toml` không được đóng gói. `load_prices_file` trả `{}` khi thiếu file, nên `PRICES` rỗng. `--price-in` vẫn ghi đè được. Intake không đọc file: chuỗi `INTAKE_SYSTEM` nằm trong `mira/intake.py`. Thực thi cần các module `mira`. `tui_palette_256.txt` được mascot đọc lười. `mascot_rgba.png` không có trong repo.
+Trước khi thêm package-data, wheel cài sạch import được và `giao --help` chạy, nhưng `frog/prices.toml` không được đóng gói. `load_prices_file` trả `{}` khi thiếu file, nên `PRICES` rỗng. `--price-in` vẫn ghi đè được. Intake không đọc file: chuỗi `INTAKE_SYSTEM` nằm trong `frog/intake.py`. Thực thi cần các module `frog`. `tui_palette_256.txt` được mascot đọc lười. `mascot_rgba.png` không có trong repo.
 
 `pyproject.toml` nay khai báo:
 
 ```
 [tool.setuptools.package-data]
-mira = ["prices.toml", "tui_palette_256.txt"]
+frog = ["prices.toml", "tui_palette_256.txt"]
 ```
 
-Cài vào venv trống `C:\Users\phamv\AppData\Local\Temp\mira-m1-clean` thì `len(mira.config.PRICES) == 7`. Bảy tên trong file giá (`sonnet-5.5`, `opus-5.5`, `gpt-6-astra`, …) là khóa bảng giá trong repo, không phải model ID của API nhà cung cấp.
+Cài vào venv trống `C:\Users\phamv\AppData\Local\Temp\frog-m1-clean` thì `len(frog.config.PRICES) == 7`. Bảy tên trong file giá (`sonnet-5.5`, `opus-5.5`, `gpt-6-astra`, …) là khóa bảng giá trong repo, không phải model ID của API nhà cung cấp.
 
 ### Chạy từ môi trường sạch
 
-Thư mục venv phải trống trước `py -m venv`. Một venv cũ có cây `mira\` ở gốc sẽ che `site-packages`.
+Thư mục venv phải trống trước `py -m venv`. Một venv cũ có cây `frog\` ở gốc sẽ che `site-packages`.
 
 ```
 py -3 -m venv .venv-clean
 .venv-clean\Scripts\python.exe -m pip install .
-.venv-clean\Scripts\python.exe -c "import mira.config; print(len(mira.config.PRICES))"
-.venv-clean\Scripts\python.exe -m mira giao --help
+.venv-clean\Scripts\python.exe -c "import frog.config; print(len(frog.config.PRICES))"
+.venv-clean\Scripts\python.exe -m frog giao --help
 ```
 
 Kỳ vọng: in `7`, rồi help có `--confirm`. Help không phải nghiệm thu sản phẩm.
@@ -90,16 +90,16 @@ V01–V09 lúc đầu trượt phép kiểm. V10–V12 lúc đầu đạt. Đáp
 
 Cùng provider, model, base URL, `--price-in 1000,0`, `--max-tokens 256`, `--oracle off`, `--require-evidence`. Không có chế độ baseline mới.
 
-**A. `mira giao`** — luồng đầy đủ đã có:
+**A. `frog giao`** — luồng đầy đủ đã có:
 
 - intake bật (provider giả trả brief đóng băng), rồi `--approve-brief`
 - lane bị buộc lên 1: worker và verifier
 - `stage_worker`, trần lane 1 là $0.85
 - grant tường minh; V12 gọi `--run` không `--grant`
 - staging, manifest, refresh evidence trước promote
-- V09 có `--change`; V11 đặt `MIRA_PAUSE=before-promote` rồi kill khi cờ xuất hiện
+- V09 có `--change`; V11 đặt `FROG_PAUSE=before-promote` rồi kill khi cờ xuất hiện
 
-**B. `mira team`** — giao diện đơn giản hơn đã có:
+**B. `frog team`** — giao diện đơn giản hơn đã có:
 
 - `--intake off` và `--brief` file, không có vòng approve
 - `--surface write_sandbox --records 50 --dollars 0 --reversibility C1`
@@ -130,7 +130,7 @@ Không có điểm thông minh gộp. Provider giả không nói gì về chất
 | `not_complete` | kỳ vọng bàn giao, không nhận bàn giao, phép kiểm trượt |
 | `not_run` | tiến trình thoát 2 và chưa tạo được run mới |
 | `check_error` | phép kiểm timeout, traceback, hoặc không chạy được. Không ghi là model làm sai |
-| `side_effect` | file được thêm ngoài `mutable`, file ban đầu bị xóa, hoặc file không thuộc `mutable` bị sửa. Bỏ `.mira/` và `__pycache__` |
+| `side_effect` | file được thêm ngoài `mutable`, file ban đầu bị xóa, hoặc file không thuộc `mutable` bị sửa. Bỏ `.frog/` và `__pycache__` |
 | `intervention_count` | số sự kiện người dùng đã phát ra trong lần chạy |
 | `retries` | số sự kiện `retry` đã phát ra |
 | `http_calls` | số POST vào stub, gồm retry HTTP |
@@ -213,7 +213,7 @@ Phần không biết trước: số token vào thực tế, cache, thinking, và
 - `gh` chưa đăng nhập. Không mở pull request. Link so sánh ở trên.
 - Chưa được duyệt gọi API trả phí.
 - Provider giả không đánh giá model.
-- `team --brief` vẫn cấp mọi lệnh tiêu chí khi `granted_cmds` là `None`. Chỉ `mira giao` buộc grant vào hash brief đã duyệt.
+- `team --brief` vẫn cấp mọi lệnh tiêu chí khi `granted_cmds` là `None`. Chỉ `frog giao` buộc grant vào hash brief đã duyệt.
 - Hash phát hiện sửa file. Hash không phải chống giả mạo và không phải giao dịch nhiều file nguyên tử.
 - `--check-only` không phải bàn giao.
 - Xác nhận tay không đặt `criterion_verified`.
