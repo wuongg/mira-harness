@@ -7,9 +7,9 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from mira import config as C  # noqa: E402
-from mira import team  # noqa: E402
-from mira.prices import load_prices  # noqa: E402
+from frog import config as C  # noqa: E402
+from frog import team  # noqa: E402
+from frog.prices import load_prices  # noqa: E402
 
 HITS = {"n": 0}
 _FIXTURE = """
@@ -39,7 +39,7 @@ def _run(model="sonnet-5.5", declared=None, cap=None):
     plan.declared_price = declared
     if cap is not None:
         plan.cap_usd = cap
-    with patch("mira.team.provider_for", lambda *a, **k: _Prov()):
+    with patch("frog.team.provider_for", lambda *a, **k: _Prov()):
         return team.execute_plan(plan, model_override=model, on_step=lambda _m: None)
 
 
@@ -95,7 +95,7 @@ class PricesTest(unittest.TestCase):
         mini = load_prices(_FIXTURE, force_mini=True)
         self.assertEqual(mini["sonnet-5.5"]["in"], 3.0)
         self.assertNotIn("broken", mini)
-        shipped = Path(__file__).resolve().parents[1] / "mira" / "prices.toml"
+        shipped = Path(__file__).resolve().parents[1] / "frog" / "prices.toml"
         text = shipped.read_text(encoding="utf-8")
         self.assertIn("sonnet-5.5", load_prices(text, force_mini=True))
         if sys.version_info >= (3, 11):

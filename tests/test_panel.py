@@ -11,9 +11,9 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from mira import panel                        # noqa: E402
-from mira.labels import sheet_labelability, triage  # noqa: E402
-from mira.tasks import build_tasks            # noqa: E402
+from frog import panel                        # noqa: E402
+from frog.labels import sheet_labelability, triage  # noqa: E402
+from frog.tasks import build_tasks            # noqa: E402
 
 TASKS = build_tasks()
 

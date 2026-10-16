@@ -11,15 +11,15 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from mira import tui                                  # noqa: E402
-from mira.cli import cmd_run                          # noqa: E402
+from frog import tui                                  # noqa: E402
+from frog.cli import cmd_run                          # noqa: E402
 
 RUN = Path()
 
 
 def setUpModule():
     global RUN
-    RUN = Path(tempfile.mkdtemp(prefix="mira-tui-"))
+    RUN = Path(tempfile.mkdtemp(prefix="frog-tui-"))
     cmd_run(Namespace(out=str(RUN), cache_hit=0.0, seed=1, n=0, labels=None,
                       quiet=True, json=False, classifier="keyword", provider=None,
                       model=None, api_key=None, base_url=None, no_cache=True))

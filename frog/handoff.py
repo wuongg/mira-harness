@@ -221,7 +221,7 @@ def _save(root: Path, state: dict) -> None:
 
 
 def _argv(args: list[str]) -> str:
-    argv = [sys.executable, "-m", "mira", "giao", *args]
+    argv = [sys.executable, "-m", "frog", "giao", *args]
     if os.name == "nt":
         return subprocess.list2cmdline(argv)
     return shlex.join(argv)

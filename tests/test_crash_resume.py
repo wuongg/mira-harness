@@ -70,7 +70,7 @@ def _run(root: Path, url: str, resume: str | None, brief: Path | None,
     env["ANTHROPIC_API_KEY"] = "local"
     if extra:
         env.update(extra)
-    cmd = [sys.executable, "-m", "mira", "team"]
+    cmd = [sys.executable, "-m", "frog", "team"]
     if resume:
         cmd += ["--resume", resume]
     else:
@@ -252,7 +252,7 @@ class CrashResumeTest(unittest.TestCase):
             srv.shutdown()
 
     def test_doi_artifact_sau_kill_khong_ban_giao(self):
-        from mira.team import tree_hash
+        from frog.team import tree_hash
         srv, url = _serve()
         try:
             with tempfile.TemporaryDirectory() as tmp:

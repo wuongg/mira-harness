@@ -415,7 +415,7 @@ _PHRASE_WORDS = (
 
 def two_phrases(seed: str) -> tuple[str, str]:
     """Hai cụm bốn từ tiếng Việt, khác nhau, cùng một plan_hash."""
-    rng = random.Random(seed or "mira")
+    rng = random.Random(seed or "frog")
     words = list(_PHRASE_WORDS)
     rng.shuffle(words)
     return " ".join(words[:4]), " ".join(words[4:8])

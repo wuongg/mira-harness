@@ -4,10 +4,10 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from mira.agent import run_turn
-from mira.bench import _Scripted
-from mira.repl import condense_trace, view_for_model
-from mira.tools import Session
+from frog.agent import run_turn
+from frog.bench import _Scripted
+from frog.repl import condense_trace, view_for_model
+from frog.tools import Session
 
 
 class DiskGuardTest(unittest.TestCase):
@@ -32,7 +32,7 @@ class DiskGuardTest(unittest.TestCase):
         self.assertNotIn("bi-mat", self._sess().grep("TOKEN", "."))
 
     def test_symlink_thoat_goc(self):
-        outside = Path(self.tmp.name).parent / "mira-secret-ngoai.txt"
+        outside = Path(self.tmp.name).parent / "frog-secret-ngoai.txt"
         outside.write_text("bi-mat", encoding="utf-8")
         link = self.root / "lo.txt"
         try:
@@ -127,8 +127,8 @@ class DiskGuardTest(unittest.TestCase):
     def test_lan_2_khong_co_checker_thi_khong_dung(self):
         import shlex
         import sys
-        from mira.agent import run_turn
-        from mira.bench import _Scripted
+        from frog.agent import run_turn
+        from frog.bench import _Scripted
         s = self._sess()
         cmd = shlex.join([sys.executable, "-c", "pass"])
         s.run_shell(cmd)

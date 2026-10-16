@@ -4,7 +4,8 @@
 
 ### Changed
 
-- Package Python là `mira`. Lệnh `r0` và `r0-shadow` còn là vỏ đến phiên bản kế tiếp.
+- Package Python là `frog`. Distribution trên PyPI là `frog-harness` vì tên `frog` đã có người chiếm (2026-10-16).
+- Lệnh `mira`, `r0` và `r0-shadow` là shim một bậc: in cảnh báo một lần rồi gọi `frog`. Xóa các lệnh này sau 2027-04-16. `r0` không gọi qua `mira`.
 - Lần chạy đầu copy `~/.r0/keys.json` sang `~/.mira/keys.json` rồi đổi tên bản cũ thành `keys.json.migrated`.
 - Phiên thiếu được copy sang `~/.mira/sessions`. Thư mục phiên cũ được giữ.
 

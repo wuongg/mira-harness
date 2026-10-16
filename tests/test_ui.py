@@ -10,15 +10,15 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from mira import stats, ui                        # noqa: E402
-from mira.cli import cmd_run                      # noqa: E402
+from frog import stats, ui                        # noqa: E402
+from frog.cli import cmd_run                      # noqa: E402
 
 RUN = Path()
 
 
 def setUpModule():
     global RUN
-    RUN = Path(tempfile.mkdtemp(prefix="mira-stats-"))
+    RUN = Path(tempfile.mkdtemp(prefix="frog-stats-"))
     cmd_run(Namespace(out=str(RUN), cache_hit=0.0, seed=1, n=0, labels=None,
                       quiet=True, json=False, classifier="keyword", provider=None,
                       model=None, api_key=None, base_url=None, no_cache=True))
@@ -53,11 +53,11 @@ class TestLinhVat(unittest.TestCase):
         import contextlib
         buf = io.StringIO()
         with contextlib.redirect_stdout(buf):
-            ui.masthead(["mira"])
+            ui.masthead(["frog"])
         out = buf.getvalue()
         self.assertIn("▐▛███▜▌", out)
         self.assertIn("▗▄ ▄▖", out)
-        self.assertIn("mira", out)
+        self.assertIn("frog", out)
         self.assertGreaterEqual(len(ui.MASCOT), 4)
 
 

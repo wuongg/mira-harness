@@ -2,7 +2,7 @@ import io
 import contextlib
 import unittest
 
-from mira import repl
+from frog import repl
 
 
 class ReplUxTest(unittest.TestCase):
@@ -10,8 +10,8 @@ class ReplUxTest(unittest.TestCase):
         import io
         import contextlib
         from pathlib import Path
-        from mira import ui
-        from mira.tools import Session
+        from frog import ui
+        from frog.tools import Session
         ui.set_color(False)
         buf = io.StringIO()
         try:
@@ -20,7 +20,7 @@ class ReplUxTest(unittest.TestCase):
         finally:
             ui.set_color(None)
         out = buf.getvalue()
-        self.assertIn("mira", out)
+        self.assertIn("frog", out)
         self.assertIn("sonnet-5.5", out)
         self.assertIn("/exit", out)
         self.assertIn("╭", out)

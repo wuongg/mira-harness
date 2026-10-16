@@ -1,14 +1,14 @@
 import unittest
 from types import SimpleNamespace
 
-import mira.cli as cli
-import mira.repl as repl_mod
+import frog.cli as cli
+import frog.repl as repl_mod
 
 
 class OpenTest(unittest.TestCase):
     def setUp(self):
         self._resolve = cli.__dict__  # noqa
-        import mira.keys as keys
+        import frog.keys as keys
         self.keys = keys
         self._orig_resolve = keys.resolve
         self._orig_repl = repl_mod.repl
@@ -56,11 +56,11 @@ class OpenTest(unittest.TestCase):
         self._set_keys({"openrouter"})
         self.assertEqual(cli._pick_model(), "anthropic/claude-sonnet-4.5")
         self._set_keys({"openrouter", "anthropic"})
-        from mira.providers import agent_binding
+        from frog.providers import agent_binding
         model, prov = agent_binding("sonnet-5.5", None)
         self.assertEqual(prov, "openrouter")
         self.assertEqual(model, "anthropic/claude-sonnet-4.5")
-        from mira.providers import OpenRouterProvider
+        from frog.providers import OpenRouterProvider
         self.assertEqual(OpenRouterProvider("anthropic/claude-sonnet-4.5", api_key="k", max_tokens=4096).max_tokens, 512)
         self._set_keys({"openai"})
         self.assertEqual(cli._pick_model(), "gpt-5.6-sol")

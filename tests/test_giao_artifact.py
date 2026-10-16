@@ -71,7 +71,7 @@ def _serve():
     return srv, f"http://127.0.0.1:{srv.server_address[1]}"
 
 
-def _mira(root: Path, base: str, args: list[str]):
+def _frog(root: Path, base: str, args: list[str]):
     env = os.environ.copy()
     env["PYTHONIOENCODING"] = "utf-8"
     env["PYTHONPATH"] = str(Path(__file__).resolve().parents[1])
@@ -82,7 +82,7 @@ def _mira(root: Path, base: str, args: list[str]):
         if name.startswith("MIRA_PRICE"):
             env.pop(name)
     return subprocess.run(
-        [sys.executable, "-m", "mira", "giao", *args, "--cwd", str(root),
+        [sys.executable, "-m", "frog", "giao", *args, "--cwd", str(root),
          "--provider", "anthropic", "--base-url", base, "--model", "claude-test",
          "--price-in", "1000,0", "--max-tokens", "256"],
         cwd=str(root), env=env, capture_output=True, text=True, encoding="utf-8")
@@ -106,9 +106,9 @@ class ArtifactRunTest(unittest.TestCase):
             with tempfile.TemporaryDirectory() as tmp:
                 root = Path(tmp)
                 _Stub.report = "Nguon: A\n"
-                opened = _mira(root, base, ["Ghi report.md", "--approve-brief"])
+                opened = _frog(root, base, ["Ghi report.md", "--approve-brief"])
                 run_a = _id(opened.stdout)
-                ran_a = _mira(root, base, ["--run", run_a])
+                ran_a = _frog(root, base, ["--run", run_a])
                 self.assertIn("chờ xác nhận", ran_a.stdout, ran_a.stdout)
                 state_a = json.loads((root / ".mira" / "runs" / run_a / "handoff.json").read_text(encoding="utf-8"))
                 names = [str(path.relative_to(state_a["staging"])) for path in Path(state_a["staging"]).rglob("*")]
@@ -116,13 +116,13 @@ class ArtifactRunTest(unittest.TestCase):
                 self.assertTrue(staged_a.is_file(), "\n".join(names) + "\n" + ran_a.stdout)
                 hash_a = _sha(staged_a)
                 _Stub.report = "Nguon: B\n"
-                opened_b = _mira(root, base, ["Ghi report.md", "--approve-brief"])
+                opened_b = _frog(root, base, ["Ghi report.md", "--approve-brief"])
                 run_b = _id(opened_b.stdout)
-                ran_b = _mira(root, base, ["--run", run_b])
+                ran_b = _frog(root, base, ["--run", run_b])
                 self.assertIn("chờ xác nhận", ran_b.stdout, ran_b.stdout)
                 (root / "report.md").write_text("Nguon: CU\n", encoding="utf-8")
                 old_hash = _sha(root / "report.md")
-                confirmed = _mira(root, base, [
+                confirmed = _frog(root, base, [
                     "--run", run_a, "--confirm", "tone", "--artifact", "report.md"])
                 self.assertEqual(confirmed.returncode, 0, confirmed.stdout + confirmed.stderr)
                 state_a = json.loads((root / ".mira" / "runs" / run_a / "handoff.json").read_text(encoding="utf-8"))
@@ -134,7 +134,7 @@ class ArtifactRunTest(unittest.TestCase):
                 self.assertNotEqual(row["sha256"], _sha(staged_b))
                 self.assertEqual(row["run_id"], run_a)
                 self.assertEqual((root / "report.md").read_text(encoding="utf-8"), "Nguon: A\n")
-                from mira.handoff import _load, _save, apply_confirmations
+                from frog.handoff import _load, _save, apply_confirmations
                 saved_b = _load(root, run_b)
                 saved_b["confirmations"] = [dict(row)]
                 _save(root, saved_b)

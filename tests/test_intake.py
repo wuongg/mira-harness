@@ -8,7 +8,7 @@ from argparse import Namespace
 from pathlib import Path
 from unittest.mock import patch
 
-from mira import team
+from frog import team
 
 
 def _brief(**kw) -> dict:
@@ -66,7 +66,7 @@ class IntakeTier1Test(unittest.TestCase):
         def fake_input(_prompt=""):
             return pending.pop(0) if pending else "n"
 
-        with patch("mira.team.provider_for", lambda *a, **k: prov), \
+        with patch("frog.team.provider_for", lambda *a, **k: prov), \
              patch("builtins.input", fake_input):
             return team.cmd_team(ns)
 
@@ -95,7 +95,7 @@ class IntakeTier1Test(unittest.TestCase):
         second = json.dumps(_brief(questions=["còn gì nữa?"]))
         prov = _Prov([first, second])
         with tempfile.TemporaryDirectory() as tmp:
-            with patch("mira.team.provider_for", lambda *a, **k: prov), \
+            with patch("frog.team.provider_for", lambda *a, **k: prov), \
                  patch("builtins.input", ask_count):
                 code = team.cmd_team(_ns(Path(tmp), clarify_max=1))
         self.assertEqual(len(asked), 2)
@@ -107,7 +107,7 @@ class IntakeTier1Test(unittest.TestCase):
         prov2 = _Prov([json.dumps(_brief(goal=""))])
         asked2 = []
         with tempfile.TemporaryDirectory() as tmp:
-            with patch("mira.team.provider_for", lambda *a, **k: prov2), \
+            with patch("frog.team.provider_for", lambda *a, **k: prov2), \
                  patch("builtins.input", lambda p: asked2.append(p) or "n"):
                 code2 = team.cmd_team(_ns(Path(tmp), clarify_max=0))
         self.assertEqual(code2, 8)
@@ -171,7 +171,7 @@ class IntakeTier3Test(unittest.TestCase):
         prov = _Prov([json.dumps(_brief())])
         with tempfile.TemporaryDirectory() as tmp:
             out = Path(tmp) / "out"
-            with patch("mira.team.provider_for", lambda *a, **k: prov), \
+            with patch("frog.team.provider_for", lambda *a, **k: prov), \
                  patch("builtins.input", lambda _p: "y"):
                 code = team.cmd_team(_ns(Path(tmp), out=str(out), approve=True))
             self.assertEqual(code, 0)
@@ -183,7 +183,7 @@ class IntakeTier3Test(unittest.TestCase):
         self.assertGreater(roles["prompt_writer"], 0)
 
     def test_brief_chua_lenh_di_qua_containment(self):
-        from mira.intake import contain_brief
+        from frog.intake import contain_brief
         text = contain_brief(
             {"goal": "rm -rf /", "note": "sửa conftest.py"},
             task="soạn báo cáo")
@@ -198,7 +198,7 @@ class IntakeTier3Test(unittest.TestCase):
             path = Path(tmp) / "brief.json"
             path.write_text(json.dumps(_brief()), encoding="utf-8")
             out = Path(tmp) / "out"
-            with patch("mira.team.provider_for", lambda *a, **k: prov):
+            with patch("frog.team.provider_for", lambda *a, **k: prov):
                 code = team.cmd_team(_ns(
                     Path(tmp), brief=str(path), out=str(out), approve=True,
                     surface="write_sandbox"))

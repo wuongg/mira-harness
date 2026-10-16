@@ -6,9 +6,9 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from mira.handoff import _load, _save, approve, confirm, open_run, promote_sealed, seal_manifest, settle
-from mira.intake import brief_hash
-from mira.obligations import judge_obligations
+from frog.handoff import _load, _save, approve, confirm, open_run, promote_sealed, seal_manifest, settle
+from frog.intake import brief_hash
+from frog.obligations import judge_obligations
 
 
 def _brief() -> dict:
@@ -95,7 +95,7 @@ class ManifestTest(unittest.TestCase):
                 if name == "mid-promote":
                     raise RuntimeError("kill")
 
-            with patch("mira.team._test_pause", _pause):
+            with patch("frog.team._test_pause", _pause):
                 with self.assertRaises(RuntimeError):
                     promote_sealed(root, _load(root, state["id"]))
             saved = _load(root, state["id"])

@@ -1,7 +1,7 @@
 """Giao diện dòng lệnh của harness R0 shadow.
 
-    mira                           # vào phiên (giống gõ claude)
-    mira install                   # đặt lệnh mira vào PATH
+    frog                           # vào phiên (giống gõ claude)
+    frog install                   # đặt lệnh frog vào PATH
     r0-shadow run                  # chạy shadow
     r0-shadow report               # xem kết quả dạng bảng
     r0-shadow labels export        # sinh phiếu gán nhãn
@@ -372,13 +372,13 @@ def cmd_doctor(args) -> int:
     ok &= good
     ui.note(f"Python {v.major}.{v.minor}.{v.micro}" + ("" if good else " — cần 3.9+"), "ok" if good else "bad")
     try:
-        import mira  # noqa
-        ui.note(f"gói mira import được từ {Path(mira.__file__).parent}", "ok")
+        import frog  # noqa
+        ui.note(f"gói frog import được từ {Path(frog.__file__).parent}", "ok")
         from .keys import KEYS_PATH
         ui.note(f"khóa và phiên nằm ở {KEYS_PATH.parent}", "ok")
     except Exception as e:
         ok = False
-        ui.note(f"không import được gói mira: {e}", "bad")
+        ui.note(f"không import được gói frog: {e}", "bad")
     d = Path(args.out)
     try:
         d.mkdir(parents=True, exist_ok=True)
@@ -390,7 +390,7 @@ def cmd_doctor(args) -> int:
         ok = False
         ui.note(f"không ghi được vào {d}: {e}", "bad")
     ui.note(f"terminal {'có' if sys.stdout.isatty() else 'không'} tương tác"
-            + ("" if sys.stdout.isatty() else " (gõ mira trần sẽ in trợ giúp, không vào phiên)"), "info")
+            + ("" if sys.stdout.isatty() else " (gõ frog trần sẽ in trợ giúp, không vào phiên)"), "info")
     ui.note(f"màu {'bật' if ui._COLOR else 'tắt'}"
             + ("" if ui._COLOR else " — đặt FORCE_COLOR=1 để bật"), "info")
     try:
@@ -562,7 +562,7 @@ def _print_menu(entries, indent="  ") -> None:
 def _menu_header() -> None:
     print()
     ui.masthead([
-        ui.c("mira", "bright", "bold"),
+        ui.c("frog", "bright", "bold"),
         ui.c("Chọn một việc, gõ số rồi Enter.", "dim"),
         ui.c("q để thoát", "faint"),
     ])
@@ -600,7 +600,7 @@ def _safe_run(fn) -> None:
 
 
 def _pick_model() -> str:
-    """Chọn model mặc định theo khoá đang có — để gõ `mira` là chạy được ngay."""
+    """Chọn model mặc định theo khoá đang có — để gõ `frog` là chạy được ngay."""
     from .keys import resolve
     if resolve("openrouter")[0]:
         return C.OPENROUTER_MODEL
@@ -614,7 +614,7 @@ def _pick_model() -> str:
 
 
 def _open() -> int:
-    """Gõ `mira` trần -> mở thẳng phiên làm việc (kiểu `claude` / `openclaw`).
+    """Gõ `frog` trần -> mở thẳng phiên làm việc (kiểu `claude` / `openclaw`).
 
     Lần đầu chưa có khoá API: chạy cài đặt ngắn rồi vào phiên luôn.
     """
@@ -623,7 +623,7 @@ def _open() -> int:
     if not have:
         print()
         ui.masthead([
-            ui.c("mira", "bright", "bold"),
+            ui.c("frog", "bright", "bold"),
             ui.c("Cần một khoá API để bắt đầu.", "dim"),
             ui.c("Enter để bỏ qua nhà cung cấp nào không dùng.", "faint"),
         ])
@@ -676,11 +676,11 @@ def _cmd_export(a) -> int:
 # ------------------------------------------------------------------ parser
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
-        prog="mira",
-        description="Mira — harness đội nhóm agent (nền R0 shadow): giao việc, xem log, đo lường.",
-        epilog="Gõ mira không kèm gì để vào phiên. Lệnh mira install đặt nó vào PATH.",
+        prog="frog",
+        description="Frog — harness đội nhóm agent (nền R0 shadow): giao việc, xem log, đo lường.",
+        epilog="Gõ frog không kèm gì để vào phiên. Lệnh frog install đặt nó vào PATH.",
         formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument("--version", action="version", version=f"mira {VERSION}")
+    p.add_argument("--version", action="version", version=f"frog {VERSION}")
     p.add_argument("--no-color", action="store_true", help="tắt màu")
     sub = p.add_subparsers(dest="cmd")
 
@@ -851,7 +851,7 @@ def build_parser() -> argparse.ArgumentParser:
     ch.add_argument("task", nargs="?", default=None, help="nếu có: chạy một lượt rồi thoát")
     ch.add_argument("--team", action="store_true", help="định tuyến qua làn + đội nhiều vai")
     ch.add_argument("--resume", default=None, help="mở lại phiên đã lưu")
-    ch.set_defaults(func=lambda a: __import__("mira.repl", fromlist=["repl"]).repl(a))
+    ch.set_defaults(func=lambda a: __import__("frog.repl", fromlist=["repl"]).repl(a))
 
     pn = sub.add_parser("panel", help="hội đồng phản biện đa agent soi một thiết kế đo")
     pn.add_argument("question", help="câu hỏi cho hội đồng")
@@ -862,7 +862,7 @@ def build_parser() -> argparse.ArgumentParser:
     pn.add_argument("--model", default=None)
     pn.add_argument("--base-url", dest="base_url", default=None)
     pn.add_argument("--out", default=None, help="ghi báo cáo markdown")
-    pn.set_defaults(func=lambda a: __import__("mira.panel", fromlist=["cmd_panel"]).cmd_panel(a))
+    pn.set_defaults(func=lambda a: __import__("frog.panel", fromlist=["cmd_panel"]).cmd_panel(a))
 
     sx = sub.add_parser("stats", help="bảng điều khiển số đo của một lần chạy")
     sx.add_argument("--run", default=DEFAULT_RUN, help="thư mục lần chạy")
@@ -935,11 +935,11 @@ def build_parser() -> argparse.ArgumentParser:
     ex.add_argument("--out", default=None, help="tên tệp (mặc định: r0-shadow-export-<ngày>.md)")
     ex.set_defaults(func=_cmd_export)
 
-    mn = sub.add_parser("menu", help="mở menu 4 việc (mặc định khi gõ `mira` nếu chưa có khoá)")
+    mn = sub.add_parser("menu", help="mở menu 4 việc (mặc định khi gõ `frog` nếu chưa có khoá)")
     mn.set_defaults(func=_cmd_menu)
 
     ins = sub.add_parser("install",
-                         help="đặt lệnh mira vào PATH — gõ mira ở terminal nào cũng vào phiên")
+                         help="đặt lệnh frog vào PATH — gõ frog ở terminal nào cũng vào phiên")
     ins.set_defaults(func=_cmd_install)
     return p
 
@@ -949,14 +949,14 @@ def _cmd_install(a) -> int:
     info = install()
     print()
     ui.masthead([
-        ui.c("mira", "bright", "bold") + ui.c("  đã cài xong", "dim"),
+        ui.c("frog", "bright", "bold") + ui.c("  đã cài xong", "dim"),
         ui.c(str(info["shim"]), "text"),
     ])
     print()
     if info.get("path_updated"):
-        ui.note("Đã thêm vào PATH. Mở một terminal mới rồi gõ mira.", "ok")
+        ui.note("Đã thêm vào PATH. Mở một terminal mới rồi gõ frog.", "ok")
     elif info.get("on_path"):
-        ui.note("PATH đã có sẵn. Mở một terminal mới rồi gõ mira.", "ok")
+        ui.note("PATH đã có sẵn. Mở một terminal mới rồi gõ frog.", "ok")
     else:
         ui.note("Chưa thêm được vào PATH.", "warn")
     return 0
@@ -975,9 +975,26 @@ def note_argv_key(args) -> list[dict]:
     return trace
 
 
+_SHIM_UNTIL = "2027-04-16"
+_shim_said: set[str] = set()
+
+
+def _shim_warn(kind: str, text: str) -> None:
+    if kind in _shim_said:
+        return
+    _shim_said.add(kind)
+    print(text, file=sys.stderr)
+
+
+def deprecated_mira(argv=None) -> int:
+    """Cửa vào của lệnh mira. Một cảnh báo, rồi gọi frog."""
+    _shim_warn("mira", f"mira sẽ bị gỡ sau {_SHIM_UNTIL}. Hãy gọi frog.")
+    return main(argv)
+
+
 def deprecated_main(argv=None) -> int:
-    """Cửa vào của lệnh r0 và r0-shadow. In cảnh báo rồi gọi mira."""
-    print("r0 và r0-shadow sẽ bị gỡ sau phiên bản kế tiếp. Hãy gọi mira.", file=sys.stderr)
+    """Cửa vào của lệnh r0 và r0-shadow. Một cảnh báo, rồi gọi frog."""
+    _shim_warn("legacy", f"r0 và r0-shadow sẽ bị gỡ sau {_SHIM_UNTIL}. Hãy gọi frog.")
     return main(argv)
 
 

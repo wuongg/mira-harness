@@ -14,15 +14,15 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from mira import pipeline                            # noqa: E402
-from mira.pipeline import content_signal, t1b_classifier  # noqa: E402
-from mira.tasks import build_tasks                    # noqa: E402
+from frog import pipeline                            # noqa: E402
+from frog.pipeline import content_signal, t1b_classifier  # noqa: E402
+from frog.tasks import build_tasks                    # noqa: E402
 
 TASKS = build_tasks()
 
 
 def _task(content: str, injection: bool, request: str = "làm việc gì đó"):
-    from mira.team import make_task
+    from frog.team import make_task
     t = make_task(request)
     t.observable["content"] = content
     t.truth["injection_present"] = injection
@@ -131,8 +131,8 @@ class TestChayTrenBoTacVu(unittest.TestCase):
                 self.assertTrue(r["evidence"])
 
     def test_trace_co_truong_bang_chung(self):
-        from mira.pipeline import ShadowRun
-        from mira.tasks import load_tasks
+        from frog.pipeline import ShadowRun
+        from frog.tasks import load_tasks
         run = ShadowRun(tasks=load_tasks()[:20], rng=__import__("random").Random(1))
         trace = run.run()
         self.assertTrue(all("evidence" in r["classifier"] for r in trace))

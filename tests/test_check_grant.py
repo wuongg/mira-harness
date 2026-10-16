@@ -10,8 +10,8 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from mira.obligations import judge_obligations
-from mira.tools import Session
+from frog.obligations import judge_obligations
+from frog.tools import Session
 
 SECRET = "sk-test-EXPOSE-0123456789"
 
@@ -24,7 +24,7 @@ class CheckGrantTest(unittest.TestCase):
     def test_model_de_xuat_khong_goi_subprocess(self):
         cmd = _exit(0)
         with tempfile.TemporaryDirectory() as tmp, \
-                patch("mira.tools.subprocess.run") as run:
+                patch("frog.tools.subprocess.run") as run:
             rows = judge_obligations(
                 [f"check: {cmd}"], cwd=Path(tmp), granted=set())
         run.assert_not_called()
@@ -47,7 +47,7 @@ class CheckGrantTest(unittest.TestCase):
             root = Path(tmp)
             outside = root.parent / "check-grant-outside.py"
             cmd = shlex.join([sys.executable, str(outside)])
-            with patch("mira.tools.subprocess.run") as run:
+            with patch("frog.tools.subprocess.run") as run:
                 rows = judge_obligations(
                     [f"check: {cmd}"], cwd=root, granted={cmd})
         run.assert_not_called()
@@ -58,7 +58,7 @@ class CheckGrantTest(unittest.TestCase):
         def boom(*_a, **_k):
             raise subprocess.TimeoutExpired(cmd, 30)
         with tempfile.TemporaryDirectory() as tmp, \
-                patch("mira.tools.subprocess.run", side_effect=boom):
+                patch("frog.tools.subprocess.run", side_effect=boom):
             rows = judge_obligations(
                 [f"check: {cmd}"], cwd=Path(tmp), granted={cmd})
         self.assertEqual(rows[0]["state"], "unproven")

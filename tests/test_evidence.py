@@ -5,7 +5,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from mira import team
+from frog import team
 
 _PASS = json.dumps({"verdict": "PASS", "reasons": ["đủ"], "evidence": [], "confidence": 1})
 _ORACLE = json.dumps({"verdict": "PASS", "reasons": ["đủ"], "evidence": [],
@@ -41,8 +41,8 @@ def _run(task: str, write: bool, text: str) -> dict:
         root = Path(tmp)
         (root / "app.py").write_text("old\n", encoding="utf-8")
         plan = team.build_plan(task, surface="write_external", records=5000, dollars=3000)
-        with patch("mira.agent.run_turn", _turn(write, text)), \
-             patch("mira.team.provider_for", lambda *a, **k: _Prov()):
+        with patch("frog.agent.run_turn", _turn(write, text)), \
+             patch("frog.team.provider_for", lambda *a, **k: _Prov()):
             return team.execute_plan(plan, root=root, oracle="on")
 
 
@@ -75,8 +75,8 @@ class EvidenceTest(unittest.TestCase):
             (root / "app.py").write_text("old\n", encoding="utf-8")
             plan = team.build_plan("sửa app.py cho gọn", surface="write_external",
                                    records=5000, dollars=3000)
-            with patch("mira.agent.run_turn", _turn(False, text)), \
-                 patch("mira.team.provider_for", lambda *a, **k: _Prov()):
+            with patch("frog.agent.run_turn", _turn(False, text)), \
+                 patch("frog.team.provider_for", lambda *a, **k: _Prov()):
                 res = team.execute_plan(plan, root=root, oracle="on")
             staging = Path(res["staging"])
             self.assertEqual(res["staging_evidence"]["cmd"], "")

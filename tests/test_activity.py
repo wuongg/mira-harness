@@ -5,7 +5,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from mira import activity
+from frog import activity
 
 
 def _write(p: Path, meta: dict, msgs: list[dict], evs: list[dict]) -> None:

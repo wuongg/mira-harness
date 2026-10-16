@@ -1,4 +1,4 @@
-"""mira giao --run phải gọi execute_plan. Test không tự viết kết quả đúng."""
+"""frog giao --run phải gọi execute_plan. Test không tự viết kết quả đúng."""
 from __future__ import annotations
 
 import json
@@ -78,7 +78,7 @@ def _serve(brief: dict):
     return srv, f"http://127.0.0.1:{srv.server_address[1]}"
 
 
-def _mira(root: Path, base: str, args: list[str]) -> subprocess.CompletedProcess:
+def _frog(root: Path, base: str, args: list[str]) -> subprocess.CompletedProcess:
     env = os.environ.copy()
     env["PYTHONIOENCODING"] = "utf-8"
     env["PYTHONPATH"] = str(Path(__file__).resolve().parents[1])
@@ -87,7 +87,7 @@ def _mira(root: Path, base: str, args: list[str]) -> subprocess.CompletedProcess
         if name.endswith("_API_KEY") and name != "ANTHROPIC_API_KEY":
             env.pop(name)
     return subprocess.run(
-        [sys.executable, "-m", "mira", "giao", *args, "--cwd", str(root),
+        [sys.executable, "-m", "frog", "giao", *args, "--cwd", str(root),
          "--provider", "anthropic", "--base-url", base, "--model", "claude-test",
          "--price-in", "1000,0", "--max-tokens", "256"],
         cwd=str(root), env=env, capture_output=True, text=True, encoding="utf-8")
@@ -102,11 +102,11 @@ class GiaoExecuteTest(unittest.TestCase):
             with tempfile.TemporaryDirectory() as tmp:
                 root = Path(tmp)
                 (root / "calc.py").write_text("def add(a, b):\n    return a - b\n", encoding="utf-8")
-                opened = _mira(root, base, ["Sửa calc.py thành phép cộng", "--approve-brief"])
+                opened = _frog(root, base, ["Sửa calc.py thành phép cộng", "--approve-brief"])
                 self.assertEqual(opened.returncode, 0, opened.stderr + opened.stdout)
                 run = next(line.split(": ", 1)[1].strip()
                            for line in opened.stdout.splitlines() if line.startswith("Run: "))
-                ran = _mira(root, base, ["--run", run, "--grant", cmd])
+                ran = _frog(root, base, ["--run", run, "--grant", cmd])
                 self.assertEqual(ran.returncode, 0, ran.stdout + ran.stderr)
                 self.assertIn("bàn giao: đủ", ran.stdout)
                 self.assertIn("return a + b", (root / "calc.py").read_text(encoding="utf-8"))
@@ -124,10 +124,10 @@ class GiaoExecuteTest(unittest.TestCase):
             with tempfile.TemporaryDirectory() as tmp:
                 root = Path(tmp)
                 (root / "calc.py").write_text("def add(a, b):\n    return a + b\n", encoding="utf-8")
-                opened = _mira(root, base, ["Sửa calc.py thành phép cộng", "--approve-brief"])
+                opened = _frog(root, base, ["Sửa calc.py thành phép cộng", "--approve-brief"])
                 run = next(line.split(": ", 1)[1].strip()
                            for line in opened.stdout.splitlines() if line.startswith("Run: "))
-                checked = _mira(root, base, ["--run", run, "--grant", cmd, "--check-only"])
+                checked = _frog(root, base, ["--run", run, "--grant", cmd, "--check-only"])
                 self.assertNotEqual(checked.returncode, 0, checked.stdout)
                 self.assertIn("chưa phải hoàn thành nhiệm vụ", checked.stdout)
                 self.assertNotIn("bàn giao: đủ", checked.stdout)
@@ -154,10 +154,10 @@ class GiaoExecuteTest(unittest.TestCase):
         try:
             with tempfile.TemporaryDirectory() as tmp:
                 root = Path(tmp)
-                opened = _mira(root, base, ["Ghi rows.json", "--approve-brief"])
+                opened = _frog(root, base, ["Ghi rows.json", "--approve-brief"])
                 self.assertEqual(opened.returncode, 0, opened.stderr + opened.stdout)
                 run = _id(opened.stdout)
-                ran = _mira(root, base, ["--run", run])
+                ran = _frog(root, base, ["--run", run])
                 self.assertEqual(ran.returncode, 0, ran.stdout + ran.stderr)
                 self.assertIn("verified", ran.stdout)
                 loaded = json.loads((root / "rows.json").read_text(encoding="utf-8"))
@@ -187,9 +187,9 @@ class GiaoExecuteTest(unittest.TestCase):
         try:
             with tempfile.TemporaryDirectory() as tmp:
                 root = Path(tmp)
-                opened = _mira(root, base, ["Ghi report.md", "--approve-brief"])
+                opened = _frog(root, base, ["Ghi report.md", "--approve-brief"])
                 run = _id(opened.stdout)
-                ran = _mira(root, base, ["--run", run])
+                ran = _frog(root, base, ["--run", run])
                 self.assertNotEqual(ran.returncode, 0, ran.stdout)
                 self.assertIn("verified", ran.stdout)
                 self.assertIn("needs_confirmation", ran.stdout)
@@ -198,7 +198,7 @@ class GiaoExecuteTest(unittest.TestCase):
                 staged = list((root / ".mira" / "staging").glob("**/*.withheld/report.md"))
                 self.assertTrue(staged, ran.stdout)
                 self.assertIn("Nguon:", staged[0].read_text(encoding="utf-8"))
-                again = _mira(root, base, ["--run", run, "--confirm", "tone", "--artifact", "report.md"])
+                again = _frog(root, base, ["--run", run, "--confirm", "tone", "--artifact", "report.md"])
                 self.assertEqual(again.returncode, 0, again.stdout + again.stderr)
                 self.assertIn("người dùng xác nhận", again.stdout)
                 self.assertIn("user_confirmed", again.stdout)
@@ -214,9 +214,9 @@ class GiaoExecuteTest(unittest.TestCase):
             with tempfile.TemporaryDirectory() as tmp:
                 root = Path(tmp)
                 (root / "calc.py").write_text("def add(a, b):\n    return a - b\n", encoding="utf-8")
-                opened = _mira(root, base, ["Sửa calc.py SAI", "--approve-brief"])
+                opened = _frog(root, base, ["Sửa calc.py SAI", "--approve-brief"])
                 run = _id(opened.stdout)
-                ran = _mira(root, base, ["--run", run, "--grant", cmd])
+                ran = _frog(root, base, ["--run", run, "--grant", cmd])
                 self.assertNotEqual(ran.returncode, 0, ran.stdout + ran.stderr)
                 self.assertNotIn("bàn giao: đủ", ran.stdout)
                 self.assertIn("return a - b", (root / "calc.py").read_text(encoding="utf-8"))
@@ -234,9 +234,9 @@ class GiaoExecuteTest(unittest.TestCase):
             with tempfile.TemporaryDirectory() as tmp:
                 root = Path(tmp)
                 (root / "calc.py").write_text("def add(a, b):\n    return a - b\n", encoding="utf-8")
-                opened = _mira(root, base, ["Sửa calc.py thành phép cộng", "--approve-brief"])
+                opened = _frog(root, base, ["Sửa calc.py thành phép cộng", "--approve-brief"])
                 run = _id(opened.stdout)
-                ran = _mira(root, base, ["--run", run])
+                ran = _frog(root, base, ["--run", run])
                 self.assertEqual(ran.returncode, 8, ran.stdout)
                 self.assertIn("không thực thi", ran.stdout)
                 self.assertIn("return a - b", (root / "calc.py").read_text(encoding="utf-8"))
@@ -252,17 +252,17 @@ class GiaoExecuteTest(unittest.TestCase):
             with tempfile.TemporaryDirectory() as tmp:
                 root = Path(tmp)
                 (root / "calc.py").write_text("def add(a, b):\n    return a - b\n", encoding="utf-8")
-                opened = _mira(root, base, ["Sửa calc.py thành phép cộng", "--approve-brief"])
+                opened = _frog(root, base, ["Sửa calc.py thành phép cộng", "--approve-brief"])
                 run = _id(opened.stdout)
-                changed = _mira(root, base, ["--run", run, "--change", "Ghi rows.json"])
+                changed = _frog(root, base, ["--run", run, "--change", "Ghi rows.json"])
                 self.assertEqual(changed.returncode, 2, changed.stdout)
                 self.assertIn(run, changed.stdout)
-                fresh = _mira(root, base, ["Ghi rows.json", "--previous", run, "--approve-brief"])
+                fresh = _frog(root, base, ["Ghi rows.json", "--previous", run, "--approve-brief"])
                 new_id = _id(fresh.stdout)
                 state = json.loads((root / ".mira" / "runs" / new_id / "handoff.json").read_text(encoding="utf-8"))
                 self.assertEqual(state["grants"], [])
                 self.assertEqual(state["previous"], run)
-                ran = _mira(root, base, ["--run", new_id])
+                ran = _frog(root, base, ["--run", new_id])
                 self.assertNotIn("bàn giao: đủ", ran.stdout + ran.stderr)
         finally:
             srv.shutdown()

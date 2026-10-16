@@ -6,9 +6,9 @@ import time
 import unittest
 from unittest.mock import patch
 
-from mira import team
-from mira.providers import ProviderError
-from mira.team import TeamPlan, execute_plan, make_task
+from frog import team
+from frog.providers import ProviderError
+from frog.team import TeamPlan, execute_plan, make_task
 
 
 class _Slow:

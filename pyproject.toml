@@ -3,24 +3,25 @@ requires = ["setuptools>=61"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "mira"
+name = "frog-harness"
 dynamic = ["version"]
-description = "Mira - harness doi nhom agent (nen R0 shadow): giao viec, xem log, do luong"
+description = "Frog - harness doi nhom agent (nen R0 shadow): giao viec, xem log, do luong"
 readme = "README.md"
 requires-python = ">=3.9"
 dependencies = []
 license = { text = "MIT" }
 
 [project.scripts]
-mira = "mira.cli:main"
-r0 = "mira.cli:deprecated_main"
-r0-shadow = "mira.cli:deprecated_main"
+frog = "frog.cli:main"
+mira = "frog.cli:deprecated_mira"
+r0 = "frog.cli:deprecated_main"
+r0-shadow = "frog.cli:deprecated_main"
 
 [tool.setuptools]
-packages = ["mira"]
+packages = ["frog"]
 
 [tool.setuptools.package-data]
-mira = ["prices.toml", "tui_palette_256.txt"]
+frog = ["prices.toml", "tui_palette_256.txt"]
 
 [tool.setuptools.dynamic]
-version = {attr = "mira.__version__"}
+version = {attr = "frog.__version__"}

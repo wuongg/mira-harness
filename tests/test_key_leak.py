@@ -14,9 +14,9 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from mira import keys  # noqa: E402
-from mira.cli import build_parser, note_argv_key  # noqa: E402
-from mira.tools import Session, _shell_env  # noqa: E402
+from frog import keys  # noqa: E402
+from frog.cli import build_parser, note_argv_key  # noqa: E402
+from frog.tools import Session, _shell_env  # noqa: E402
 
 SECRET = "sk-test-EXPOSE-0123456789"
 ROOT = Path(__file__).resolve().parents[1]

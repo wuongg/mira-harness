@@ -2,8 +2,8 @@
 import unittest
 from pathlib import Path
 
-from mira.team import READ_TOOLS
-from mira.tools import shape_of
+from frog.team import READ_TOOLS
+from frog.tools import shape_of
 
 ROOT = Path(__file__).resolve().parents[1]
 OLD = (
@@ -27,7 +27,7 @@ class NameTest(unittest.TestCase):
         self.assertEqual(shape_of("làm gì đó"), "ask")
 
     def test_khong_con_hoi_tools(self):
-        import mira.team as team
+        import frog.team as team
         self.assertIn("read_file", READ_TOOLS)
         names = sorted(n for n in dir(team) if n.endswith("_TOOLS"))
         self.assertEqual(names, ["READ_TOOLS", "WRITE_TOOLS"])
@@ -40,7 +40,7 @@ class NameTest(unittest.TestCase):
             self.assertFalse((root / name).exists(), name)
 
     def test_palette_doi_ten(self):
-        names = sorted(p.name for p in (ROOT / "mira").glob("*.txt"))
+        names = sorted(p.name for p in (ROOT / "frog").glob("*.txt"))
         self.assertEqual(names, ["tui_palette_256.txt"])
 
 

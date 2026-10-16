@@ -82,7 +82,7 @@ def _serve(brief: dict):
     return srv, f"http://127.0.0.1:{srv.server_address[1]}"
 
 
-def _mira(root: Path, base: str, args: list[str], price: str | None = "1000,0"):
+def _frog(root: Path, base: str, args: list[str], price: str | None = "1000,0"):
     env = os.environ.copy()
     env["PYTHONIOENCODING"] = "utf-8"
     env["PYTHONPATH"] = str(Path(__file__).resolve().parents[1])
@@ -93,7 +93,7 @@ def _mira(root: Path, base: str, args: list[str], price: str | None = "1000,0"):
         if name.startswith("MIRA_PRICE"):
             env.pop(name)
     return subprocess.run(
-        [sys.executable, "-m", "mira", "giao", *args, "--cwd", str(root),
+        [sys.executable, "-m", "frog", "giao", *args, "--cwd", str(root),
          "--provider", "anthropic", "--base-url", base, "--model", "claude-test",
          "--max-tokens", "256",
          *(["--price-in", price] if price else [])],
@@ -109,7 +109,7 @@ def _id(text: str) -> str:
 
 class GateOverrideTest(unittest.TestCase):
     def _open(self, root: Path, base: str) -> str:
-        opened = _mira(root, base, ["Sửa calc.py thành phép cộng", "--approve-brief"])
+        opened = _frog(root, base, ["Sửa calc.py thành phép cộng", "--approve-brief"])
         self.assertEqual(opened.returncode, 0, opened.stdout + opened.stderr)
         return _id(opened.stdout)
 
@@ -127,7 +127,7 @@ class GateOverrideTest(unittest.TestCase):
                 (root / "calc.py").write_text("def add(a, b):\n    return a + b\n", encoding="utf-8")
                 run = self._open(root, base)
                 _Stub.mode = "http"
-                ran = _mira(root, base, ["--run", run, "--grant", cmd])
+                ran = _frog(root, base, ["--run", run, "--grant", cmd])
                 self._assert_not_delivered(ran)
                 self.assertIn("error", ran.stdout)
         finally:
@@ -142,7 +142,7 @@ class GateOverrideTest(unittest.TestCase):
                 root = Path(tmp)
                 (root / "calc.py").write_text("def add(a, b):\n    return a + b\n", encoding="utf-8")
                 run = self._open(root, base)
-                ran = _mira(root, base, ["--run", run, "--grant", cmd], price="1000000,0")
+                ran = _frog(root, base, ["--run", run, "--grant", cmd], price="1000000,0")
                 self._assert_not_delivered(ran)
                 self.assertIn("stopped_budget", ran.stdout)
         finally:
@@ -158,7 +158,7 @@ class GateOverrideTest(unittest.TestCase):
                 (root / "calc.py").write_text("def add(a, b):\n    return a + b\n", encoding="utf-8")
                 run = self._open(root, base)
                 _Stub.mode = "verifier-fail"
-                ran = _mira(root, base, ["--run", run, "--grant", cmd])
+                ran = _frog(root, base, ["--run", run, "--grant", cmd])
                 self._assert_not_delivered(ran)
                 self.assertIn("verified", ran.stdout)
                 self.assertIn("withheld", ran.stdout)
@@ -174,7 +174,7 @@ class GateOverrideTest(unittest.TestCase):
                 root = Path(tmp)
                 (root / "calc.py").write_text("def add(a, b):\n    return a + b\n", encoding="utf-8")
                 run = self._open(root, base)
-                ran = _mira(root, base, ["--run", run, "--grant", cmd], price=None)
+                ran = _frog(root, base, ["--run", run, "--grant", cmd], price=None)
                 self._assert_not_delivered(ran)
                 self.assertIn("blocked", ran.stdout)
         finally:

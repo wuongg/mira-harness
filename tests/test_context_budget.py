@@ -1,7 +1,7 @@
 """Ngân sách ngữ cảnh: câu việc và hai bước cuối, không cắt im lặng."""
 import unittest
 
-from mira.team import ROLE_USER, budget_context, policy_of, role_prompt
+from frog.team import ROLE_USER, budget_context, policy_of, role_prompt
 
 
 class ContextBudgetTest(unittest.TestCase):

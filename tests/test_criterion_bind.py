@@ -8,7 +8,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from mira.obligations import judge_obligations
+from frog.obligations import judge_obligations
 
 
 def _exit(code: int) -> str:

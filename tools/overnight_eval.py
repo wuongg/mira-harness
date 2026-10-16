@@ -52,14 +52,14 @@ def _fill(text: str, py: str) -> str:
 
 
 def _evidence(row, py: str):
-    from mira.obligations import judge_obligations
+    from frog.obligations import judge_obligations
     criteria = [_fill(item, py) for item in row["criteria"]]
     quotes = [_fill(item, py) for item in row.get("quotes") or []]
     steps = [{"verdict_parsed": {"evidence": quotes}}]
     evidence = {"changed": row.get("changed") or []}
     with tempfile.TemporaryDirectory() as tmp:
         cwd = Path(tmp)
-        from mira.obligations import criterion_command
+        from frog.obligations import criterion_command
         granted = {cmd for item in criteria if (cmd := criterion_command(item))}
         current = [
             item["state"] for item in judge_obligations(
@@ -72,8 +72,8 @@ def _evidence(row, py: str):
 
 
 def _contract(row):
-    from mira.contract import contract_diff
-    from mira.intake import brief_hash
+    from frog.contract import contract_diff
+    from frog.intake import brief_hash
     diff = contract_diff(row["old"], row["new"])
     same = brief_hash(row["old"]) == brief_hash(row["new"])
     line_ok = True
@@ -95,8 +95,8 @@ def _brief():
 
 
 def _resume(row, py: str):
-    from mira.providers import ProviderError
-    from mira.team import cmd_team, write_checkpoint
+    from frog.providers import ProviderError
+    from frog.team import cmd_team, write_checkpoint
     calls = []
 
     class Talk:
@@ -139,7 +139,7 @@ def _resume(row, py: str):
                 ]
                 path.write_text(json.dumps(brief), encoding="utf-8")
                 buf = io.StringIO()
-                with redirect_stdout(buf), patch("mira.team.provider_for", Talk):
+                with redirect_stdout(buf), patch("frog.team.provider_for", Talk):
                     code = cmd_team(args(root, brief=str(path), require_evidence=True))
                 runs = list((root / ".mira" / "runs").glob("*/checkpoint.json"))
                 data = json.loads(runs[0].read_text(encoding="utf-8"))
@@ -177,7 +177,7 @@ def _resume(row, py: str):
                 path.write_text(json.dumps(new), encoding="utf-8")
                 brief_arg = str(path)
             buf = io.StringIO()
-            with redirect_stdout(buf), patch("mira.team.provider_for", Talk):
+            with redirect_stdout(buf), patch("frog.team.provider_for", Talk):
                 code = cmd_team(args(
                     root, resume="run-eval", task=None, brief=brief_arg,
                     require_evidence=False))

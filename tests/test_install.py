@@ -3,26 +3,26 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from mira.install_path import install, render_shim
+from frog.install_path import install, render_shim
 
 
 class InstallShimTest(unittest.TestCase):
     def test_shim_goi_module_khong_tao_exe(self):
-        root = Path(r"C:\src\mira install")
+        root = Path(r"C:\src\frog install")
         text = render_shim(root)
-        self.assertIn("python -m mira", text)
-        self.assertIn("mira install", text)
-        self.assertNotIn("mira.exe", text)
+        self.assertIn("python -m frog", text)
+        self.assertIn("frog install", text)
+        self.assertNotIn("frog.exe", text)
 
     def test_install_ghi_launcher(self):
         with tempfile.TemporaryDirectory() as d:
-            info = install(root=Path(r"C:\src\mira"), dest_dir=Path(d), update_path=False)
+            info = install(root=Path(r"C:\src\frog"), dest_dir=Path(d), update_path=False)
             self.assertTrue(info["shim"].is_file())
             name = info["shim"].name
-            self.assertIn(name, ("mira.cmd", "mira"))
+            self.assertIn(name, ("frog.cmd", "frog"))
             self.assertNotIn(".exe", name)
             body = info["shim"].read_bytes()
-            self.assertIn(b"python -m mira", body)
+            self.assertIn(b"python -m frog", body)
             if os.name == "nt":
                 self.assertIn(b"\r\n", body)
 

@@ -2,9 +2,9 @@ import os
 import tempfile
 import unittest
 
-import mira.native as N
-from mira.agent import run_turn
-from mira.tools import AGENT_SYSTEM, Session
+import frog.native as N
+from frog.agent import run_turn
+from frog.tools import AGENT_SYSTEM, Session
 
 
 class CasualChatTest(unittest.TestCase):
@@ -24,15 +24,15 @@ class CasualChatTest(unittest.TestCase):
 
     def test_greeting_needs_no_tool_native(self):
         N.converse = lambda *a, **k: (
-            [{"type": "text", "text": "Chào anh! Mình là Mira."}], {"in": 9, "out": 6})
+            [{"type": "text", "text": "Chào anh! Mình là Frog."}], {"in": 9, "out": 6})
         r = run_turn(task="hello", session=Session(root=self.tmp.name),
                      model="sonnet-5.5", protocol="native")
         self.assertEqual(r["status"], "ok")
-        self.assertIn("Mira", r["final"])
+        self.assertIn("Frog", r["final"])
         self.assertEqual(r["toolSummary"]["calls"], 0)
 
     def test_greeting_needs_no_tool_text(self):
-        from mira import providers as P
+        from frog import providers as P
         orig = P.AnthropicProvider.call
         P.AnthropicProvider.call = lambda self, system, user: (
             "Chào bạn, mình giúp gì được?", {"in": 9, "out": 6})
@@ -46,7 +46,7 @@ class CasualChatTest(unittest.TestCase):
         self.assertEqual(r["toolSummary"]["calls"], 0)
 
     def test_text_protocol_accepts_new_tools(self):
-        from mira.agent import TOOL_NAMES
+        from frog.agent import TOOL_NAMES
         for t in ("edit_file", "multi_edit", "glob", "web_search", "task"):
             self.assertIn(t, TOOL_NAMES)
 

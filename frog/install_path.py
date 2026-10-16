@@ -1,6 +1,6 @@
-"""Đặt lệnh `mira` vào PATH — gõ ở terminal nào cũng vào phiên.
+"""Đặt lệnh `frog` vào PATH — gõ ở terminal nào cũng vào phiên.
 
-Giống Claude Code: cài một lần, mở terminal mới, gõ `mira` là vào.
+Giống Claude Code: cài một lần, mở terminal mới, gõ `frog` là vào.
 Launcher `.cmd` gọi module Python, không tạo file exe.
 """
 from __future__ import annotations
@@ -33,10 +33,10 @@ def render_shim(root: Path) -> str:
             "echo Python was not found. Install Python 3.9+ and turn on Add to PATH.\r\n"
             "exit /b 1\r\n"
             ":py\r\n"
-            "python -m mira %*\r\n"
+            "python -m frog %*\r\n"
             "exit /b %ERRORLEVEL%\r\n"
             ":py_launcher\r\n"
-            "py -3 -m mira %*\r\n"
+            "py -3 -m frog %*\r\n"
             "exit /b %ERRORLEVEL%\r\n"
         )
     escaped = root_s.replace("'", "'\\''")
@@ -44,10 +44,10 @@ def render_shim(root: Path) -> str:
         "#!/bin/sh\n"
         f"export PYTHONPATH='{escaped}'${{PYTHONPATH:+:$PYTHONPATH}}\n"
         "if command -v python3 >/dev/null 2>&1; then\n"
-        '  exec python3 -m mira "$@"\n'
+        '  exec python3 -m frog "$@"\n'
         "fi\n"
         "if command -v python >/dev/null 2>&1; then\n"
-        '  exec python -m mira "$@"\n'
+        '  exec python -m frog "$@"\n'
         "fi\n"
         'echo "Python was not found. Install Python 3.9+." >&2\n'
         "exit 1\n"
@@ -55,7 +55,7 @@ def render_shim(root: Path) -> str:
 
 
 def shim_name() -> str:
-    return "mira.cmd" if os.name == "nt" else "mira"
+    return "frog.cmd" if os.name == "nt" else "frog"
 
 
 def _norm(path: str) -> str:
@@ -121,7 +121,7 @@ def _ensure_posix_path(directory: str) -> tuple[bool, bool, str]:
     if _has_dir(current, directory):
         return False, True, ""
     rc = Path.home() / ".profile"
-    line = f'\n# mira\nexport PATH="{directory}:$PATH"\n'
+    line = f'\n# frog\nexport PATH="{directory}:$PATH"\n'
     try:
         text = rc.read_text(encoding="utf-8") if rc.exists() else ""
         if directory not in text:

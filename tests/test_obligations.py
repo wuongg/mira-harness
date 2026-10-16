@@ -10,8 +10,8 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from mira import team
-from mira.obligations import judge_obligations
+from frog import team
+from frog.obligations import judge_obligations
 
 
 _PASS = json.dumps({"verdict": "PASS", "reasons": ["khop"], "evidence": [], "confidence": 0.9})
@@ -58,7 +58,7 @@ class ObligationTest(unittest.TestCase):
         self.assertEqual(self.plan.roles, ["worker", "verifier"])
 
     def _run(self):
-        with tempfile.TemporaryDirectory() as tmp, patch("mira.team.provider_for", _Prov):
+        with tempfile.TemporaryDirectory() as tmp, patch("frog.team.provider_for", _Prov):
             return team.execute_plan(
                 self.plan, provider_name="anthropic", api_key="k",
                 root=Path(tmp), on_step=lambda _m: None)
@@ -139,7 +139,7 @@ class ObligationTest(unittest.TestCase):
             plan.declared_price = (1000.0, 0.0)
             plan.brief = _brief()
             plan.require_evidence = True
-            with patch("mira.team.provider_for", _Prov), patch("mira.agent.run_turn", fake_turn):
+            with patch("frog.team.provider_for", _Prov), patch("frog.agent.run_turn", fake_turn):
                 res = team.execute_plan(plan, api_key="k", root=root, on_step=lambda _m: None)
         self.assertEqual(res["obligations"][0]["state"], "needs_confirmation")
         self.assertEqual(res["status"], "withheld")

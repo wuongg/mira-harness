@@ -15,7 +15,7 @@ import urllib.request
 
 
 def _file_key(name: str) -> str | None:
-    """Khoá lưu trong ~/.mira/keys.json (do `mira keys` ghi)."""
+    """Khoá lưu trong ~/.mira/keys.json (do `frog keys` ghi)."""
     try:
         from . import keys
         return keys.get(name)
@@ -179,7 +179,7 @@ class OpenRouterProvider(OpenAICompatProvider):
                          {"role": "user", "content": user}],
         }, {"authorization": f"Bearer {self.api_key or ''}",
             "HTTP-Referer": "https://github.com/wuongg/mira-harness",
-            "X-Title": "mira"})
+            "X-Title": "frog"})
         ch = (data.get("choices") or [{}])[0]
         text = (ch.get("message") or {}).get("content") or ""
         u = data.get("usage", {}) or {}

@@ -8,7 +8,7 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from mira import team  # noqa: E402
+from frog import team  # noqa: E402
 
 HITS = {"n": 0}
 
@@ -30,7 +30,7 @@ class PriceGateTest(unittest.TestCase):
 
     def test_model_la_bi_chan_truoc_http(self):
         plan = team.build_plan("soạn báo cáo", surface="read_only", labels=["public"])
-        with patch("mira.team.provider_for", lambda *a, **k: _Prov()):
+        with patch("frog.team.provider_for", lambda *a, **k: _Prov()):
             res = team.execute_plan(plan, model_override="khong-co", provider_name="anthropic",
                                     api_key="k", on_step=lambda m: None)
         self.assertEqual(HITS["n"], 0)
@@ -41,7 +41,7 @@ class PriceGateTest(unittest.TestCase):
         plan = team.build_plan("soạn báo cáo", surface="read_only", labels=["public"])
         plan.declared_price = (2.0, 2.0)
         plan.cap_usd = 1.0
-        with patch("mira.team.provider_for", lambda *a, **k: _Prov()):
+        with patch("frog.team.provider_for", lambda *a, **k: _Prov()):
             res = team.execute_plan(plan, model_override="khong-co", provider_name="anthropic",
                                     api_key="k", on_step=lambda m: None)
         self.assertEqual(res["ledger"]["total_usd"], 2.0)

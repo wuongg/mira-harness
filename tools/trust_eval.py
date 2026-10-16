@@ -93,7 +93,7 @@ def _run(tree: Path, root: Path, args: list[str], url: str,
          stdin: str = "", price: str = "1000,0",
          max_tokens: str = "64") -> subprocess.CompletedProcess:
     env = _env(tree)
-    cmd = [sys.executable, "-m", "mira", "team", *args, "--provider", "anthropic",
+    cmd = [sys.executable, "-m", "frog", "team", *args, "--provider", "anthropic",
            "--base-url", url, "--price-in", price, "--max-tokens", max_tokens,
            "--oracle", "off", "--intake", "off", "--out", "out"]
     return subprocess.run(
@@ -132,7 +132,7 @@ def _brief(criterion: str, cmd: str) -> dict:
 def _gate(tree: Path, task: str, records: int) -> dict:
     prog = (
         "import json,sys\n"
-        "from mira.team import build_plan, two_phrases\n"
+        "from frog.team import build_plan, two_phrases\n"
         "p = build_plan(sys.argv[1], surface='read_only', labels=['internal'], "
         "records=int(sys.argv[2]), dollars=0.0, reversibility='C1', "
         "output_type='free_string')\n"
@@ -259,7 +259,7 @@ def probe_wrong(tree: Path, task: dict) -> dict:
     prog = (
         "import json,sys,tempfile,hashlib\n"
         "from pathlib import Path\n"
-        "from mira.obligations import judge_obligations\n"
+        "from frog.obligations import judge_obligations\n"
         "root = Path(tempfile.mkdtemp())\n"
         "rel = 'calc_wrong.py'\n"
         "(root / rel).write_text(sys.argv[2], encoding='utf-8')\n"

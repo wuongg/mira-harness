@@ -9,7 +9,7 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from mira import team  # noqa: E402
+from frog import team  # noqa: E402
 
 
 def _body(**extra) -> str:
@@ -36,7 +36,7 @@ class _Prov:
 def _run(replies: dict[str, str], *, surface="write_external", records=20, dollars=0, oracle=None) -> dict:
     plan = team.build_plan("soạn báo cáo nội bộ", surface=surface,
                            labels=["internal"], records=records, dollars=dollars)
-    with patch("mira.team.provider_for", lambda *a, **k: _Prov(replies)):
+    with patch("frog.team.provider_for", lambda *a, **k: _Prov(replies)):
         return team.execute_plan(plan, provider_name="anthropic", api_key="k",
                                  oracle=oracle, on_step=lambda m: None)
 

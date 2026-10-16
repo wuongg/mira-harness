@@ -142,12 +142,12 @@ def _env(extra: dict | None = None) -> dict:
 
 
 def _cmd(root: Path, base: str, args: list[str]) -> list[str]:
-    return [sys.executable, "-m", "mira", "giao", *args, "--cwd", str(root),
+    return [sys.executable, "-m", "frog", "giao", *args, "--cwd", str(root),
             "--provider", "anthropic", "--base-url", base, "--model", "claude-test",
             "--price-in", "1000,0", "--max-tokens", "256"]
 
 
-def _mira(root: Path, base: str, args: list[str]):
+def _frog(root: Path, base: str, args: list[str]):
     return subprocess.run(
         _cmd(root, base, args), cwd=str(root), env=_env(),
         capture_output=True, text=True, encoding="utf-8", timeout=90)
@@ -176,15 +176,15 @@ class DeliveryCliTest(unittest.TestCase):
         try:
             with tempfile.TemporaryDirectory() as tmp:
                 root = Path(tmp)
-                opened = _mira(root, base, ["Ghi report.md", "--approve-brief"])
+                opened = _frog(root, base, ["Ghi report.md", "--approve-brief"])
                 self.assertEqual(opened.returncode, 0, opened.stdout + opened.stderr)
                 run = _id(opened.stdout)
-                first = _mira(root, base, ["--run", run])
+                first = _frog(root, base, ["--run", run])
                 self.assertNotEqual(first.returncode, 0, first.stdout)
                 self.assertIn("SOURCE", (Path(_state(root, run)["staging"]) / "report.md").read_text(encoding="utf-8"))
                 (Path(_state(root, run)["staging"]) / "report.md").write_text(
                     "NO REQUIRED CONTENT\n", encoding="utf-8")
-                done = _mira(root, base, ["--run", run, "--confirm", "tone", "--artifact", "report.md"])
+                done = _frog(root, base, ["--run", run, "--confirm", "tone", "--artifact", "report.md"])
                 self.assertNotEqual(done.returncode, 0, done.stdout + done.stderr)
                 self.assertNotIn("bàn giao: đủ", done.stdout)
                 self.assertFalse((root / "report.md").exists())
@@ -200,7 +200,7 @@ class DeliveryCliTest(unittest.TestCase):
                 root = Path(tmp)
                 (root / "calc.py").write_text("def add(a, b):\n    return a - b\n", encoding="utf-8")
                 (root / "dep.txt").write_text("v1\n", encoding="utf-8")
-                opened = _mira(root, base, ["Sửa calc.py thành phép cộng", "--approve-brief"])
+                opened = _frog(root, base, ["Sửa calc.py thành phép cộng", "--approve-brief"])
                 run = _id(opened.stdout)
                 flag = root / "pause.txt"
                 proc = subprocess.Popen(
@@ -236,9 +236,9 @@ class DeliveryCliTest(unittest.TestCase):
         try:
             with tempfile.TemporaryDirectory() as tmp:
                 root = Path(tmp)
-                opened = _mira(root, base, ["Ghi report.md", "--approve-brief"])
+                opened = _frog(root, base, ["Ghi report.md", "--approve-brief"])
                 run = _id(opened.stdout)
-                first = _mira(root, base, ["--run", run])
+                first = _frog(root, base, ["--run", run])
                 self.assertNotEqual(first.returncode, 0, first.stdout)
                 flag = root / "pause.txt"
                 proc = subprocess.Popen(
@@ -268,7 +268,7 @@ class DeliveryCliTest(unittest.TestCase):
         try:
             with tempfile.TemporaryDirectory() as tmp:
                 root = Path(tmp)
-                opened = _mira(root, base, ["Ghi a.txt và b.txt", "--approve-brief"])
+                opened = _frog(root, base, ["Ghi a.txt và b.txt", "--approve-brief"])
                 run = _id(opened.stdout)
                 flag = root / "pause.txt"
                 proc = subprocess.Popen(
@@ -308,14 +308,14 @@ class DeliveryCliTest(unittest.TestCase):
             with tempfile.TemporaryDirectory() as tmp:
                 root = Path(tmp)
                 (root / "calc.py").write_text("def add(a, b):\n    return a - b\n", encoding="utf-8")
-                opened = _mira(root, base, ["Sửa calc.py thành phép cộng", "--approve-brief"])
+                opened = _frog(root, base, ["Sửa calc.py thành phép cộng", "--approve-brief"])
                 run = _id(opened.stdout)
-                done = _mira(root, base, ["--run", run, "--grant", cmd])
+                done = _frog(root, base, ["--run", run, "--grant", cmd])
                 self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
                 hits = _Stub.hits
                 stamp = (root / "calc.py").stat().st_mtime_ns
                 time.sleep(0.05)
-                again = _mira(root, base, ["--run", run])
+                again = _frog(root, base, ["--run", run])
                 self.assertEqual(again.returncode, 0, again.stdout)
                 self.assertIn("không gọi lại", again.stdout)
                 self.assertEqual(_Stub.hits, hits)
@@ -331,9 +331,9 @@ class DeliveryCliTest(unittest.TestCase):
             with tempfile.TemporaryDirectory() as tmp:
                 root = Path(tmp)
                 (root / "calc.py").write_text("def add(a, b):\n    return a - b\n", encoding="utf-8")
-                opened = _mira(root, base, ["Sửa calc.py thành phép cộng", "--approve-brief"])
+                opened = _frog(root, base, ["Sửa calc.py thành phép cộng", "--approve-brief"])
                 run = _id(opened.stdout)
-                done = _mira(root, base, ["--run", run, "--grant", cmd])
+                done = _frog(root, base, ["--run", run, "--grant", cmd])
                 self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
                 self.assertIn("bàn giao: đủ", done.stdout)
                 self.assertIn("return a + b", (root / "calc.py").read_text(encoding="utf-8"))

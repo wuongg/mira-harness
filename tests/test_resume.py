@@ -11,7 +11,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from mira import team
+from frog import team
 
 
 class _Fake:
@@ -59,7 +59,7 @@ class ResumeTest(unittest.TestCase):
         self.tmp.cleanup()
 
     def _run(self):
-        with patch("mira.team.provider_for", _provider):
+        with patch("frog.team.provider_for", _provider):
             return team.execute_plan(
                 self.plan, provider_name="anthropic", api_key="k",
                 root=self.root, on_step=lambda _m: None)
@@ -72,7 +72,7 @@ class ResumeTest(unittest.TestCase):
             seen.append(payload["next_index"])
             real(root, payload)
 
-        with patch("mira.team.write_checkpoint", spy):
+        with patch("frog.team.write_checkpoint", spy):
             res = self._run()
         self.assertLess(seen.index(1), seen.index(2))
         data = json.loads(team.checkpoint_path(self.root, res["id"]).read_text(encoding="utf-8"))
@@ -90,12 +90,12 @@ class ResumeTest(unittest.TestCase):
             if payload["next_index"] == 1:
                 snap["payload"] = json.loads(json.dumps(payload))
 
-        with patch("mira.team.write_checkpoint", spy):
+        with patch("frog.team.write_checkpoint", spy):
             self._run()
         self.assertEqual(snap["payload"]["ledger"]["total_usd"], 0.01)
         team.write_checkpoint(self.root, snap["payload"])
         _Fake.calls = []
-        with patch("mira.team.provider_for", _provider):
+        with patch("frog.team.provider_for", _provider):
             code, res = team.resume_team(self.root, snap["payload"]["id"], api_key="k")
         self.assertEqual(code, 0)
         self.assertEqual(_Fake.calls, ["verifier"])
@@ -119,9 +119,9 @@ class ResumeTest(unittest.TestCase):
             target.write_text("nội dung mới\n", encoding="utf-8")
             return {"final": "đã sửa", "usage": {"in": 10, "out": 0}, "seconds": 0}
 
-        with patch("mira.team.write_checkpoint", spy), \
-                patch("mira.team.provider_for", _provider), \
-                patch("mira.agent.run_turn", fake_turn):
+        with patch("frog.team.write_checkpoint", spy), \
+                patch("frog.team.provider_for", _provider), \
+                patch("frog.agent.run_turn", fake_turn):
             team.execute_plan(plan, provider_name="anthropic", api_key="k",
                               root=self.root, on_step=lambda _m: None)
         self.assertIn("payload", snap)
@@ -129,8 +129,8 @@ class ResumeTest(unittest.TestCase):
         self.assertTrue(staging.is_dir())
         team.write_checkpoint(self.root, snap["payload"])
         before = sorted(p.name for p in (self.root / ".mira" / "staging").iterdir())
-        with patch("mira.team.provider_for", _provider), \
-                patch("mira.agent.run_turn", fake_turn):
+        with patch("frog.team.provider_for", _provider), \
+                patch("frog.agent.run_turn", fake_turn):
             code, res = team.resume_team(self.root, snap["payload"]["id"], api_key="k")
         after = sorted(p.name for p in (self.root / ".mira" / "staging").iterdir())
         self.assertEqual(code, 0)
@@ -157,7 +157,7 @@ class ResumeTest(unittest.TestCase):
         res = self._run()
         self.assertEqual(res["status"], "withheld")
         _Fake.calls = []
-        with patch("mira.team.provider_for", _provider):
+        with patch("frog.team.provider_for", _provider):
             code, again = team.resume_team(self.root, res["id"], api_key="k")
         self.assertEqual(code, 3)
         self.assertEqual(again["status"], "withheld")

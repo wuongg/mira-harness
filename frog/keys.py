@@ -3,7 +3,7 @@
 Thứ tự tìm khoá (cái nào có trước thì thắng):
   1. tham số --api-key truyền trực tiếp
   2. biến môi trường (OPENROUTER_API_KEY / ANTHROPIC_API_KEY / OPENAI_API_KEY / XAI_API_KEY)
-  3. tệp ~/.mira/keys.json (do lệnh `mira keys` ghi)
+  3. tệp ~/.mira/keys.json (do lệnh `frog keys` ghi)
 
 Khoá KHÔNG bao giờ in đầy đủ ra màn hình — chỉ 4 ký tự đầu … 4 ký tự cuối.
 """
@@ -54,7 +54,7 @@ def migrate_user_home(home: Path | None = None) -> None:
                     pass
     KEYS_PATH = new / "keys.json"
     sessions = new / "sessions"
-    for mod_name in ("mira.repl", "mira.activity"):
+    for mod_name in ("frog.repl", "frog.activity"):
         mod = sys.modules.get(mod_name)
         if mod is not None and hasattr(mod, "SESS_DIR"):
             mod.SESS_DIR = sessions

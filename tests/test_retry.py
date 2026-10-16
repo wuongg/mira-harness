@@ -9,9 +9,9 @@ import urllib.error
 import urllib.request
 from unittest.mock import patch
 
-from mira import team
-from mira.providers import AnthropicProvider, ProviderError, retry_open
-from mira.team import Ledger
+from frog import team
+from frog.providers import AnthropicProvider, ProviderError, retry_open
+from frog.team import Ledger
 
 
 def _body():
@@ -57,8 +57,8 @@ class RetryTest(unittest.TestCase):
             charged.append(1)
             return real(self, *a, **k)
 
-        with patch("mira.providers.urllib.request.urlopen", fake_open), \
-                patch("mira.providers.time.sleep", lambda _s: None), \
+        with patch("frog.providers.urllib.request.urlopen", fake_open), \
+                patch("frog.providers.time.sleep", lambda _s: None), \
                 patch.object(Ledger, "charge", wrapped):
             res = team.execute_plan(
                 self._plan(), provider_name="anthropic",
@@ -76,7 +76,7 @@ class RetryTest(unittest.TestCase):
             raise _http(400)
 
         charged = []
-        with patch("mira.providers.urllib.request.urlopen", fake_open), \
+        with patch("frog.providers.urllib.request.urlopen", fake_open), \
                 patch.object(Ledger, "charge", lambda *a, **k: charged.append(1)):
             res = team.execute_plan(
                 self._plan(), provider_name="anthropic",
@@ -95,8 +95,8 @@ class RetryTest(unittest.TestCase):
             raise _http(503)
 
         p = AnthropicProvider(model="claude-x", api_key="k", base_url="http://127.0.0.1")
-        with patch("mira.providers.urllib.request.urlopen", fake_open), \
-                patch("mira.providers.time.sleep", lambda _s: None):
+        with patch("frog.providers.urllib.request.urlopen", fake_open), \
+                patch("frog.providers.time.sleep", lambda _s: None):
             with self.assertRaises(ProviderError):
                 p.call("SYS", "USER")
         self.assertEqual(seen["n"], 3)
@@ -104,8 +104,8 @@ class RetryTest(unittest.TestCase):
 
         charged = []
         seen["n"] = 0
-        with patch("mira.providers.urllib.request.urlopen", fake_open), \
-                patch("mira.providers.time.sleep", lambda _s: None), \
+        with patch("frog.providers.urllib.request.urlopen", fake_open), \
+                patch("frog.providers.time.sleep", lambda _s: None), \
                 patch.object(Ledger, "charge", lambda *a, **k: charged.append(1)):
             res = team.execute_plan(
                 self._plan(), provider_name="anthropic",
@@ -123,7 +123,7 @@ class RetryTest(unittest.TestCase):
             raise _http(503)
 
         req = urllib.request.Request("http://127.0.0.1/v1/messages", data=b"{}", method="POST")
-        with patch("mira.providers.urllib.request.urlopen", fake_open):
+        with patch("frog.providers.urllib.request.urlopen", fake_open):
             with self.assertRaises(ProviderError):
                 retry_open(req, 1, name="anthropic", rng=random.Random(0), sleep=slept.append)
         self.assertEqual(len(slept), 2)

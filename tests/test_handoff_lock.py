@@ -10,8 +10,8 @@ import unittest
 from argparse import Namespace
 from pathlib import Path
 
-from mira import handoff as handoff_mod
-from mira.handoff import _dir, approve, check_only, cmd_giao, open_run, remember_grant
+from frog import handoff as handoff_mod
+from frog.handoff import _dir, approve, check_only, cmd_giao, open_run, remember_grant
 
 HandoffError = getattr(handoff_mod, "HandoffError", RuntimeError)
 
@@ -90,10 +90,10 @@ class HandoffLockTest(unittest.TestCase):
             (root / "note.txt").write_text("hello\n", encoding="utf-8")
             state = open_run(root, "ghi note", _brief(["khong-co"]))
             approve(root, state["id"])
-            from mira.handoff import _load, _save
+            from frog.handoff import _load, _save
             saved = _load(root, state["id"])
             saved["brief"]["acceptance_criteria"][0]["validator"]["must_contain"] = ["hello"]
-            from mira.intake import brief_hash
+            from frog.intake import brief_hash
             saved["brief_hash"] = brief_hash(saved["brief"])
             _save(root, saved)
             buf = io.StringIO()
@@ -133,7 +133,7 @@ class HandoffLockTest(unittest.TestCase):
         from unittest.mock import patch
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            with patch("mira.handoff.os.replace", wraps=__import__("os").replace) as repl:
+            with patch("frog.handoff.os.replace", wraps=__import__("os").replace) as repl:
                 open_run(root, "ghi note", _brief(["hello"]))
             self.assertTrue(repl.called)
 
@@ -179,7 +179,7 @@ class HandoffLockTest(unittest.TestCase):
             (root / "note.txt").write_text("hello\n", encoding="utf-8")
             state = open_run(root, "ghi note", _brief(["hello"]))
             approve(root, state["id"])
-            from mira.handoff import confirm
+            from frog.handoff import confirm
             with self.assertRaises(HandoffError):
                 confirm(root, state["id"], "note", "note.txt")
 
@@ -202,7 +202,7 @@ class HandoffLockTest(unittest.TestCase):
             self.assertIn("không chạy", text)
             self.assertIn("validator đã kiểm", text)
             self.assertNotIn("py -3", text)
-            from mira.handoff import preview
+            from frog.handoff import preview
             shown = preview(_brief(["hello"]), state["id"])
             self.assertNotIn("py -3", shown)
             self.assertIn(sys.executable, shown)

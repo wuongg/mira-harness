@@ -57,7 +57,7 @@ MEMORY_PROMPT_CHARS = 2_000
 TOOL_RESULT_CHARS = 8_000
 
 # ---------------------------------------------------------------- giá model
-# USD / 1M token. Nạp từ mira/prices.toml. Không giữ dict thứ hai.
+# USD / 1M token. Nạp từ frog/prices.toml. Không giữ dict thứ hai.
 def _shipped_prices() -> dict:
     from pathlib import Path
     from .prices import load_prices_file
@@ -81,7 +81,7 @@ ROLE_MODEL = {
     "classifier":  "gpt-6-luna",     # model THẬT, rẻ (trước là "jev-system-one" — không gọi được)
 }
 
-# Model phiên `mira` khi có khoá OpenRouter. Đổi trong phiên bằng /model.
+# Model phiên `frog` khi có khoá OpenRouter. Đổi trong phiên bằng /model.
 OPENROUTER_MODEL = "anthropic/claude-sonnet-4.5"
 
 LANE_MAX = 2   # chỉ có 3 làn. Sàn = 3 KHÔNG tạo làn mới; nó đẩy cổng người

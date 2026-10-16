@@ -11,8 +11,8 @@ from contextlib import redirect_stdout
 from pathlib import Path
 from unittest.mock import patch
 
-from mira.bench import adversarial_path, load_cases, predict_case, run_adversarial, run_eval
-from mira.pipeline import content_signal
+from frog.bench import adversarial_path, load_cases, predict_case, run_adversarial, run_eval
+from frog.pipeline import content_signal
 
 
 class AdversarialTest(unittest.TestCase):
@@ -50,7 +50,7 @@ class AdversarialTest(unittest.TestCase):
         def boom(*_a, **_k):
             raise AssertionError("không được dựng provider")
 
-        with patch("mira.team.provider_for", boom), patch("mira.providers.provider_for", boom):
+        with patch("frog.team.provider_for", boom), patch("frog.providers.provider_for", boom):
             code = run_adversarial()
         self.assertEqual(code, 0)
 

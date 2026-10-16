@@ -12,7 +12,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from mira.team import cmd_team, write_checkpoint
+from frog.team import cmd_team, write_checkpoint
 
 
 class _Prov:
@@ -70,7 +70,7 @@ def _resume(root: Path):
     os.chdir(root)
     try:
         buf = io.StringIO()
-        with redirect_stdout(buf), patch("mira.team.provider_for", _Prov):
+        with redirect_stdout(buf), patch("frog.team.provider_for", _Prov):
             code = cmd_team(SimpleNamespace(
                 resume="run1", task=None, brief=None, provider=None, model=None,
                 base_url=None, api_key="k", max_tokens=64, oracle=None,

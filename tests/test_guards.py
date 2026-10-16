@@ -17,9 +17,9 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from mira import agent, team                       # noqa: E402
-from mira.team import ROLES_BY_LANE, TeamPlan, execute_plan, expand_roles, make_task  # noqa: E402
-from mira.tools import Session                      # noqa: E402
+from frog import agent, team                       # noqa: E402
+from frog.team import ROLES_BY_LANE, TeamPlan, execute_plan, expand_roles, make_task  # noqa: E402
+from frog.tools import Session                      # noqa: E402
 
 
 # ------------------------------------------------------------ server giả
@@ -59,7 +59,7 @@ class TestVanLuotVaNganSach(unittest.TestCase):
         cls.srv.server_close()
 
     def _session(self):
-        d = Path(tempfile.mkdtemp(prefix="mira-guard-"))
+        d = Path(tempfile.mkdtemp(prefix="frog-guard-"))
         self.addCleanup(lambda: __import__("shutil").rmtree(d, ignore_errors=True))
         return Session(root=d, mode="default", approve=lambda t, a: True)
 

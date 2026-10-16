@@ -8,8 +8,8 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from mira import config, team
-from mira.team import (
+from frog import config, team
+from frog.team import (
     ROLES_BY_LANE, TeamPlan, execute_plan, load_checkpoint, make_task,
     resume_team, write_checkpoint, CheckpointError,
 )

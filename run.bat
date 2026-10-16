@@ -14,10 +14,10 @@ echo ==^> cai goi ^(khong co thu vien ngoai^)
 pip install -q -e .
 
 echo ==^> chay bo kiem tra bat bien
-python -m r0 selftest
+python -m frog selftest
 
 echo ==^> chay shadow
-python -m r0 run --out out
+python -m frog run --out out
 
 echo.
 echo Xong. Xem out\metrics.json va out\trace.jsonl

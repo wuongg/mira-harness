@@ -8,9 +8,9 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from mira.handoff import _load, _save, approve, confirm, open_run, settle
-from mira.intake import brief_hash
-from mira.obligations import judge_obligations, refresh_evidence
+from frog.handoff import _load, _save, approve, confirm, open_run, settle
+from frog.intake import brief_hash
+from frog.obligations import judge_obligations, refresh_evidence
 
 
 def _report_brief() -> dict:

@@ -11,9 +11,9 @@ import unittest
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-from mira.contract import contract_diff
-from mira.intake import brief_hash, load_brief_file
-from mira.team import resume_team, write_checkpoint
+from frog.contract import contract_diff
+from frog.intake import brief_hash, load_brief_file
+from frog.team import resume_team, write_checkpoint
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -84,7 +84,7 @@ class CriteriaSchemaTest(unittest.TestCase):
                 env["PYTHONIOENCODING"] = "utf-8"
                 env["ANTHROPIC_API_KEY"] = "local"
                 proc = subprocess.run(
-                    [sys.executable, "-m", "mira", "team", brief["goal"],
+                    [sys.executable, "-m", "frog", "team", brief["goal"],
                      "--intake", "off", "--brief", str(path), "--require-evidence",
                      "--surface", "read_only", "--labels", "public",
                      "--records", "10", "--dollars", "0", "--approve",
@@ -118,7 +118,7 @@ class CriteriaSchemaTest(unittest.TestCase):
             env["PYTHONPATH"] = str(ROOT)
             env["PYTHONIOENCODING"] = "utf-8"
             proc = subprocess.run(
-                [sys.executable, "-m", "mira", "team", "tom tat",
+                [sys.executable, "-m", "frog", "team", "tom tat",
                  "--intake", "off", "--brief", str(path), "--require-evidence",
                  "--surface", "read_only", "--labels", "public",
                  "--records", "10", "--dollars", "0", "--out", "out"],

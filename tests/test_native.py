@@ -15,9 +15,9 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from mira import agent, native                      # noqa: E402
-from mira.providers import AnthropicProvider, OpenAICompatProvider  # noqa: E402
-from mira.tools import Session                      # noqa: E402
+from frog import agent, native                      # noqa: E402
+from frog.providers import AnthropicProvider, OpenAICompatProvider  # noqa: E402
+from frog.tools import Session                      # noqa: E402
 
 SEEN: list[dict] = []
 
@@ -176,7 +176,7 @@ class TestDichThamSo(unittest.TestCase):
         self.assertEqual(o[2]["content"], "## 1. Vai trò")
 
     def test_doc_so_token_con_lai(self):
-        from mira.providers import afford_tokens
+        from frog.providers import afford_tokens
         detail = 'HTTP 402 — {"error":{"message":"can only afford 900"}}'
         self.assertEqual(afford_tokens(detail), 900)
         self.assertIsNone(afford_tokens("HTTP 401"))

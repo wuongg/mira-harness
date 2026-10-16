@@ -7,8 +7,8 @@ from contextlib import redirect_stdout
 from pathlib import Path
 from unittest.mock import patch
 
-from mira.ingest import ingest_dir
-from mira.stats import render
+from frog.ingest import ingest_dir
+from frog.stats import render
 
 
 _NULL_KEYS = (
@@ -100,7 +100,7 @@ class IngestTest(unittest.TestCase):
                 "status": "withheld", "steps": [], "ledger": {"total_usd": 0},
                 "plan": {"lane": 0},
             }), encoding="utf-8")
-            with patch("mira.team.provider_for", boom), patch("mira.providers.provider_for", boom):
+            with patch("frog.team.provider_for", boom), patch("frog.providers.provider_for", boom):
                 self.assertEqual(ingest_dir(root), 0)
 
 

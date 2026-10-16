@@ -413,7 +413,7 @@ def _welcome_card(version: str, model: str, quyen: str, path: str, root: Path, w
             _pad(ui.c("  /exit để thoát.", "text"), left_w),
         ])
 
-    title = f"─ mira {version} "
+    title = f"─ frog {version} "
     top_fill = max(0, width - 2 - len(title))
     top = _warm("╭" + title + "─" * top_fill, colored)
     if split:
@@ -620,12 +620,12 @@ def repl(args) -> int:
             elif cmd == "menu":
                 ui.section("Bốn việc, chạy ở terminal sau khi gõ /exit")
                 ui.table(["việc", "lệnh"], [
-                    ["1  Mở phiên", "mira"],
-                    ["2  Xem nhật ký", "mira logs"],
-                    ["3  Bảng số", "mira dash"],
-                    ["4  Nhập khoá API", "/keys  hoặc  mira keys"],
+                    ["1  Mở phiên", "frog"],
+                    ["2  Xem nhật ký", "frog logs"],
+                    ["3  Bảng số", "frog dash"],
+                    ["4  Nhập khoá API", "/keys  hoặc  frog keys"],
                 ], ["l", "l"])
-                ui.note("Bạn đang ở trong phiên. Cứ gõ việc, không cần gõ mira.", "info")
+                ui.note("Bạn đang ở trong phiên. Cứ gõ việc, không cần gõ frog.", "info")
             elif cmd == "keys":
                 from .keys import prompt_setup
                 prompt_setup()
@@ -669,9 +669,9 @@ def repl(args) -> int:
 
         # ------------------------------------------ gõ nhầm lệnh shell trong phiên
         low = line.strip().lower()
-        if (low == "mira" or low.startswith("mira ") or low.startswith("r0-shadow")
+        if (low == "frog" or low.startswith("frog ") or low.startswith("r0-shadow")
                 or low.startswith("python -m r0") or low.startswith("py -m r0")):
-            ui.note("Bạn đang ở trong phiên, không cần gõ mira nữa.", "warn")
+            ui.note("Bạn đang ở trong phiên, không cần gõ frog nữa.", "warn")
             ui.note("Cứ gõ việc cần làm. /menu để xem bốn việc, /exit để thoát.", "info")
             continue
 
@@ -792,11 +792,11 @@ def _err_note(err: str) -> None:
     if any(s in low for s in ("401", "403", "authentication", "invalid x-api-key",
                               "invalid_api_key", "unauthorized", "api key")):
         ui.note("Khoá API không dùng được, nên model không trả lời.", "bad")
-        ui.note("Gõ /keys để nhập lại, hoặc thoát rồi chạy mira keys set.", "info")
+        ui.note("Gõ /keys để nhập lại, hoặc thoát rồi chạy frog keys set.", "info")
         ui.note(f"Chi tiết: {err[:160]}", "info")
     elif "402" in low or "more credits" in low or "can only afford" in low:
         ui.note("Số dư OpenRouter không đủ cho trần token của lượt này.", "bad")
-        ui.note("Nạp thêm credit tại openrouter.ai, hoặc thoát rồi vào mira lại.", "info")
+        ui.note("Nạp thêm credit tại openrouter.ai, hoặc thoát rồi vào frog lại.", "info")
     else:
         ui.note(f"Lỗi: {err}", "bad")
 

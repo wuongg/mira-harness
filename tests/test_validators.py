@@ -9,7 +9,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from mira.obligations import judge_obligations
+from frog.obligations import judge_obligations
 
 
 def _exit(code: int) -> str:
@@ -201,7 +201,7 @@ class ValidatorTest(unittest.TestCase):
         self.assertEqual(row["state"], "verified")
 
     def test_timeout_chua_xac_minh(self):
-        from mira.tools import Session
+        from frog.tools import Session
         cmd = shlex.join([sys.executable, "-c", "import time; time.sleep(5)"])
         with tempfile.TemporaryDirectory() as tmp:
             result = Session(root=Path(tmp), mode="bypass",

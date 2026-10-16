@@ -11,9 +11,9 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from mira.contract import contract_diff
-from mira.intake import canonical_brief
-from mira.team import checkpoint_path, cmd_team, resume_team, write_checkpoint
+from frog.contract import contract_diff
+from frog.intake import canonical_brief
+from frog.team import checkpoint_path, cmd_team, resume_team, write_checkpoint
 
 
 def _brief(goal: str, criteria: list[str], limits: list[str] | None = None) -> dict:
@@ -68,7 +68,7 @@ class ContractTest(unittest.TestCase):
                           "dollars": 0, "reversibility": "C1", "output_type": "free_string"},
                 "workers": 1,
             })
-            with patch("mira.team.provider_for", boom):
+            with patch("frog.team.provider_for", boom):
                 code, res = resume_team(root, "run1", brief=new)
             self.assertEqual(code, 2)
             self.assertIn("yêu cầu đã đổi", res["error"])

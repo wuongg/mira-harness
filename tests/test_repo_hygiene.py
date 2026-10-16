@@ -23,7 +23,7 @@ class RepoHygieneTest(unittest.TestCase):
         self.assertEqual(tracked.stdout.strip(), "")
 
     def test_compileall_team(self):
-        path = ROOT / "mira" / "team.py"
+        path = ROOT / "frog" / "team.py"
         self.assertTrue(compileall.compile_file(str(path), quiet=1))
         lines = [line.strip() for line in path.read_text(encoding="utf-8").splitlines()]
         self.assertEqual(lines.count("from pathlib import Path"), 1)

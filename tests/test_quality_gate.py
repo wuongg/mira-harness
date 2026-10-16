@@ -1,7 +1,7 @@
 """Cổng 0.90: recall hoặc precision của bất kỳ nhóm nào dưới ngưỡng thì fail."""
 import unittest
 
-from mira.bench import AXES, QUALITY_FLOOR, adversarial_path, gate_failures, load_cases, score_cases
+from frog.bench import AXES, QUALITY_FLOOR, adversarial_path, gate_failures, load_cases, score_cases
 
 
 def _nhom(slug: str, precision, recall) -> dict:

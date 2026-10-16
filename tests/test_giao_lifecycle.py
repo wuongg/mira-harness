@@ -93,7 +93,7 @@ def _serve(brief: dict):
     return srv, f"http://127.0.0.1:{srv.server_address[1]}"
 
 
-def _mira(root: Path, base: str, args: list[str]):
+def _frog(root: Path, base: str, args: list[str]):
     env = os.environ.copy()
     env["PYTHONIOENCODING"] = "utf-8"
     env["PYTHONPATH"] = str(Path(__file__).resolve().parents[1])
@@ -104,7 +104,7 @@ def _mira(root: Path, base: str, args: list[str]):
         if name.startswith("MIRA_PRICE"):
             env.pop(name)
     return subprocess.run(
-        [sys.executable, "-m", "mira", "giao", *args, "--cwd", str(root),
+        [sys.executable, "-m", "frog", "giao", *args, "--cwd", str(root),
          "--provider", "anthropic", "--base-url", base, "--model", "claude-test",
          "--price-in", "1000,0", "--max-tokens", "256"],
         cwd=str(root), env=env, capture_output=True, text=True, encoding="utf-8")
@@ -125,16 +125,16 @@ class LifecycleTest(unittest.TestCase):
             with tempfile.TemporaryDirectory() as tmp:
                 root = Path(tmp)
                 (root / "calc.py").write_text("def add(a, b):\n    return a - b\n", encoding="utf-8")
-                opened = _mira(root, base, ["Sửa calc.py thành phép cộng", "--approve-brief"])
+                opened = _frog(root, base, ["Sửa calc.py thành phép cộng", "--approve-brief"])
                 self.assertEqual(opened.returncode, 0, opened.stdout + opened.stderr)
                 run = _id(opened.stdout)
-                ran = _mira(root, base, ["--run", run, "--grant", cmd])
+                ran = _frog(root, base, ["--run", run, "--grant", cmd])
                 self.assertEqual(ran.returncode, 0, ran.stdout + ran.stderr)
                 hits = _Stub.hits
                 stamp = (root / "calc.py").stat().st_mtime_ns
                 time.sleep(0.05)
                 for _ in range(2):
-                    again = _mira(root, base, ["--run", run])
+                    again = _frog(root, base, ["--run", run])
                     self.assertEqual(again.returncode, 0, again.stdout + again.stderr)
                     self.assertIn("đã bàn giao", again.stdout)
                     self.assertEqual(_Stub.hits, hits)
@@ -148,21 +148,21 @@ class LifecycleTest(unittest.TestCase):
         try:
             with tempfile.TemporaryDirectory() as tmp:
                 root = Path(tmp)
-                opened = _mira(root, base, ["Ghi report.md", "--approve-brief"])
+                opened = _frog(root, base, ["Ghi report.md", "--approve-brief"])
                 run = _id(opened.stdout)
-                ran = _mira(root, base, ["--run", run])
+                ran = _frog(root, base, ["--run", run])
                 self.assertNotEqual(ran.returncode, 0, ran.stdout)
                 self.assertIn("chờ xác nhận", ran.stdout)
                 self.assertFalse((root / "report.md").exists())
                 hits = _Stub.hits
-                confirmed = _mira(root, base, [
+                confirmed = _frog(root, base, [
                     "--run", run, "--confirm", "tone", "--artifact", "report.md"])
                 self.assertEqual(confirmed.returncode, 0, confirmed.stdout + confirmed.stderr)
                 self.assertEqual(_Stub.hits, hits)
                 self.assertIn("Nguon:", (root / "report.md").read_text(encoding="utf-8"))
                 stamp = (root / "report.md").stat().st_mtime_ns
                 time.sleep(0.05)
-                again = _mira(root, base, ["--run", run])
+                again = _frog(root, base, ["--run", run])
                 self.assertEqual(_Stub.hits, hits)
                 self.assertEqual((root / "report.md").stat().st_mtime_ns, stamp)
                 self.assertIn("đã bàn giao", again.stdout)
@@ -177,9 +177,9 @@ class LifecycleTest(unittest.TestCase):
             with tempfile.TemporaryDirectory() as tmp:
                 root = Path(tmp)
                 (root / "calc.py").write_text("def add(a, b):\n    return a - b\n", encoding="utf-8")
-                opened = _mira(root, base, ["Sửa calc.py thành phép cộng", "--approve-brief"])
+                opened = _frog(root, base, ["Sửa calc.py thành phép cộng", "--approve-brief"])
                 run = _id(opened.stdout)
-                ran = _mira(root, base, ["--run", run, "--grant", cmd])
+                ran = _frog(root, base, ["--run", run, "--grant", cmd])
                 self.assertEqual(ran.returncode, 0, ran.stdout + ran.stderr)
                 self.assertIn("chi phí tích lũy", ran.stdout)
                 state = json.loads((root / ".mira" / "runs" / run / "handoff.json").read_text(encoding="utf-8"))
@@ -197,15 +197,15 @@ class LifecycleTest(unittest.TestCase):
             with tempfile.TemporaryDirectory() as tmp:
                 root = Path(tmp)
                 (root / "calc.py").write_text("def add(a, b):\n    return a - b\n", encoding="utf-8")
-                opened = _mira(root, base, ["Sửa calc.py thành phép cộng", "--approve-brief"])
+                opened = _frog(root, base, ["Sửa calc.py thành phép cộng", "--approve-brief"])
                 run = _id(opened.stdout)
-                ran = _mira(root, base, ["--run", run, "--grant", cmd])
+                ran = _frog(root, base, ["--run", run, "--grant", cmd])
                 self.assertEqual(ran.returncode, 0, ran.stdout)
                 hits = _Stub.hits
-                quiet = _mira(root, base, ["--run", run])
+                quiet = _frog(root, base, ["--run", run])
                 self.assertEqual(_Stub.hits, hits, quiet.stdout)
                 (root / "calc.py").write_text("def add(a, b):\n    return a - b\n", encoding="utf-8")
-                retried = _mira(root, base, ["--run", run, "--retry"])
+                retried = _frog(root, base, ["--run", run, "--retry"])
                 self.assertEqual(retried.returncode, 0, retried.stdout + retried.stderr)
                 self.assertGreater(_Stub.hits, hits)
                 state = json.loads((root / ".mira" / "runs" / run / "handoff.json").read_text(encoding="utf-8"))

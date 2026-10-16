@@ -112,7 +112,7 @@ def _session_row(s: dict) -> list[str]:
 
 def render_list(sessions: list[dict]) -> None:
     if not sessions:
-        ui.note("Chưa có phiên nào. Gõ mira để bắt đầu.", "info")
+        ui.note("Chưa có phiên nào. Gõ frog để bắt đầu.", "info")
         return
     ui.table(["id", "lúc", "model", "lượt", "token", "$", "việc"],
              [_session_row(s) for s in sessions],
@@ -152,7 +152,7 @@ def render_detail(s: dict) -> None:
 def render_dashboard(limit: int = 8, run: str | None = "out") -> None:
     sess = list_sessions(limit)
     t = totals(list_sessions())
-    ui.title("mira · bảng số")
+    ui.title("frog · bảng số")
     ui.hr()
     ui.kv("phiên", t["n"])
     ui.kv("lượt model", t["turns"])
@@ -250,7 +250,7 @@ def cmd_logs(args) -> int:
             return 2
         render_detail(load_session_file(p))
         return 0
-    ui.title("mira · nhật ký")
+    ui.title("frog · nhật ký")
     render_list(list_sessions(getattr(args, "limit", 0)))
     return 0
 

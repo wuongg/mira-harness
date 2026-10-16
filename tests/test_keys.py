@@ -3,7 +3,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from mira import keys
+from frog import keys
 
 
 class KeysTest(unittest.TestCase):

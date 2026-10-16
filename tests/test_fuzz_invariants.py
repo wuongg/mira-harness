@@ -7,8 +7,8 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from mira.providers import ProviderError
-from mira.team import ROLES_BY_LANE, Ledger, _executor_write, build_plan, execute_plan
+from frog.providers import ProviderError
+from frog.team import ROLES_BY_LANE, Ledger, _executor_write, build_plan, execute_plan
 
 _PASS = json.dumps({"verdict": "PASS", "reasons": ["đủ"], "evidence": [], "confidence": 1})
 _ORACLE_LOW = json.dumps({"verdict": "PASS", "reasons": ["thấp"], "evidence": [],
@@ -122,8 +122,8 @@ class FuzzTest(unittest.TestCase):
                               records=records, dollars=dollars)
             lane = plan.lane
             prov = _Prov(spec)
-            with patch("mira.team.provider_for", lambda *a, **k: prov), \
-                 patch("mira.agent.run_turn", _turn), \
+            with patch("frog.team.provider_for", lambda *a, **k: prov), \
+                 patch("frog.agent.run_turn", _turn), \
                  patch.object(Path, "write_text", wrapped):
                 res = execute_plan(
                     plan, root=root, workers=spec["workers"], depth=spec["depth"],

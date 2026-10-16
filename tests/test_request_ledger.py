@@ -13,10 +13,10 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from types import SimpleNamespace
 
-from mira.agent import _priced_call
-from mira.intake import charged_call
-from mira.providers import ProviderError
-from mira.team import Ledger
+from frog.agent import _priced_call
+from frog.intake import charged_call
+from frog.providers import ProviderError
+from frog.team import Ledger
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -131,7 +131,7 @@ class InterruptRequestTest(unittest.TestCase):
                 env["PYTHONPATH"] = str(ROOT)
                 env["PYTHONIOENCODING"] = "utf-8"
                 env["ANTHROPIC_API_KEY"] = "local"
-                cmd = [sys.executable, "-m", "mira", "team", "tom tat tai lieu cong khai",
+                cmd = [sys.executable, "-m", "frog", "team", "tom tat tai lieu cong khai",
                        "--intake", "off", "--surface", "read_only", "--labels", "public",
                        "--records", "10", "--dollars", "0", "--provider", "anthropic",
                        "--base-url", url, "--price-in", "1000,0", "--max-tokens", "64",
@@ -160,7 +160,7 @@ class InterruptRequestTest(unittest.TestCase):
                 proc.wait(timeout=10)
                 _Hold.release.set()
                 second = subprocess.run(
-                    [sys.executable, "-m", "mira", "team", "--resume", data["id"],
+                    [sys.executable, "-m", "frog", "team", "--resume", data["id"],
                      "--provider", "anthropic", "--base-url", url,
                      "--price-in", "1000,0", "--max-tokens", "64", "--oracle", "off",
                      "--out", "out"],

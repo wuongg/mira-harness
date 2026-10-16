@@ -406,7 +406,7 @@ def _https_text(url: str, limit: int) -> str:
     blocked = _https_block_reason(url)
     if blocked:
         return blocked
-    req = urllib.request.Request(url, headers={"user-agent": "mira/1.0"})
+    req = urllib.request.Request(url, headers={"user-agent": "frog/1.0"})
     opener = urllib.request.build_opener(_GuardRedirect)
     try:
         with opener.open(req, timeout=30) as response:
@@ -461,7 +461,7 @@ def _mcp_rpc(url: str, method: str, params: dict) -> str:
     try:
         post({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {
             "protocolVersion": "2024-11-05", "capabilities": {},
-            "clientInfo": {"name": "mira", "version": "0"}}})
+            "clientInfo": {"name": "frog", "version": "0"}}})
         result = post({"jsonrpc": "2.0", "id": 2, "method": method, "params": params})
     except Exception as e:                          # noqa: BLE001
         return f"LỖI: {type(e).__name__}: {e}"
@@ -1294,7 +1294,7 @@ class Session:
                 return ShellResult("blocked", display=f"BỊ CHẶN: lệnh trỏ ra ngoài thư mục gốc: {arg}")
         row = {"action": "run_shell", "cmd": cmd, "mode": self.mode, "exit": None}
         self.audit.append(row)
-        work = Path(tempfile.mkdtemp(prefix="mira-sh-"))
+        work = Path(tempfile.mkdtemp(prefix="frog-sh-"))
         try:
             shutil.copytree(self.root, work, dirs_exist_ok=True, ignore=_ignore_workspace)
             try:
@@ -1424,7 +1424,7 @@ def parse_tool(text: str) -> tuple[str, dict] | None:
     return str(obj["name"]), dict(obj.get("args") or {})
 
 
-AGENT_SYSTEM = """Bạn là Mira — trợ lý trong terminal. Bạn vừa TRÒ CHUYỆN bình thường,
+AGENT_SYSTEM = """Bạn là Frog — trợ lý trong terminal. Bạn vừa TRÒ CHUYỆN bình thường,
 vừa làm việc trong thư mục gốc khi được giao việc.
 
 TRÒ CHUYỆN THƯỜNG — làm được, và làm trước

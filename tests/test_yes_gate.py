@@ -7,7 +7,7 @@ from argparse import Namespace
 from pathlib import Path
 from unittest.mock import patch
 
-from mira.agent import cmd_agent
+from frog.agent import cmd_agent
 
 
 def _ok(**kw):
@@ -43,7 +43,7 @@ class YesGateTest(unittest.TestCase):
             calls.append(1)
             return _ok()
 
-        with patch("mira.agent.run_turn", run_turn):
+        with patch("frog.agent.run_turn", run_turn):
             code = cmd_agent(_args(self.root, **kw))
         return code, calls
 

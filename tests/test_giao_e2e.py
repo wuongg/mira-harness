@@ -86,12 +86,12 @@ def _env(root: Path, extra: dict | None = None) -> dict:
 
 
 def _cmd(root: Path, base: str, args: list[str]) -> list[str]:
-    return [sys.executable, "-m", "mira", "giao", *args, "--cwd", str(root),
+    return [sys.executable, "-m", "frog", "giao", *args, "--cwd", str(root),
             "--provider", "anthropic", "--base-url", base, "--model", "claude-test",
             "--price-in", "1000,0", "--max-tokens", "256"]
 
 
-def _mira(root: Path, base: str, args: list[str]):
+def _frog(root: Path, base: str, args: list[str]):
     return subprocess.run(
         _cmd(root, base, args), cwd=str(root), env=_env(root),
         capture_output=True, text=True, encoding="utf-8")
@@ -107,7 +107,7 @@ def _id(text: str) -> str:
 class EndToEndTest(unittest.TestCase):
     def _open(self, root: Path, base: str, cmd: str) -> str:
         (root / "calc.py").write_text("def add(a, b):\n    return a - b\n", encoding="utf-8")
-        opened = _mira(root, base, ["Sửa calc.py thành phép cộng", "--approve-brief"])
+        opened = _frog(root, base, ["Sửa calc.py thành phép cộng", "--approve-brief"])
         self.assertEqual(opened.returncode, 0, opened.stdout + opened.stderr)
         return _id(opened.stdout)
 
@@ -145,13 +145,13 @@ class EndToEndTest(unittest.TestCase):
                 run = self._open(root, base, cmd)
                 hits = self._kill_at(root, base, run, cmd, "before-promote")
                 self.assertIn("return a - b", (root / "calc.py").read_text(encoding="utf-8"))
-                cont = _mira(root, base, ["--run", run])
+                cont = _frog(root, base, ["--run", run])
                 self.assertEqual(cont.returncode, 0, cont.stdout + cont.stderr)
                 self.assertEqual(_Stub.hits, hits)
                 self.assertIn("return a + b", (root / "calc.py").read_text(encoding="utf-8"))
                 stamp = (root / "calc.py").stat().st_mtime_ns
                 time.sleep(0.05)
-                again = _mira(root, base, ["--run", run])
+                again = _frog(root, base, ["--run", run])
                 self.assertEqual(_Stub.hits, hits)
                 self.assertEqual((root / "calc.py").stat().st_mtime_ns, stamp, again.stdout)
         finally:
@@ -169,7 +169,7 @@ class EndToEndTest(unittest.TestCase):
                 self.assertIn("return a + b", (root / "calc.py").read_text(encoding="utf-8"))
                 stamp = (root / "calc.py").stat().st_mtime_ns
                 time.sleep(0.05)
-                cont = _mira(root, base, ["--run", run])
+                cont = _frog(root, base, ["--run", run])
                 self.assertEqual(cont.returncode, 0, cont.stdout + cont.stderr)
                 self.assertEqual(_Stub.hits, hits)
                 self.assertEqual((root / "calc.py").stat().st_mtime_ns, stamp)

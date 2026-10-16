@@ -1,7 +1,7 @@
 import unittest
 from pathlib import Path
 
-from mira.mascot_art import MASCOT_PNG, render
+from frog.mascot_art import MASCOT_PNG, render
 
 
 class MascotArtTest(unittest.TestCase):

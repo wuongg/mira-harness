@@ -13,9 +13,9 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from mira.intake import run_intake
-from mira.providers import ProviderError
-from mira.team import Ledger, checkpoint_path, cmd_team, write_checkpoint
+from frog.intake import run_intake
+from frog.providers import ProviderError
+from frog.team import Ledger, checkpoint_path, cmd_team, write_checkpoint
 
 
 def _brief(criteria):
@@ -108,7 +108,7 @@ class FlowTest(unittest.TestCase):
             path = root / "brief.json"
             path.write_text(json.dumps(got["brief"]), encoding="utf-8")
             buf = io.StringIO()
-            with _Here(root), redirect_stdout(buf), patch("mira.team.provider_for", _Talk):
+            with _Here(root), redirect_stdout(buf), patch("frog.team.provider_for", _Talk):
                 code = cmd_team(_args(root, brief=str(path)))
             text = buf.getvalue()
             self.assertEqual(code, 3)
@@ -131,8 +131,8 @@ class FlowTest(unittest.TestCase):
                 if payload["next_index"] == 1 and "payload" not in snap:
                     snap["payload"] = json.loads(json.dumps(payload))
 
-            with _Here(root), redirect_stdout(io.StringIO()), patch("mira.team.provider_for", _Talk), \
-                    patch("mira.team.write_checkpoint", spy):
+            with _Here(root), redirect_stdout(io.StringIO()), patch("frog.team.provider_for", _Talk), \
+                    patch("frog.team.write_checkpoint", spy):
                 cmd_team(_args(root, brief=str(path), surface="write_external",
                                labels="internal", approve=False))
             self.assertIn("payload", snap)
@@ -140,7 +140,7 @@ class FlowTest(unittest.TestCase):
             write_checkpoint(root, snap["payload"])
             _Talk.calls = []
             buf = io.StringIO()
-            with _Here(root), redirect_stdout(buf), patch("mira.team.provider_for", _Talk), \
+            with _Here(root), redirect_stdout(buf), patch("frog.team.provider_for", _Talk), \
                     patch("builtins.input", return_value="n"):
                 code = cmd_team(_args(root, resume=snap["payload"]["id"], task=None,
                                       brief=None, require_evidence=False))
@@ -170,7 +170,7 @@ class FlowTest(unittest.TestCase):
             new_path = root / "new.json"
             new_path.write_text(json.dumps(new), encoding="utf-8")
             buf = io.StringIO()
-            with _Here(root), redirect_stdout(buf), patch("mira.team.provider_for", _Talk):
+            with _Here(root), redirect_stdout(buf), patch("frog.team.provider_for", _Talk):
                 code = cmd_team(_args(root, resume="run1", task=None, brief=str(new_path)))
             saved = json.loads(checkpoint_path(root, "run1").read_text(encoding="utf-8"))
         self.assertEqual(code, 2)
@@ -185,7 +185,7 @@ class FlowTest(unittest.TestCase):
             path = root / "brief.json"
             path.write_text(json.dumps(brief), encoding="utf-8")
             buf = io.StringIO()
-            with _Here(root), redirect_stdout(buf), patch("mira.team.provider_for", _Talk):
+            with _Here(root), redirect_stdout(buf), patch("frog.team.provider_for", _Talk):
                 code = cmd_team(_args(root, brief=str(path)))
             text = buf.getvalue()
         self.assertEqual(code, 3)
@@ -202,7 +202,7 @@ class FlowTest(unittest.TestCase):
             path = root / "brief.json"
             path.write_text(json.dumps(brief), encoding="utf-8")
             buf = io.StringIO()
-            with _Here(root), redirect_stdout(buf), patch("mira.team.provider_for", _Talk):
+            with _Here(root), redirect_stdout(buf), patch("frog.team.provider_for", _Talk):
                 code = cmd_team(_args(root, brief=str(path)))
             text = buf.getvalue()
             runs = list((root / ".mira" / "runs").glob("*/checkpoint.json"))

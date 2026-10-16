@@ -14,11 +14,11 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-import mira.activity as activity  # noqa: E402
-import mira.keys as keys  # noqa: E402
-import mira.repl as repl  # noqa: E402
-from mira.cli import cmd_doctor  # noqa: E402
-from mira.keys import migrate_user_home  # noqa: E402
+import frog.activity as activity  # noqa: E402
+import frog.keys as keys  # noqa: E402
+import frog.repl as repl  # noqa: E402
+from frog.cli import cmd_doctor  # noqa: E402
+from frog.keys import migrate_user_home  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -38,7 +38,7 @@ class HomeMigrateTest(unittest.TestCase):
         self.tmp.cleanup()
 
     def _go(self):
-        with patch("mira.keys.Path.home", return_value=self.home):
+        with patch("frog.keys.Path.home", return_value=self.home):
             migrate_user_home()
 
     def test_chi_co_khoa_cu_thi_copy_dung_byte(self):
@@ -85,7 +85,7 @@ class HomeMigrateTest(unittest.TestCase):
         def boom(*_a, **_k):
             raise OSError("khoa")
 
-        with patch("mira.keys.os.replace", boom):
+        with patch("frog.keys.os.replace", boom):
             self._go()
         self.assertEqual((self.home / ".mira" / "keys.json").read_bytes(), raw)
         self.assertTrue((old / "keys.json").is_file())
@@ -121,14 +121,22 @@ class HomeMigrateTest(unittest.TestCase):
             [sys.executable, "-m", "r0", "doctor", "--out", str(self.home / "out")],
             cwd=ROOT, env=env, capture_output=True, text=True,
             encoding="utf-8", errors="replace", check=False)
-        self.assertIn("Hãy gọi mira", proc.stderr)
+        self.assertIn("Hãy gọi frog", proc.stderr)
+        self.assertIn("2027-04-16", proc.stderr)
         self.assertEqual(proc.returncode, 0)
         proc_mira = subprocess.run(
-            [sys.executable, "-m", "mira", "doctor", "--out", str(self.home / "out2")],
+            [sys.executable, "-m", "mira", "doctor", "--out", str(self.home / "out-mira")],
             cwd=ROOT, env=env, capture_output=True, text=True,
             encoding="utf-8", errors="replace", check=False)
-        self.assertNotIn("Hãy gọi mira", proc_mira.stderr)
+        self.assertIn("Hãy gọi frog", proc_mira.stderr)
+        self.assertNotIn("r0", proc_mira.stderr)
         self.assertEqual(proc_mira.returncode, 0)
+        proc_frog = subprocess.run(
+            [sys.executable, "-m", "frog", "doctor", "--out", str(self.home / "out2")],
+            cwd=ROOT, env=env, capture_output=True, text=True,
+            encoding="utf-8", errors="replace", check=False)
+        self.assertNotIn("Hãy gọi frog", proc_frog.stderr)
+        self.assertEqual(proc_frog.returncode, 0)
 
     def test_entry_cu_khong_dung_home_that(self):
         self._go()

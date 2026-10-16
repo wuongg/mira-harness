@@ -7,8 +7,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from mira import team
-from mira.pipeline import verify_trace, write_trace_chain
+from frog import team
+from frog.pipeline import verify_trace, write_trace_chain
 
 
 def _chain(directory: Path) -> Path:
@@ -66,7 +66,7 @@ class VerifyTest(unittest.TestCase):
         old = f"{abs(hash((first.task.id, first.gate_tier))) % 10**12:012d}"
         self.assertNotEqual(first.plan_hash, old)
 
-    def test_mira_verify_thu_muc_bi_sua(self):
+    def test_frog_verify_thu_muc_bi_sua(self):
         with tempfile.TemporaryDirectory() as tmp:
             directory = _chain(Path(tmp) / "run")
             path = directory / "trace.jsonl"
@@ -75,7 +75,7 @@ class VerifyTest(unittest.TestCase):
             env = os.environ.copy()
             env["PYTHONIOENCODING"] = "utf-8"
             proc = subprocess.run(
-                [sys.executable, "-m", "mira", "verify", str(directory)],
+                [sys.executable, "-m", "frog", "verify", str(directory)],
                 capture_output=True, text=True, encoding="utf-8", env=env)
         self.assertEqual(proc.returncode, 1)
         self.assertIn("lệch", proc.stderr)

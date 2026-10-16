@@ -284,14 +284,14 @@ def _run(args: list[str], cwd: Path, env: dict, timeout: int = 90):
 
 def _giao(cwd: Path, base: str, bits: list[str], env: dict | None = None, timeout: int = 90,
           max_tokens: str = "256", price: str = "1000,0"):
-    cmd = [sys.executable, "-m", "mira", "giao", *bits, "--cwd", str(cwd),
+    cmd = [sys.executable, "-m", "frog", "giao", *bits, "--cwd", str(cwd),
            "--provider", "anthropic", "--base-url", base, "--model", "claude-test",
            "--price-in", price, "--max-tokens", max_tokens]
     return _run(cmd, cwd, env or _env(), timeout)
 
 
 def _team(cwd: Path, base: str, spec: dict, brief_path: Path):
-    cmd = [sys.executable, "-m", "mira", "team", spec["prompt"],
+    cmd = [sys.executable, "-m", "frog", "team", spec["prompt"],
            "--brief", str(brief_path), "--intake", "off", "--surface", "write_sandbox",
            "--records", "50", "--dollars", "0", "--reversibility", "C1",
            "--oracle", "off", "--require-evidence",
@@ -382,7 +382,7 @@ def smoke_task(spec: dict, base: str, config: str, dest: Path, sha: str) -> dict
             flag.parent.mkdir(parents=True, exist_ok=True)
             if flag.exists():
                 flag.unlink()
-            cmd = [sys.executable, "-m", "mira", "giao", "--run", run, "--cwd", str(dest),
+            cmd = [sys.executable, "-m", "frog", "giao", "--run", run, "--cwd", str(dest),
                    "--provider", "anthropic", "--base-url", base, "--model", "claude-test",
                    "--price-in", "1000,0", "--max-tokens", "256"]
             proc_p = subprocess.Popen(
@@ -514,7 +514,7 @@ def smoke(config: str, only: str | None = None) -> dict:
     _assert_local(base)
     rows = []
     try:
-        base_dir = Path(tempfile.mkdtemp(prefix="mira-value-smoke-"))
+        base_dir = Path(tempfile.mkdtemp(prefix="frog-value-smoke-"))
         for spec in tasks:
             _Stub.brief = spec["brief"]
             rows.append(smoke_task(spec, base, config, base_dir / spec["id"], sha))
@@ -531,7 +531,7 @@ def smoke(config: str, only: str | None = None) -> dict:
 
 
 def toml_model_names() -> set[str]:
-    text = (ROOT / "mira" / "prices.toml").read_text(encoding="utf-8")
+    text = (ROOT / "frog" / "prices.toml").read_text(encoding="utf-8")
     return set(re.findall(r'\[models\."([^"]+)"\]', text))
 
 
@@ -940,7 +940,7 @@ def _mark_unrecorded(state: dict, task_id: str) -> None:
 def _probe_loop(probe: dict, chosen: list[str], base_url: str, progress_path: Path,
                 price: str, state: dict, call_timeout: float) -> dict:
     specs = {item["id"]: item for item in load_tasks()}
-    base_dir = Path(tempfile.mkdtemp(prefix="mira-value-probe-"))
+    base_dir = Path(tempfile.mkdtemp(prefix="frog-value-probe-"))
     done = set(state.get("tasks_done") or [])
     _apply_fold(state)
     _progress(progress_path, state)
