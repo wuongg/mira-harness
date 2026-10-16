@@ -334,11 +334,18 @@ def tree_hash(path: Path) -> str:
     return digest.hexdigest()
 
 
+def _env_setting(suffix: str) -> str | None:
+    """FROG_* thắng. MIRA_* còn được đọc để run cũ không gãy."""
+    if "FROG_" + suffix in os.environ:
+        return os.environ.get("FROG_" + suffix)
+    return os.environ.get("MIRA_" + suffix)
+
+
 def _test_pause(name: str) -> None:
-    """Điểm dừng chỉ khi test đặt MIRA_PAUSE. Mặc định không chờ."""
-    if os.environ.get("MIRA_PAUSE") != name:
+    """Điểm dừng chỉ khi test đặt FROG_PAUSE. Mặc định không chờ."""
+    if _env_setting("PAUSE") != name:
         return
-    flag = os.environ.get("MIRA_PAUSE_FLAG")
+    flag = _env_setting("PAUSE_FLAG")
     if flag:
         Path(flag).write_text(name, encoding="utf-8")
     time.sleep(20)

@@ -540,7 +540,7 @@ def _kitty(png: bytes, cols: int, rows: int) -> str:
 def _proto() -> str:
     if not sys.stdout.isatty():
         return ""
-    forced = (os.environ.get("MIRA_IMAGE") or "").strip().lower()
+    forced = (os.environ.get("FROG_IMAGE") or os.environ.get("MIRA_IMAGE") or "").strip().lower()
     if forced in ("off", "0", "no"):
         return ""
     if forced in ("sixel", "kitty", "iterm"):

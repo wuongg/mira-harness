@@ -79,7 +79,7 @@ def _frog(root: Path, base: str, args: list[str]):
     for name in list(env):
         if name.endswith("_API_KEY") and name != "ANTHROPIC_API_KEY":
             env.pop(name)
-        if name.startswith("MIRA_PRICE"):
+        if name.startswith("FROG_PRICE") or name.startswith("MIRA_PRICE"):
             env.pop(name)
     return subprocess.run(
         [sys.executable, "-m", "frog", "giao", *args, "--cwd", str(root),

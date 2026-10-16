@@ -189,8 +189,8 @@ class CrashResumeTest(unittest.TestCase):
                 root = Path(tmp)
                 flag = root / "pause.txt"
                 proc = _run(root, url, None, None, extra={
-                    "MIRA_PAUSE": "checkpoint",
-                    "MIRA_PAUSE_FLAG": str(flag),
+                    "FROG_PAUSE": "checkpoint",
+                    "FROG_PAUSE_FLAG": str(flag),
                 })
                 deadline = time.time() + 15
                 while time.time() < deadline and not flag.exists():
@@ -223,8 +223,8 @@ class CrashResumeTest(unittest.TestCase):
                 flag = root / "pause.txt"
                 _Hold.release.set()
                 proc = _run(root, url, None, None, approve=True, extra={
-                    "MIRA_PAUSE": "handoff",
-                    "MIRA_PAUSE_FLAG": str(flag),
+                    "FROG_PAUSE": "handoff",
+                    "FROG_PAUSE_FLAG": str(flag),
                 })
                 deadline = time.time() + 20
                 while time.time() < deadline and not flag.exists():

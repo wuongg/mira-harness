@@ -71,6 +71,11 @@ def load_prices_file(path: Path) -> dict[str, dict]:
 
 def env_name(model: str) -> str:
     cleaned = "".join(ch if ch.isalnum() else "_" for ch in model.upper())
+    return "FROG_PRICE_" + cleaned
+
+
+def legacy_env_name(model: str) -> str:
+    cleaned = "".join(ch if ch.isalnum() else "_" for ch in model.upper())
     return "MIRA_PRICE_" + cleaned
 
 
@@ -86,7 +91,7 @@ def resolve_price(model: str, declared: tuple[float, float] | None = None,
     row = table.get(model)
     if row:
         return dict(row), "file"
-    raw = env.get(env_name(model))
+    raw = env.get(env_name(model)) or env.get(legacy_env_name(model))
     if raw:
         left, _sep, right = str(raw).partition(",")
         if left and right:

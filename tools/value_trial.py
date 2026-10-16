@@ -257,8 +257,10 @@ def _env(extra: dict | None = None) -> dict:
     for name in list(env):
         if name != "ANTHROPIC_API_KEY" and ("KEY" in name or "TOKEN" in name or "SECRET" in name):
             env.pop(name, None)
-        if name.startswith("MIRA_PRICE"):
+        if name.startswith("FROG_PRICE") or name.startswith("MIRA_PRICE"):
             env.pop(name, None)
+    env.pop("FROG_PAUSE", None)
+    env.pop("FROG_PAUSE_FLAG", None)
     env.pop("MIRA_PAUSE", None)
     env.pop("MIRA_PAUSE_FLAG", None)
     if extra:
@@ -387,7 +389,7 @@ def smoke_task(spec: dict, base: str, config: str, dest: Path, sha: str) -> dict
                    "--price-in", "1000,0", "--max-tokens", "256"]
             proc_p = subprocess.Popen(
                 cmd, cwd=str(dest),
-                env=_env({"MIRA_PAUSE": "before-promote", "MIRA_PAUSE_FLAG": str(flag)}),
+                env=_env({"FROG_PAUSE": "before-promote", "FROG_PAUSE_FLAG": str(flag)}),
                 stdout=subprocess.PIPE, stderr=subprocess.PIPE)
             deadline = time.time() + 25
             while time.time() < deadline and not flag.exists():

@@ -1,5 +1,5 @@
 # USD / 1M token. File này là bậc "file" trong chuỗi giá.
-# --price-in thắng file. File thắng MIRA_PRICE_<MODEL>. Không có bậc nào thì chặn.
+# --price-in thắng file. File thắng FROG_PRICE_<MODEL>. MIRA_PRICE_<MODEL> vẫn được đọc. Không có bậc nào thì chặn.
 
 [models."opus-5.5"]
 in = 4.00

@@ -78,7 +78,7 @@ def _env(root: Path, extra: dict | None = None) -> dict:
     for name in list(env):
         if name.endswith("_API_KEY") and name != "ANTHROPIC_API_KEY":
             env.pop(name)
-        if name.startswith("MIRA_PRICE"):
+        if name.startswith("FROG_PRICE") or name.startswith("MIRA_PRICE"):
             env.pop(name)
     if extra:
         env.update(extra)
@@ -116,7 +116,7 @@ class EndToEndTest(unittest.TestCase):
         proc = subprocess.Popen(
             _cmd(root, base, ["--run", run, "--grant", cmd]),
             cwd=str(root),
-            env=_env(root, {"MIRA_PAUSE": pause, "MIRA_PAUSE_FLAG": str(flag)}),
+            env=_env(root, {"FROG_PAUSE": pause, "FROG_PAUSE_FLAG": str(flag)}),
             stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         deadline = time.time() + 20
         while time.time() < deadline and not flag.exists():

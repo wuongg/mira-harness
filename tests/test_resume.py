@@ -163,6 +163,13 @@ class ResumeTest(unittest.TestCase):
         self.assertEqual(again["status"], "withheld")
         self.assertEqual(_Fake.calls, [])
 
+    def test_pause_mira_cu_van_bat_co(self):
+        flag = self.root / "pause.flag"
+        with patch.dict(os.environ, {"MIRA_PAUSE": "checkpoint", "MIRA_PAUSE_FLAG": str(flag)}, clear=False), \
+             patch("frog.team.time.sleep"):
+            team._test_pause("checkpoint")
+        self.assertEqual(flag.read_text(encoding="utf-8"), "checkpoint")
+
     def test_checkpoint_mira_cu_van_nap_duoc(self):
         run_id = "abc123"
         path = self.root / ".mira" / "runs" / run_id / "checkpoint.json"

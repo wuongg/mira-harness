@@ -50,7 +50,7 @@ class PricesTest(unittest.TestCase):
     def test_price_in_thang_file(self):
         table = {"sonnet-5.5": {"in": 3.0, "out": 3.0}}
         with patch.dict(C.PRICES, table, clear=True), \
-             patch.dict(os.environ, {"MIRA_PRICE_SONNET_5_5": "9,9"}):
+             patch.dict(os.environ, {"FROG_PRICE_SONNET_5_5": "9,9"}):
             res = _run(declared=(1.0, 1.0))
         self.assertEqual(res["ledger"]["total_usd"], 1.0)
         self.assertIn("cli", res["ledger"]["price_sources"])
@@ -59,15 +59,22 @@ class PricesTest(unittest.TestCase):
     def test_file_thang_env(self):
         table = {"sonnet-5.5": {"in": 3.0, "out": 3.0}}
         with patch.dict(C.PRICES, table, clear=True), \
-             patch.dict(os.environ, {"MIRA_PRICE_SONNET_5_5": "9,9"}):
+             patch.dict(os.environ, {"FROG_PRICE_SONNET_5_5": "9,9"}):
             res = _run()
         self.assertEqual(res["ledger"]["total_usd"], 3.0)
         self.assertIn("file", res["ledger"]["price_sources"])
         self.assertFalse(res["ledger"]["declared_by_user"])
 
-    def test_env_khi_khong_co_trong_file(self):
+    def test_bien_mira_cu_van_la_gia(self):
         with patch.dict(C.PRICES, {}, clear=True), \
              patch.dict(os.environ, {"MIRA_PRICE_SONNET_5_5": "4,4"}):
+            res = _run()
+        self.assertEqual(res["ledger"]["total_usd"], 4.0)
+        self.assertIn("env", res["ledger"]["price_sources"])
+
+    def test_env_khi_khong_co_trong_file(self):
+        with patch.dict(C.PRICES, {}, clear=True), \
+             patch.dict(os.environ, {"FROG_PRICE_SONNET_5_5": "4,4"}):
             res = _run()
         self.assertEqual(HITS["n"], 1)
         self.assertEqual(res["ledger"]["total_usd"], 4.0)
@@ -75,7 +82,7 @@ class PricesTest(unittest.TestCase):
 
     def test_khong_co_nguon_nao_thi_chan(self):
         env = os.environ.copy()
-        env.pop("MIRA_PRICE_KHONG_CO", None)
+        env.pop("FROG_PRICE_KHONG_CO", None)
         with patch.dict(C.PRICES, {}, clear=True), patch.dict(os.environ, env, clear=True):
             res = _run(model="khong-co")
         self.assertEqual(HITS["n"], 0)
@@ -84,7 +91,7 @@ class PricesTest(unittest.TestCase):
     def test_gia_file_cham_tran_thi_dung(self):
         table = {"sonnet-5.5": {"in": 7.0, "out": 7.0}}
         env = os.environ.copy()
-        env.pop("MIRA_PRICE_SONNET_5_5", None)
+        env.pop("FROG_PRICE_SONNET_5_5", None)
         with patch.dict(C.PRICES, table, clear=True), patch.dict(os.environ, env, clear=True):
             res = _run(cap=1.0)
         self.assertEqual(res["status"], "stopped_budget")
