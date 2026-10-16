@@ -1,4 +1,4 @@
-"""Đọc nhật ký agent — các phiên lưu ở ~/.mira/sessions/*.jsonl.
+"""Đọc nhật ký agent — các phiên lưu ở ~/.frog/sessions/*.jsonl.
 
 Mỗi tệp phiên là JSONL: dòng `meta` (đầu), các dòng `message`, các dòng `event`
 (công cụ đã gọi, cổng đã hỏi, tệp đã ghi). Module này chỉ ĐỌC — không sửa gì.
@@ -18,7 +18,7 @@ from pathlib import Path
 
 from . import ui
 
-SESS_DIR = Path.home() / ".mira" / "sessions"
+SESS_DIR = Path.home() / ".frog" / "sessions"
 
 
 def _fmt_time(ts: float) -> str:

@@ -110,7 +110,7 @@ class ArtifactRunTest(unittest.TestCase):
                 run_a = _id(opened.stdout)
                 ran_a = _frog(root, base, ["--run", run_a])
                 self.assertIn("chờ xác nhận", ran_a.stdout, ran_a.stdout)
-                state_a = json.loads((root / ".mira" / "runs" / run_a / "handoff.json").read_text(encoding="utf-8"))
+                state_a = json.loads((root / ".frog" / "runs" / run_a / "handoff.json").read_text(encoding="utf-8"))
                 names = [str(path.relative_to(state_a["staging"])) for path in Path(state_a["staging"]).rglob("*")]
                 staged_a = Path(state_a["staging"]) / "report.md"
                 self.assertTrue(staged_a.is_file(), "\n".join(names) + "\n" + ran_a.stdout)
@@ -125,8 +125,8 @@ class ArtifactRunTest(unittest.TestCase):
                 confirmed = _frog(root, base, [
                     "--run", run_a, "--confirm", "tone", "--artifact", "report.md"])
                 self.assertEqual(confirmed.returncode, 0, confirmed.stdout + confirmed.stderr)
-                state_a = json.loads((root / ".mira" / "runs" / run_a / "handoff.json").read_text(encoding="utf-8"))
-                staged_b = Path(json.loads((root / ".mira" / "runs" / run_b / "handoff.json").read_text(encoding="utf-8"))["staging"]) / "report.md"
+                state_a = json.loads((root / ".frog" / "runs" / run_a / "handoff.json").read_text(encoding="utf-8"))
+                staged_b = Path(json.loads((root / ".frog" / "runs" / run_b / "handoff.json").read_text(encoding="utf-8"))["staging"]) / "report.md"
                 self.assertEqual(staged_b.read_text(encoding="utf-8"), "Nguon: B\n")
                 row = state_a["confirmations"][0]
                 self.assertEqual(row["sha256"], hash_a)

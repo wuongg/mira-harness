@@ -70,8 +70,8 @@ class WtsTest(unittest.TestCase):
                                         root=root, on_step=lambda m: None)
             self.assertNotEqual(res["status"], "ok")
             self.assertEqual(_sha(app), before)
-            held = list((root / ".mira" / "staging").glob("*.withheld"))
-            self.assertTrue(held or (root / ".mira" / "staging").exists())
+            held = list((root / ".frog" / "staging").glob("*.withheld"))
+            self.assertTrue(held or (root / ".frog" / "staging").exists())
 
     def test_pass_nhung_nguoi_tu_choi_khong_promote(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -92,7 +92,7 @@ class WtsTest(unittest.TestCase):
                 os.chdir(cwd)
             self.assertNotEqual(code, 0)
             self.assertEqual(_sha(app), before)
-            extra = [p for p in root.iterdir() if p.name not in {"app.py", ".mira", "ket"}]
+            extra = [p for p in root.iterdir() if p.name not in {"app.py", ".frog", "ket"}]
             self.assertEqual(extra, [])
 
     def test_pass_va_duyet_promote_dung_file(self):

@@ -128,11 +128,11 @@ class ResumeTest(unittest.TestCase):
         staging = Path(snap["payload"]["staging"])
         self.assertTrue(staging.is_dir())
         team.write_checkpoint(self.root, snap["payload"])
-        before = sorted(p.name for p in (self.root / ".mira" / "staging").iterdir())
+        before = sorted(p.name for p in (self.root / ".frog" / "staging").iterdir())
         with patch("frog.team.provider_for", _provider), \
                 patch("frog.agent.run_turn", fake_turn):
             code, res = team.resume_team(self.root, snap["payload"]["id"], api_key="k")
-        after = sorted(p.name for p in (self.root / ".mira" / "staging").iterdir())
+        after = sorted(p.name for p in (self.root / ".frog" / "staging").iterdir())
         self.assertEqual(code, 0)
         self.assertEqual(before, after)
         self.assertEqual(Path(res["staging"]).resolve(), staging.resolve())
@@ -150,7 +150,7 @@ class ResumeTest(unittest.TestCase):
             os.chdir(prev)
         self.assertEqual(code, 2)
         self.assertIn("không có checkpoint cho id này", buf.getvalue())
-        self.assertFalse((self.root / ".mira" / "runs" / "khong-co").exists())
+        self.assertFalse((self.root / ".frog" / "runs" / "khong-co").exists())
 
     def test_resume_withheld_khong_hoi_sinh(self):
         _Fake.fail = True
@@ -162,6 +162,16 @@ class ResumeTest(unittest.TestCase):
         self.assertEqual(code, 3)
         self.assertEqual(again["status"], "withheld")
         self.assertEqual(_Fake.calls, [])
+
+    def test_checkpoint_mira_cu_van_nap_duoc(self):
+        run_id = "abc123"
+        path = self.root / ".mira" / "runs" / run_id / "checkpoint.json"
+        path.parent.mkdir(parents=True)
+        payload = {"version": 1, "id": run_id, "ledger": {"rows": [], "total_usd": 0.0}}
+        path.write_text(json.dumps(payload), encoding="utf-8")
+        loaded = team.load_checkpoint(self.root, run_id)
+        self.assertEqual(loaded["id"], run_id)
+        self.assertFalse((self.root / ".frog" / "runs" / run_id / "checkpoint.json").exists())
 
 
 if __name__ == "__main__":

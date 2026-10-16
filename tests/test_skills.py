@@ -11,12 +11,12 @@ class SkillTest(unittest.TestCase):
     def test_mot_than_va_tu_choi_ten_la(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            skill = root / ".mira" / "skills" / "mot"
+            skill = root / ".frog" / "skills" / "mot"
             skill.mkdir(parents=True)
             (skill / "SKILL.md").write_text(
                 "---\nname: mot\ndescription: Khi cần bước mở đầu.\n---\nTHAN-MOT\n",
                 encoding="utf-8")
-            hai = root / ".mira" / "skills" / "hai"
+            hai = root / ".frog" / "skills" / "hai"
             hai.mkdir(parents=True)
             (hai / "SKILL.md").write_text(
                 "---\nname: hai\ndescription: Khi bước mở đầu đã xong.\n---\nTHAN-HAI\n",
@@ -27,13 +27,13 @@ class SkillTest(unittest.TestCase):
             early = session.use_skill("khong-co")
             self.assertTrue(early.startswith("LỖI"))
             self.assertNotIn("THAN-MOT", early)
-            blocked = session.read_file(".mira/skills/mot/SKILL.md")
+            blocked = session.read_file(".frog/skills/mot/SKILL.md")
             self.assertTrue(blocked.startswith("BỊ CHẶN"))
             self.assertNotIn("THAN-MOT", blocked)
-            note = root / ".mira" / "skills" / "mot" / "references" / "note.md"
+            note = root / ".frog" / "skills" / "mot" / "references" / "note.md"
             note.parent.mkdir(parents=True)
             note.write_text("NOI-DUNG-KEM\n", encoding="utf-8")
-            blocked_note = session.read_file(".mira/skills/mot/references/note.md")
+            blocked_note = session.read_file(".frog/skills/mot/references/note.md")
             self.assertTrue(blocked_note.startswith("BỊ CHẶN"))
             self.assertNotIn("NOI-DUNG-KEM", blocked_note)
             session.plan_skills(["mot"])
@@ -65,7 +65,7 @@ class SkillTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             remember_fact(root, "hàm main ở đâu", "hàm main nằm trong app.py")
-            text = (root / ".mira" / "facts.jsonl").read_text(encoding="utf-8")
+            text = (root / ".frog" / "facts.jsonl").read_text(encoding="utf-8")
             self.assertIn("main", text)
 
     def test_catalog_bo_skill_khong_trung(self):
@@ -89,13 +89,13 @@ class SkillTest(unittest.TestCase):
             session.checker = lambda: False
             ok, _why = _consider_finish(session, "xong", task="đổi số")
             self.assertFalse(ok)
-            self.assertFalse((root / ".mira" / "facts.jsonl").exists())
+            self.assertFalse((root / ".frog" / "facts.jsonl").exists())
             (root / "app.py").write_text("def main():\n    return 2\n", encoding="utf-8")
             session.audit.append({"action": "edit_file", "path": "app.py"})
             session.checker = lambda: True
             ok, _why = _consider_finish(session, "model bịa không được chép", task="đổi số")
             self.assertTrue(ok)
-            text = (root / ".mira" / "facts.jsonl").read_text(encoding="utf-8")
+            text = (root / ".frog" / "facts.jsonl").read_text(encoding="utf-8")
             self.assertIn("app.py", text)
             self.assertIn("def main()", text)
             self.assertNotIn("model bịa", text)
@@ -104,31 +104,31 @@ class SkillTest(unittest.TestCase):
             before = text
             ok, _why = _consider_finish(session, "xong", task="đổi số lần nữa")
             self.assertTrue(ok)
-            self.assertEqual((root / ".mira" / "facts.jsonl").read_text(encoding="utf-8"), before)
+            self.assertEqual((root / ".frog" / "facts.jsonl").read_text(encoding="utf-8"), before)
 
     def test_script_chua_mo_khong_nang_lan(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            skill = root / ".mira" / "skills" / "kem" / "scripts"
+            skill = root / ".frog" / "skills" / "kem" / "scripts"
             skill.mkdir(parents=True)
             (skill / "run.py").write_text("print(1)\n", encoding="utf-8")
-            (root / ".mira" / "skills" / "kem" / "SKILL.md").write_text(
+            (root / ".frog" / "skills" / "kem" / "SKILL.md").write_text(
                 "---\nname: kem\ndescription: Khi cần chạy script đi kèm.\n---\nChạy script.\n",
                 encoding="utf-8")
             session = Session(root=root, mode="acceptEdits", approve=lambda _t, _a: True)
-            blocked = session.run_shell("python .mira/skills/kem/scripts/run.py")
+            blocked = session.run_shell("python .frog/skills/kem/scripts/run.py")
             self.assertTrue(blocked.startswith("BỊ CHẶN"))
             self.assertEqual(session.lane_seen, 0)
             body = session.use_skill("kem")
             self.assertEqual(session.lane_seen, 0)
             self.assertIn("NỘI DUNG KHÔNG TIN", body)
             self.assertTrue(any(row.get("kind") == "skill_untrusted" for row in session.trace))
-            self.assertIsNone(session._unopened_skill_arg(".mira/skills/kem/scripts/run.py"))
+            self.assertIsNone(session._unopened_skill_arg(".frog/skills/kem/scripts/run.py"))
 
     def test_tran_tool_chan_shell_truoc_lan(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            skill = root / ".mira" / "skills" / "gioi-han"
+            skill = root / ".frog" / "skills" / "gioi-han"
             skill.mkdir(parents=True)
             (skill / "SKILL.md").write_text(
                 "---\nname: gioi-han\ndescription: Khi cần sửa file.\nallowed-tools: edit_file\n---\nSửa file.\n",
@@ -210,7 +210,7 @@ class SkillTest(unittest.TestCase):
 
     def test_dang_viec_khoa_tool(self):
         self.assertEqual(shape_of("Đổi x = 1 thành x = 2 trong app.py"), "edit")
-        self.assertEqual(shape_of("Chạy python .mira/skills/kem/scripts/run.py"), "run")
+        self.assertEqual(shape_of("Chạy python .frog/skills/kem/scripts/run.py"), "run")
         self.assertEqual(shape_of("đọc app.py"), "read")
         self.assertEqual(shape_of("làm gì đó"), "ask")
         with tempfile.TemporaryDirectory() as tmp:
@@ -282,12 +282,12 @@ class SkillTest(unittest.TestCase):
             session = Session(root=root, mode="bypass", approve=lambda _t, _a: True)
             session.task_text = "Đổi x = 1 thành x = 2 trong app.py"
             session.shape = "edit"
-            blocked = session.write_file(".mira/skills/tu-viet/SKILL.md", "---\n")
+            blocked = session.write_file(".frog/skills/tu-viet/SKILL.md", "---\n")
             self.assertTrue(blocked.startswith("BỊ CHẶN"))
             session.edit_file("app.py", "x = 1", "x = 2")
             ok, _why = _consider_finish(session, "xong", session.task_text)
             self.assertTrue(ok)
-            skill = root / ".mira" / "skills" / "app" / "SKILL.md"
+            skill = root / ".frog" / "skills" / "app" / "SKILL.md"
             self.assertTrue(skill.is_file())
             self.assertIn("edit_file", skill.read_text(encoding="utf-8"))
             again = Session(root=root, mode="bypass", approve=lambda _t, _a: True)
@@ -296,7 +296,7 @@ class SkillTest(unittest.TestCase):
             again.audit.append({"action": "edit_file", "path": "app.py"})
             from frog.skills import mint_skill
             mint_skill(root, again.task_text, again.audit)
-            self.assertEqual(len(list((root / ".mira" / "skills").iterdir())), 1)
+            self.assertEqual(len(list((root / ".frog" / "skills").iterdir())), 1)
 
     def test_lenh_sai_chi_mot_vong_sua(self):
         from frog.agent import _consider_finish

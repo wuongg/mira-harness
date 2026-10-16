@@ -245,7 +245,7 @@ class TestVongLapDayDu(unittest.TestCase):
         SEEN.clear()
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            skill = root / ".mira" / "skills" / "mot"
+            skill = root / ".frog" / "skills" / "mot"
             skill.mkdir(parents=True)
             (skill / "SKILL.md").write_text(
                 "---\nname: mot\ndescription: Khi cần bước mở đầu.\n---\nTHAN-MOT\n",

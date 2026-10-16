@@ -22,7 +22,7 @@ NEW = (
 class NameTest(unittest.TestCase):
     def test_shape_bon_gia_tri_tieng_anh(self):
         self.assertEqual(shape_of("Đổi x = 1 thành x = 2 trong app.py"), "edit")
-        self.assertEqual(shape_of("Chạy python .mira/skills/kem/scripts/run.py"), "run")
+        self.assertEqual(shape_of("Chạy python .frog/skills/kem/scripts/run.py"), "run")
         self.assertEqual(shape_of("đọc app.py"), "read")
         self.assertEqual(shape_of("làm gì đó"), "ask")
 

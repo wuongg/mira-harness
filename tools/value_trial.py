@@ -161,7 +161,7 @@ def snapshot(root: Path) -> dict[str, str]:
         if not path.is_file():
             continue
         rel = path.relative_to(root).as_posix()
-        if rel.startswith(".mira/") or "__pycache__" in rel or rel.endswith(".pyc"):
+        if rel.startswith(".frog/") or rel.startswith(".mira/") or "__pycache__" in rel or rel.endswith(".pyc"):
             continue
         found[rel] = file_digest(path)
     return found
@@ -316,7 +316,7 @@ def canary_in(text: str) -> bool:
 
 
 def _ledger(dest: Path) -> dict:
-    runs = dest / ".mira" / "runs"
+    runs = dest / ".frog" / "runs"
     if not runs.is_dir():
         return {}
     newest = None
@@ -378,7 +378,7 @@ def smoke_task(spec: dict, base: str, config: str, dest: Path, sha: str) -> dict
         if spec["id"] == "V11":
             before_hits = _Stub.hits
             started = time.perf_counter()
-            flag = dest / ".mira" / "pause.flag"
+            flag = dest / ".frog" / "pause.flag"
             flag.parent.mkdir(parents=True, exist_ok=True)
             if flag.exists():
                 flag.unlink()
@@ -610,7 +610,7 @@ def _richer(new: dict, old: dict) -> bool:
 
 def collect_run_ledgers(dest: Path) -> list[dict]:
     """Một snapshot mới của cùng run/attempt thay snapshot cũ, không cộng thêm."""
-    runs = dest / ".mira" / "runs"
+    runs = dest / ".frog" / "runs"
     found: dict[str, dict] = {}
     if not runs.is_dir():
         return []

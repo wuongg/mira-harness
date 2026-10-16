@@ -4,7 +4,7 @@
   "prompt": "Đổi x = 1 thành x = 2 trong app.py theo skill gioi-han",
   "files": {
     "app.py": "x = 1\n",
-    ".mira/skills/gioi-han/SKILL.md": "---\nname: gioi-han\ndescription: Khi cần sửa một số trong file Python.\nallowed-tools: edit_file\n---\nĐổi đúng biến được nêu.\n"
+    ".frog/skills/gioi-han/SKILL.md": "---\nname: gioi-han\ndescription: Khi cần sửa một số trong file Python.\nallowed-tools: edit_file\n---\nĐổi đúng biến được nêu.\n"
   },
   "replies": [
     "<tool>{\"name\":\"use_skill\",\"args\":{\"name\":\"gioi-han\"}}</tool>",

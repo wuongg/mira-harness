@@ -141,7 +141,7 @@ def _resume(row, py: str):
                 buf = io.StringIO()
                 with redirect_stdout(buf), patch("frog.team.provider_for", Talk):
                     code = cmd_team(args(root, brief=str(path), require_evidence=True))
-                runs = list((root / ".mira" / "runs").glob("*/checkpoint.json"))
+                runs = list((root / ".frog" / "runs").glob("*/checkpoint.json"))
                 data = json.loads(runs[0].read_text(encoding="utf-8"))
                 return {
                     "exit": code,

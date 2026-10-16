@@ -161,7 +161,7 @@ def _id(text: str) -> str:
 
 
 def _state(root: Path, run: str) -> dict:
-    return json.loads((root / ".mira" / "runs" / run / "handoff.json").read_text(encoding="utf-8"))
+    return json.loads((root / ".frog" / "runs" / run / "handoff.json").read_text(encoding="utf-8"))
 
 
 class DeliveryCliTest(unittest.TestCase):
@@ -294,7 +294,7 @@ class DeliveryCliTest(unittest.TestCase):
                 self.assertFalse((root / "b.txt").is_file())
                 self.assertTrue((Path(saved["staging"]) / "b.txt").is_file())
                 self.assertNotEqual(_state(root, run)["phase"], "delivered")
-                report = root / ".mira" / "runs" / run / "handoff.md"
+                report = root / ".frog" / "runs" / run / "handoff.md"
                 body = report.read_text(encoding="utf-8") if report.is_file() else ""
                 self.assertNotIn("bàn giao: đủ", body)
         finally:

@@ -3,8 +3,8 @@
   "mode": "acceptEdits",
   "prompt": "Làm hai bước theo skill mot rồi hai",
   "files": {
-    ".mira/skills/mot/SKILL.md": "---\nname: mot\ndescription: Khi việc cần bước mở đầu.\n---\nTHAN-MOT\n",
-    ".mira/skills/hai/SKILL.md": "---\nname: hai\ndescription: Khi bước mở đầu đã xong.\n---\nTHAN-HAI\n"
+    ".frog/skills/mot/SKILL.md": "---\nname: mot\ndescription: Khi việc cần bước mở đầu.\n---\nTHAN-MOT\n",
+    ".frog/skills/hai/SKILL.md": "---\nname: hai\ndescription: Khi bước mở đầu đã xong.\n---\nTHAN-HAI\n"
   },
   "replies": [
     "<tool>{\"name\":\"plan_skills\",\"args\":{\"names\":[\"mot\",\"hai\"]}}</tool>",

@@ -3,8 +3,8 @@
   "mode": "acceptEdits",
   "prompt": "Mở skill kem rồi đọc ghi chú",
   "files": {
-    ".mira/skills/kem/SKILL.md": "---\nname: kem\ndescription: Khi cần đọc ghi chú đi kèm.\n---\nĐọc file ghi chú khi thân bảo đọc.\n",
-    ".mira/skills/kem/references/note.md": "NOI-DUNG-KEM\n"
+    ".frog/skills/kem/SKILL.md": "---\nname: kem\ndescription: Khi cần đọc ghi chú đi kèm.\n---\nĐọc file ghi chú khi thân bảo đọc.\n",
+    ".frog/skills/kem/references/note.md": "NOI-DUNG-KEM\n"
   },
   "replies": [
     "<tool>{\"name\":\"use_skill\",\"args\":{\"name\":\"kem\"}}</tool>",

@@ -111,7 +111,7 @@ def _results(root: Path) -> list[Path]:
 
 
 def _checkpoint(root: Path) -> dict | None:
-    hits = list((root / ".mira" / "runs").glob("*/checkpoint.json"))
+    hits = list((root / ".frog" / "runs").glob("*/checkpoint.json"))
     if not hits:
         return None
     return json.loads(hits[0].read_text(encoding="utf-8"))
@@ -200,7 +200,7 @@ def probe_unauth(tree: Path, task: dict, url: str) -> dict:
         data["criteria_origin"] = "model"
         data["require_evidence"] = True
         data["status"] = "ok"
-        dest = root / ".mira" / "runs" / data["id"] / "checkpoint.json"
+        dest = root / ".frog" / "runs" / data["id"] / "checkpoint.json"
         dest.write_text(json.dumps(data), encoding="utf-8")
         _clear()
         second = _run(tree, root, ["--resume", data["id"], "--approve"], url)

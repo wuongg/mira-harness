@@ -203,7 +203,7 @@ class ExtraToolsTest(unittest.TestCase):
             session.shape = "ask"
             out = session.install_skill("https://example.com/SKILL.md")
             self.assertIn("đã cài skill tim-mua", out)
-            base = self.root / ".mira" / "skills" / "tim-mua"
+            base = self.root / ".frog" / "skills" / "tim-mua"
             self.assertTrue((base / "SKILL.md").is_file())
             self.assertFalse((base / "scripts").exists())
             self.assertTrue(session.install_skill("https://example.com/SKILL.md").startswith("LỖI"))

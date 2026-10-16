@@ -1,9 +1,9 @@
-"""Cài khoá API cho từng nhà cung cấp — lưu ở ~/.mira/keys.json.
+"""Cài khoá API cho từng nhà cung cấp — lưu ở ~/.frog/keys.json.
 
 Thứ tự tìm khoá (cái nào có trước thì thắng):
   1. tham số --api-key truyền trực tiếp
   2. biến môi trường (OPENROUTER_API_KEY / ANTHROPIC_API_KEY / OPENAI_API_KEY / XAI_API_KEY)
-  3. tệp ~/.mira/keys.json (do lệnh `frog keys` ghi)
+  3. tệp ~/.frog/keys.json (do lệnh `frog keys` ghi)
 
 Khoá KHÔNG bao giờ in đầy đủ ra màn hình — chỉ 4 ký tự đầu … 4 ký tự cuối.
 """
@@ -17,42 +17,60 @@ from pathlib import Path
 
 from . import ui
 
-KEYS_PATH = Path.home() / ".mira" / "keys.json"
+KEYS_PATH = Path.home() / ".frog" / "keys.json"
+
+
+def _copy_missing_keys(src: Path, dst: Path, *, rename: bool) -> None:
+    """Chép khi đích chưa có. keys.json được đổi tên thành keys.json.migrated. Không xóa."""
+    if not src.is_file():
+        return
+    if dst.exists():
+        if src.name == "keys.json":
+            print(f"Đã có ~/.frog/keys.json, giữ nguyên {src}.", file=sys.stderr)
+        return
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(src, dst)
+    if not rename:
+        return
+    try:
+        os.replace(src, src.with_name("keys.json.migrated"))
+    except OSError:
+        print("Không đổi tên được khóa cũ sau khi đã chép sang ~/.frog.", file=sys.stderr)
+
+
+def _copy_missing_sessions(old_home: Path, new_home: Path) -> None:
+    sess_old = old_home / "sessions"
+    if not sess_old.is_dir():
+        return
+    sess_new = new_home / "sessions"
+    sess_new.mkdir(parents=True, exist_ok=True)
+    for item in sess_old.glob("*.jsonl"):
+        dest = sess_new / item.name
+        if not dest.exists():
+            shutil.copy2(item, dest)
+    marker = sess_old / ".migrated"
+    if marker.exists():
+        return
+    try:
+        marker.write_text("da chep sang ~/.frog/sessions\n", encoding="utf-8")
+    except OSError:
+        pass
 
 
 def migrate_user_home(home: Path | None = None) -> None:
-    """Chép ~/.r0 sang ~/.mira khi đích chưa có. Không xóa bản cũ đang dùng."""
+    """Chép khóa từ ~/.mira rồi ~/.r0 sang ~/.frog khi đích chưa có. Không xóa bản cũ."""
     global KEYS_PATH
     base = Path(home) if home is not None else Path.home()
-    old = base / ".r0"
-    new = base / ".mira"
-    if old.exists():
-        new.mkdir(parents=True, exist_ok=True)
-        src = old / "keys.json"
-        dst = new / "keys.json"
-        if src.is_file() and not dst.exists():
-            shutil.copy2(src, dst)
-            try:
-                os.replace(src, old / "keys.json.migrated")
-            except OSError:
-                print("Không đổi tên được khóa cũ sau khi đã chép sang ~/.mira.", file=sys.stderr)
-        elif src.is_file() and dst.exists():
-            print("Đã có ~/.mira/keys.json, giữ nguyên ~/.r0/keys.json.", file=sys.stderr)
-        sess_old = old / "sessions"
-        if sess_old.is_dir():
-            sess_new = new / "sessions"
-            sess_new.mkdir(parents=True, exist_ok=True)
-            for item in sess_old.glob("*.jsonl"):
-                dest = sess_new / item.name
-                if not dest.exists():
-                    shutil.copy2(item, dest)
-            marker = sess_old / ".migrated"
-            if not marker.exists():
-                try:
-                    marker.write_text("da chep sang ~/.mira/sessions\n", encoding="utf-8")
-                except OSError:
-                    pass
-    KEYS_PATH = new / "keys.json"
+    new = base / ".frog"
+    dst = new / "keys.json"
+    for old_name in (".mira", ".r0"):
+        old = base / old_name
+        if not old.exists():
+            continue
+        _copy_missing_keys(old / "keys.json", dst, rename=True)
+        _copy_missing_keys(old / "keys.json.migrated", dst, rename=False)
+        _copy_missing_sessions(old, new)
+    KEYS_PATH = dst
     sessions = new / "sessions"
     for mod_name in ("frog.repl", "frog.activity"):
         mod = sys.modules.get(mod_name)
@@ -89,7 +107,7 @@ def save(d: dict) -> Path:
     KEYS_PATH.write_text(json.dumps(d, indent=2, ensure_ascii=False) + "\n",
                          encoding="utf-8")
     if os.name == "nt":
-        print("Windows bỏ qua chmod 0600. Tệp khóa nằm plaintext ở ~/.mira/keys.json.")
+        print("Windows bỏ qua chmod 0600. Tệp khóa nằm plaintext ở ~/.frog/keys.json.")
     else:
         try:
             os.chmod(KEYS_PATH, 0o600)

@@ -61,7 +61,7 @@ class HandoffLockTest(unittest.TestCase):
             approve(root, state["id"])
             _rows, _body, code = check_only(root, state["id"])
             self.assertNotEqual(code, 0)
-            path = root / ".mira" / "runs" / state["id"] / "handoff.json"
+            path = root / ".frog" / "runs" / state["id"] / "handoff.json"
             saved = json.loads(path.read_text(encoding="utf-8"))
             saved["brief"]["acceptance_criteria"][0]["validator"]["must_contain"] = ["hello"]
             path.write_text(json.dumps(saved), encoding="utf-8")
@@ -75,6 +75,15 @@ class HandoffLockTest(unittest.TestCase):
             self.assertNotIn("verified", buf.getvalue())
             self.assertNotIn("Traceback", buf.getvalue())
             self.assertIn("hash", buf.getvalue())
+
+    def test_handoff_mira_cu_van_mo_dung_thu_muc(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            run_id = "0123456789ab"
+            folder = root / ".mira" / "runs" / run_id
+            folder.mkdir(parents=True)
+            (folder / "handoff.json").write_text("{}", encoding="utf-8")
+            self.assertEqual(_dir(root, run_id), folder.resolve())
 
     def test_run_id_thoat_thu_muc(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -117,7 +126,7 @@ class HandoffLockTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             state = open_run(root, "ghi note", _brief(["hello"]))
-            path = root / ".mira" / "runs" / state["id"] / "handoff.json"
+            path = root / ".frog" / "runs" / state["id"] / "handoff.json"
             path.write_text("{", encoding="utf-8")
             buf = io.StringIO()
             with contextlib.redirect_stdout(buf):

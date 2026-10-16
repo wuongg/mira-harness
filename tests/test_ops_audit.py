@@ -95,7 +95,7 @@ class OpsAuditTest(unittest.TestCase):
                     res = execute_plan(
                         _plan(0.0), workers=1, depth=0, api_key=SECRET, root=root)
                 blob = json.dumps(res)
-                runs = list((root / ".mira" / "runs").glob("*/checkpoint.json"))
+                runs = list((root / ".frog" / "runs").glob("*/checkpoint.json"))
                 disk = runs[0].read_text(encoding="utf-8")
         finally:
             os.environ.pop("ANTHROPIC_API_KEY", None)

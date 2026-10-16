@@ -141,7 +141,7 @@ class InterruptRequestTest(unittest.TestCase):
                 deadline = time.time() + 15
                 data = None
                 while time.time() < deadline:
-                    hits = list((root / ".mira" / "runs").glob("*/checkpoint.json"))
+                    hits = list((root / ".frog" / "runs").glob("*/checkpoint.json"))
                     if hits:
                         try:
                             data = json.loads(hits[0].read_text(encoding="utf-8"))
@@ -167,7 +167,7 @@ class InterruptRequestTest(unittest.TestCase):
                     cwd=root, env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                     timeout=30)
                 saved = json.loads(
-                    (root / ".mira" / "runs" / data["id"] / "checkpoint.json").read_text(
+                    (root / ".frog" / "runs" / data["id"] / "checkpoint.json").read_text(
                         encoding="utf-8"))
                 rows = saved["ledger"]["requests"]
                 old = next(row for row in rows if row["id"] == open_id)

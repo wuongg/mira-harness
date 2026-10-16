@@ -38,7 +38,7 @@ class EvidenceBindTest(unittest.TestCase):
         bound = brief_hash(brief)
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            staging = root / ".mira" / "staging" / "box.withheld"
+            staging = root / ".frog" / "staging" / "box.withheld"
             staging.mkdir(parents=True)
             target = staging / "report.md"
             target.write_text("SOURCE\n", encoding="utf-8")

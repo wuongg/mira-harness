@@ -182,7 +182,7 @@ class LifecycleTest(unittest.TestCase):
                 ran = _frog(root, base, ["--run", run, "--grant", cmd])
                 self.assertEqual(ran.returncode, 0, ran.stdout + ran.stderr)
                 self.assertIn("chi phí tích lũy", ran.stdout)
-                state = json.loads((root / ".mira" / "runs" / run / "handoff.json").read_text(encoding="utf-8"))
+                state = json.loads((root / ".frog" / "runs" / run / "handoff.json").read_text(encoding="utf-8"))
                 roles = [row["role"] for row in state["ledger"]["rows"]]
                 self.assertIn("intake", roles)
                 self.assertGreater(state["ledger"]["total_usd"], 0)
@@ -208,7 +208,7 @@ class LifecycleTest(unittest.TestCase):
                 retried = _frog(root, base, ["--run", run, "--retry"])
                 self.assertEqual(retried.returncode, 0, retried.stdout + retried.stderr)
                 self.assertGreater(_Stub.hits, hits)
-                state = json.loads((root / ".mira" / "runs" / run / "handoff.json").read_text(encoding="utf-8"))
+                state = json.loads((root / ".frog" / "runs" / run / "handoff.json").read_text(encoding="utf-8"))
                 self.assertEqual(state["attempt"], 2)
                 self.assertEqual(len(state["history"]), 1)
                 self.assertEqual(state["history"][0]["attempt"], 1)

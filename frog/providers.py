@@ -15,7 +15,7 @@ import urllib.request
 
 
 def _file_key(name: str) -> str | None:
-    """Khoá lưu trong ~/.mira/keys.json (do `frog keys` ghi)."""
+    """Khoá lưu trong ~/.frog/keys.json (do `frog keys` ghi)."""
     try:
         from . import keys
         return keys.get(name)

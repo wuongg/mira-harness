@@ -228,7 +228,7 @@ TOOL_SPECS = {
     "finish": "kết thúc và trả lời",
 }
 
-# Bộ tìm kiếm web cắm được. Khoá đọc từ biến môi trường hoặc ~/.mira/keys.json.
+# Bộ tìm kiếm web cắm được. Khoá đọc từ biến môi trường hoặc ~/.frog/keys.json.
 SEARCH_ENV = {"tavily": "TAVILY_API_KEY", "brave": "BRAVE_API_KEY", "serper": "SERPER_API_KEY"}
 
 TOOL_BLOCK = re.compile(r"<tool>\s*(\{.*?\})\s*</tool>", re.S)
@@ -641,7 +641,7 @@ class Session:
                         return f"BỊ CHẶN: {target} không có trong câu việc."
         for target in targets:
             if self._in_skill_tree(target) and target not in task:
-                return "BỊ CHẶN: không ghi vào .mira/skills."
+                return "BỊ CHẶN: không ghi vào .frog/skills."  # .mira/skills cũ cũng bị chặn
         if not self.saw_untrusted:
             return None
         if tool not in ("write_file", "edit_file", "multi_edit", "delete_file", "run_shell", "fetch_url"):
@@ -655,7 +655,10 @@ class Session:
 
     def _in_skill_tree(self, target: str) -> bool:
         norm = str(target or "").replace("\\", "/")
-        return norm == ".mira/skills" or norm.startswith(".mira/skills/") or "/.mira/skills/" in f"/{norm}"
+        for folder in (".frog/skills", ".mira/skills"):
+            if norm == folder or norm.startswith(folder + "/") or f"/{folder}/" in f"/{norm}":
+                return True
+        return False
 
     def _content_block(self, tool: str, args: dict) -> str | None:
         """Sau dữ liệu không tin, chữ mới phải chứa cụm đứng sau thành."""
@@ -773,7 +776,7 @@ class Session:
         return p != self.root and self.root not in p.parents
 
     def _unopened_skill_arg(self, arg: str) -> str | None:
-        """Path trong .mira/skills/<tên> khi tên chưa mở. None nếu không chặn."""
+        """Path trong .frog/skills/<tên> khi tên chưa mở. None nếu không chặn."""
         if not arg or arg.startswith("-") or "://" in arg:
             return None
         looks_path = arg.startswith(".") or Path(arg).is_absolute() or "/" in arg or "\\" in arg
@@ -784,8 +787,11 @@ class Session:
             p = candidate.resolve() if candidate.is_absolute() else (self.root / arg).resolve()
         except OSError:
             return None
-        skills_root = (self.root / ".mira" / "skills").resolve()
-        if p != skills_root and skills_root not in p.parents:
+        for folder in (".frog", ".mira"):
+            skills_root = (self.root / folder / "skills").resolve()
+            if p == skills_root or skills_root in p.parents:
+                break
+        else:
             return None
         try:
             rel = p.relative_to(skills_root)
@@ -858,9 +864,10 @@ class Session:
         p = self._resolve(path)
         if _denied_path(self.root, p):
             return f"BỊ CHẶN: không đọc {path}."
-        skills_root = (self.root / ".mira" / "skills").resolve()
-        if p == skills_root or skills_root in p.parents:
-            return "BỊ CHẶN: file skill chỉ mở bằng use_skill hoặc read_skill_file."
+        for folder in (".frog", ".mira"):
+            skills_root = (self.root / folder / "skills").resolve()
+            if p == skills_root or skills_root in p.parents:
+                return "BỊ CHẶN: file skill chỉ mở bằng use_skill hoặc read_skill_file."
         if not p.is_file():
             return f"LỖI: không có tệp {path}"
         raw = p.read_bytes()[:max_bytes]
@@ -1141,7 +1148,7 @@ class Session:
             return f"LỖI: skill {name} đã có, không ghi đè."
         dest.mkdir(parents=True)
         (dest / "SKILL.md").write_text(stored, encoding="utf-8")
-        self.audit.append({"action": "install_skill", "path": f".mira/skills/{name}/SKILL.md",
+        self.audit.append({"action": "install_skill", "path": f".frog/skills/{name}/SKILL.md",
                            "url": url, "mode": self.mode})
         return (f"{UNTRUSTED_MARK}\nđã cài skill {name}: {desc}\n"
                 "Mở bằng use_skill. Không có script kèm theo.")

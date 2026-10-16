@@ -135,7 +135,7 @@ class FuzzTest(unittest.TestCase):
                     out.mkdir(parents=True, exist_ok=True)
                     (out / "withheld.json").write_text("{}\n", encoding="utf-8")
             self.assertEqual((root / "secret.txt").read_bytes(), before)
-            staging = (root / ".mira").resolve()
+            staging = (root / ".frog").resolve()
             for path in writes:
                 if _under(path, staging):
                     continue

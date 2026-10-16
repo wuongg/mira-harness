@@ -57,8 +57,15 @@ def _check_run_id(run_id: str) -> None:
 
 def _dir(root: Path, run_id: str) -> Path:
     _check_run_id(run_id)
-    base = (Path(root).resolve() / ".mira" / "runs").resolve()
-    path = (base / run_id).resolve()
+    root = Path(root).resolve()
+    new_base = (root / ".frog" / "runs").resolve()
+    old_base = (root / ".mira" / "runs").resolve()
+    new_path = (new_base / run_id).resolve()
+    old_path = (old_base / run_id).resolve()
+    if (old_path / "handoff.json").is_file() and not (new_path / "handoff.json").is_file():
+        base, path = old_base, old_path
+    else:
+        base, path = new_base, new_path
     if path != base and base not in path.parents:
         raise HandoffError("run thoát khỏi thư mục")
     return path
@@ -361,8 +368,8 @@ def _find_artifact(root: Path, rel: str, staging: str = "") -> Path | None:
     base = Path(root).resolve()
     if staging:
         folder = Path(staging).resolve()
-        stage_root = (base / ".mira" / "staging").resolve()
-        if folder != stage_root and stage_root not in folder.parents:
+        stage_roots = [(base / name / "staging").resolve() for name in (".frog", ".mira")]
+        if not any(folder == root or root in folder.parents for root in stage_roots):
             raise HandoffError("staging thoát khỏi gốc")
         cand = (folder / rel).resolve()
         if cand != folder and folder not in cand.parents:
@@ -373,8 +380,8 @@ def _find_artifact(root: Path, rel: str, staging: str = "") -> Path | None:
         return None
     if not cand.is_file():
         return None
-    stage_root = (base / ".mira" / "staging").resolve()
-    if cand == stage_root or stage_root in cand.parents:
+    stage_roots = [(base / name / "staging").resolve() for name in (".frog", ".mira")]
+    if any(cand == root or root in cand.parents for root in stage_roots):
         return None
     return cand
 
@@ -590,7 +597,7 @@ def _lock_os(root: Path, run_id: str):
         kernel.WaitForSingleObject.argtypes = [ctypes.c_void_p, ctypes.c_uint32]
         kernel.WaitForSingleObject.restype = ctypes.c_uint32
         kernel.CloseHandle.argtypes = [ctypes.c_void_p]
-        handle = kernel.CreateMutexW(None, False, "Local\\mira-giao-" + run_id)
+        handle = kernel.CreateMutexW(None, False, "Local\\frog-giao-" + run_id)
         if not handle:
             raise HandoffError("run đang được thao tác")
         waited = kernel.WaitForSingleObject(handle, 30000)

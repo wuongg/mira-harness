@@ -15,7 +15,7 @@ MAP_TOKEN_CAP = 1000
 CATALOG_TOKEN_CAP = 1000
 SKILL_CALL_CAP = 4
 FACT_CHAR_CAP = 800
-_SKIP = {".git", "__pycache__", ".venv", ".mira"}
+_SKIP = {".git", "__pycache__", ".venv", ".frog", ".mira"}
 _SKILL_DIRS = ("scripts", "references", "assets")
 
 
@@ -84,20 +84,25 @@ def skill_document(text: str) -> tuple[str, str, str] | str:
 
 def load_skills(root: Path) -> list[dict]:
     """Đọc catalog. Mỗi phần tử có name, description, body. Body không đưa vào prompt."""
-    base = Path(root) / ".mira" / "skills"
-    if not base.is_dir():
-        return []
+    bases = [Path(root) / ".frog" / "skills", Path(root) / ".mira" / "skills"]
+    seen: set[str] = set()
     out = []
-    for path in sorted(base.glob("*/SKILL.md")):
-        meta, body = _frontmatter(path.read_text(encoding="utf-8"))
-        name = meta.get("name") or path.parent.name
-        if name != path.parent.name:
+    for base in bases:
+        if not base.is_dir():
             continue
-        desc = meta.get("description") or ""
-        if not desc:
-            continue
-        out.append({"name": name, "description": desc, "body": body.strip(),
-                    "allowed": allowed_tools(meta)})
+        for path in sorted(base.glob("*/SKILL.md")):
+            meta, body = _frontmatter(path.read_text(encoding="utf-8"))
+            name = meta.get("name") or path.parent.name
+            if name != path.parent.name:
+                continue
+            desc = meta.get("description") or ""
+            if not desc:
+                continue
+            if name in seen:
+                continue
+            seen.add(name)
+            out.append({"name": name, "description": desc, "body": body.strip(),
+                        "allowed": allowed_tools(meta)})
     return out
 
 
@@ -137,7 +142,11 @@ def catalog_for_prompt(skills: list[dict], task: str) -> tuple[str, dict]:
 
 
 def skill_dir(root: Path, name: str) -> Path:
-    return Path(root) / ".mira" / "skills" / name
+    new = Path(root) / ".frog" / "skills" / name
+    old = Path(root) / ".mira" / "skills" / name
+    if new.exists() or not old.exists():
+        return new
+    return old
 
 
 def skill_file_names(root: Path, name: str) -> list[str]:
@@ -209,7 +218,7 @@ def mint_skill(root: Path, task: str, audit: list[dict] | None) -> None:
             break
     stem = Path(path).stem.lower()
     name = re.sub(r"[^a-z0-9-]+", "-", stem).strip("-") or "viec"
-    dest = Path(root) / ".mira" / "skills" / name
+    dest = Path(root) / ".frog" / "skills" / name
     if dest.exists():
         return
     used = []
@@ -285,11 +294,12 @@ def _text_symbols(src: str, suffix: str) -> list[str]:
 def repo_map(root: Path, task: str = "") -> str:
     """Bản đồ file, hàm, lớp, chữ ký. File đổi thì chỉ tính lại file đó."""
     root = Path(root)
-    cache_path = root / ".mira" / "map.json"
+    cache_path = root / ".frog" / "map.json"
+    read_cache = cache_path if cache_path.is_file() else root / ".mira" / "map.json"
     cache: dict = {}
-    if cache_path.is_file():
+    if read_cache.is_file():
         try:
-            cache = json.loads(cache_path.read_text(encoding="utf-8"))
+            cache = json.loads(read_cache.read_text(encoding="utf-8"))
         except json.JSONDecodeError:
             cache = {}
     files: dict[str, dict] = {}
@@ -328,7 +338,7 @@ def remember_fact(root: Path, task: str, text: str, path: str | None = None) -> 
     bit = (text or "").strip()
     if not bit:
         return
-    dest = Path(root) / ".mira" / "facts.jsonl"
+    dest = Path(root) / ".frog" / "facts.jsonl"
     dest.parent.mkdir(parents=True, exist_ok=True)
     row: dict = {"task": (task or "")[:200], "text": bit[:400]}
     if path:
@@ -342,7 +352,9 @@ def remember_fact(root: Path, task: str, text: str, path: str | None = None) -> 
 
 def recall_facts(root: Path, task: str, cap: int = FACT_CHAR_CAP) -> str:
     """Lấy vài dòng có từ trùng câu việc, có trần ký tự."""
-    path = Path(root) / ".mira" / "facts.jsonl"
+    path = Path(root) / ".frog" / "facts.jsonl"
+    if not path.is_file():
+        path = Path(root) / ".mira" / "facts.jsonl"
     if not path.is_file():
         return ""
     want = {w.lower() for w in re.findall(r"\w{3,}", task or "")}

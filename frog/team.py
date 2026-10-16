@@ -288,12 +288,12 @@ def prepare_staging(root: Path) -> Path:
     """Bản sao cây nguồn cho một run. Bỏ .git, .env, __pycache__ và staging cũ."""
     root = Path(root).resolve()
     rid = time.strftime("%Y%m%d-%H%M%S") + "-" + uuid.uuid4().hex[:8]
-    staging = root / ".mira" / "staging" / rid
+    staging = root / ".frog" / "staging" / rid
     staging.mkdir(parents=True)
 
     def ignore(directory, names):
         skipped = [name for name in names if name in _COPY_SKIP]
-        if Path(directory).resolve() == (root / ".mira"):
+        if Path(directory).resolve() in {(root / ".frog"), (root / ".mira")}:
             for name in ("staging", "runs"):
                 if name not in skipped:
                     skipped.append(name)
@@ -310,8 +310,15 @@ def prepare_staging(root: Path) -> Path:
     return staging
 
 
-def checkpoint_path(root: Path, run_id: str) -> Path:
-    return Path(root) / ".mira" / "runs" / run_id / "checkpoint.json"
+def checkpoint_path(root: Path, run_id: str, *, for_write: bool = False) -> Path:
+    """Ghi mới vào .frog. Run cũ của mira vẫn nằm ở .mira và vẫn được đọc."""
+    new = Path(root) / ".frog" / "runs" / run_id / "checkpoint.json"
+    if for_write:
+        return new
+    old = Path(root) / ".mira" / "runs" / run_id / "checkpoint.json"
+    if new.is_file() or not old.is_file():
+        return new
+    return old
 
 
 def tree_hash(path: Path) -> str:
@@ -342,7 +349,7 @@ _CHECKPOINT_LOCK = threading.Lock()
 
 def write_checkpoint(root: Path, payload: dict) -> None:
     """Ghi nguyên tử. File tạm cùng thư mục rồi os.replace."""
-    dest = checkpoint_path(root, payload["id"])
+    dest = checkpoint_path(root, payload["id"], for_write=True)
     with _CHECKPOINT_LOCK:
         dest.parent.mkdir(parents=True, exist_ok=True)
         tmp = dest.with_suffix(".json.tmp")
@@ -425,7 +432,7 @@ def _rel_skipped(rel: Path) -> bool:
     parts = rel.parts
     if ".git" in parts or "__pycache__" in parts or ".env" in parts:
         return True
-    return len(parts) >= 2 and parts[0] == ".mira" and parts[1] in ("staging", "runs")
+    return len(parts) >= 2 and parts[0] in {".frog", ".mira"} and parts[1] in ("staging", "runs")
 
 
 def promote_staging(real_root: Path, staging: Path, audit: list) -> list[str]:
@@ -1406,7 +1413,7 @@ def resume_team(root: Path, run_id: str, **kw) -> tuple[int, dict]:
     staging = data.get("staging")
     if staging:
         path = Path(staging)
-        base = (root / ".mira" / "staging").resolve()
+        base = (root / ".frog" / "staging").resolve()
         try:
             path.resolve().relative_to(base)
         except ValueError:

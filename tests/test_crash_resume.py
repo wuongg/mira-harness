@@ -103,7 +103,7 @@ class CrashResumeTest(unittest.TestCase):
                 deadline = time.time() + 15
                 data = None
                 while time.time() < deadline:
-                    hits = list((root / ".mira" / "runs").glob("*/checkpoint.json"))
+                    hits = list((root / ".frog" / "runs").glob("*/checkpoint.json"))
                     if hits:
                         try:
                             data = json.loads(hits[0].read_text(encoding="utf-8"))
@@ -122,7 +122,7 @@ class CrashResumeTest(unittest.TestCase):
                 out, err = second.communicate(timeout=20)
                 self.assertEqual(_Hold.worker_posts, workers_after_kill)
                 saved = json.loads(
-                    (root / ".mira" / "runs" / data["id"] / "checkpoint.json").read_text(
+                    (root / ".frog" / "runs" / data["id"] / "checkpoint.json").read_text(
                         encoding="utf-8"))
                 self.assertGreaterEqual(len(saved["ledger"]["rows"]), 1)
                 self.assertEqual(
@@ -140,7 +140,7 @@ class CrashResumeTest(unittest.TestCase):
                 deadline = time.time() + 15
                 data = None
                 while time.time() < deadline:
-                    hits = list((root / ".mira" / "runs").glob("*/checkpoint.json"))
+                    hits = list((root / ".frog" / "runs").glob("*/checkpoint.json"))
                     if hits:
                         try:
                             data = json.loads(hits[0].read_text(encoding="utf-8"))
@@ -167,7 +167,7 @@ class CrashResumeTest(unittest.TestCase):
                 data["brief"] = dict(brief)
                 data["brief"]["deliverables"] = ["mot doan"]
                 data["brief_hash"] = "cu"
-                (root / ".mira" / "runs" / data["id"] / "checkpoint.json").write_text(
+                (root / ".frog" / "runs" / data["id"] / "checkpoint.json").write_text(
                     json.dumps(data), encoding="utf-8")
                 second = _run(root, url, data["id"], path)
                 out, _err = second.communicate(timeout=20)
@@ -175,7 +175,7 @@ class CrashResumeTest(unittest.TestCase):
                 self.assertNotEqual(second.returncode, 0)
                 self.assertIn("không tiếp tục", text)
                 saved = json.loads(
-                    (root / ".mira" / "runs" / data["id"] / "checkpoint.json").read_text(
+                    (root / ".frog" / "runs" / data["id"] / "checkpoint.json").read_text(
                         encoding="utf-8"))
                 self.assertEqual(saved["brief"]["deliverables"], ["mot doan"])
         finally:
@@ -199,8 +199,8 @@ class CrashResumeTest(unittest.TestCase):
                 proc.kill()
                 proc.wait(timeout=10)
                 _Hold.release.set()
-                self.assertEqual(list((root / ".mira" / "runs").glob("*/checkpoint.json")), [])
-                tmps = list((root / ".mira" / "runs").glob("*/*.json.tmp"))
+                self.assertEqual(list((root / ".frog" / "runs").glob("*/checkpoint.json")), [])
+                tmps = list((root / ".frog" / "runs").glob("*/*.json.tmp"))
                 self.assertEqual(len(tmps), 1)
                 payload = json.loads(tmps[0].read_text(encoding="utf-8"))
                 before = _Hold.worker_posts
@@ -239,7 +239,7 @@ class CrashResumeTest(unittest.TestCase):
                 proc.wait(timeout=10)
                 before = _Hold.worker_posts
                 self.assertEqual(list((root / "out").glob("*/result.md")), [])
-                hits = list((root / ".mira" / "runs").glob("*/checkpoint.json"))
+                hits = list((root / ".frog" / "runs").glob("*/checkpoint.json"))
                 data = json.loads(hits[0].read_text(encoding="utf-8"))
                 second = _run(root, url, data["id"], None, approve=True)
                 second.communicate(timeout=20)
@@ -261,7 +261,7 @@ class CrashResumeTest(unittest.TestCase):
                 deadline = time.time() + 15
                 data = None
                 while time.time() < deadline:
-                    hits = list((root / ".mira" / "runs").glob("*/checkpoint.json"))
+                    hits = list((root / ".frog" / "runs").glob("*/checkpoint.json"))
                     if hits:
                         try:
                             data = json.loads(hits[0].read_text(encoding="utf-8"))
@@ -275,13 +275,13 @@ class CrashResumeTest(unittest.TestCase):
                 _Hold.release.set()
                 self.assertIsNotNone(data)
                 stage = Path(data["staging"]) if data.get("staging") else (
-                    root / ".mira" / "staging" / data["id"])
+                    root / ".frog" / "staging" / data["id"])
                 stage.mkdir(parents=True, exist_ok=True)
                 note = stage / "note.txt"
                 note.write_text("mot", encoding="utf-8")
                 data["staging"] = str(stage)
                 data["staging_hash"] = tree_hash(stage)
-                dest = root / ".mira" / "runs" / data["id"] / "checkpoint.json"
+                dest = root / ".frog" / "runs" / data["id"] / "checkpoint.json"
                 dest.write_text(json.dumps(data), encoding="utf-8")
                 note.write_text("hai", encoding="utf-8")
                 before = _Hold.worker_posts

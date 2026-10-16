@@ -198,7 +198,7 @@ class EndToEndTest(unittest.TestCase):
                 out2, err2 = second.communicate(timeout=40)
                 self.assertEqual(first.returncode, 0, out1.decode("utf-8", "replace") + err1.decode("utf-8", "replace"))
                 self.assertIn(second.returncode, (0, 2), out2.decode("utf-8", "replace") + err2.decode("utf-8", "replace"))
-                state = json.loads((root / ".mira" / "runs" / run / "handoff.json").read_text(encoding="utf-8"))
+                state = json.loads((root / ".frog" / "runs" / run / "handoff.json").read_text(encoding="utf-8"))
                 self.assertEqual(state["phase"], "delivered")
                 text1 = out1.decode("utf-8", "replace")
                 text2 = out2.decode("utf-8", "replace")

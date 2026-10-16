@@ -5,6 +5,7 @@ __pycache__/
 venv/
 out/
 out-*/
+.frog/
 .mira/
 *.withheld/
 .pytest_cache/

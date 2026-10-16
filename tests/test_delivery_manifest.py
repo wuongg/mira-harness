@@ -32,7 +32,7 @@ def _brief() -> dict:
 
 def _pending(root: Path) -> tuple[dict, Path]:
     brief = _brief()
-    staging = root / ".mira" / "staging" / "box.withheld"
+    staging = root / ".frog" / "staging" / "box.withheld"
     staging.mkdir(parents=True)
     (staging / "report.md").write_text("SOURCE\n", encoding="utf-8")
     (staging / "extra.txt").write_text("KEEP\n", encoding="utf-8")
@@ -105,6 +105,6 @@ class ManifestTest(unittest.TestCase):
             extra = root / "extra.txt"
             copied = [path for path in (report, extra) if path.is_file()]
             self.assertEqual(len(copied), 1)
-            body = (root / ".mira" / "runs" / state["id"] / "handoff.md").read_text(encoding="utf-8") if (
-                root / ".mira" / "runs" / state["id"] / "handoff.md").is_file() else ""
+            body = (root / ".frog" / "runs" / state["id"] / "handoff.md").read_text(encoding="utf-8") if (
+                root / ".frog" / "runs" / state["id"] / "handoff.md").is_file() else ""
             self.assertNotIn("bàn giao: đủ", body)

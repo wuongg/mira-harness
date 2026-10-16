@@ -205,7 +205,7 @@ class FlowTest(unittest.TestCase):
             with _Here(root), redirect_stdout(buf), patch("frog.team.provider_for", _Talk):
                 code = cmd_team(_args(root, brief=str(path)))
             text = buf.getvalue()
-            runs = list((root / ".mira" / "runs").glob("*/checkpoint.json"))
+            runs = list((root / ".frog" / "runs").glob("*/checkpoint.json"))
             data = json.loads(runs[0].read_text(encoding="utf-8"))
         self.assertEqual(code, 3)
         self.assertNotIn("Executor đã ghi", text)
