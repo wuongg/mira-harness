@@ -427,6 +427,36 @@ class GiaoExecuteTest(unittest.TestCase):
             srv.shutdown()
             srv.server_close()
 
+    def test_v09_ban_nhap_da_co_trong_file_goc_khong_ban_giao(self):
+        brief = {
+            "goal": "Ghi noi dung BAN NHAP vao tep label.txt.",
+            "deliverables": ["label.txt"],
+            "acceptance_criteria": ["Nội dung tệp là \"BAN NHAP\"."],
+            "constraints": [],
+            "assumptions": [],
+            "questions": [],
+            "per_role_hints": {"planner": "", "worker": "", "verifier": ""},
+        }
+        srv, base = _serve(brief)
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                (root / "label.txt").write_text("BAN NHAP\n", encoding="utf-8")
+                opened = _frog(root, base, [
+                    "Ghi label.txt là BAN NHAP", "--approve-brief", "--autonomy", "walk-away"])
+                run = _id(opened.stdout)
+                self.assertNotEqual(opened.returncode, 0, opened.stdout + opened.stderr)
+                self.assertIn("chờ xác nhận", opened.stdout)
+                self.assertNotIn("bàn giao: đủ", opened.stdout)
+                self.assertEqual((root / "label.txt").read_text(encoding="utf-8"), "BAN NHAP\n")
+                state = json.loads((root / ".frog" / "runs" / run / "handoff.json").read_text(encoding="utf-8"))
+                self.assertEqual(state["phase"], "awaiting_confirmation")
+                self.assertFalse(state["promoted"])
+                self.assertIsInstance(state["brief"]["acceptance_criteria"][0], str)
+        finally:
+            srv.shutdown()
+            srv.server_close()
+
 
 def _id(text: str) -> str:
     for line in text.splitlines():

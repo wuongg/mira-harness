@@ -410,6 +410,25 @@ class IntakeTier3Test(unittest.TestCase):
             self.assertFalse(any(name.startswith("/") or ":\\" in name or name[1:2] == ":" for name in names))
             self.assertEqual(names, ["sum_to.py"])
 
+    def test_contains_da_co_trong_file_goc_thi_khong_suy(self):
+        from frog.intake import run_intake
+        from frog.team import Ledger
+        raw = _brief(
+            deliverables=["label.txt"],
+            acceptance_criteria=["Nội dung tệp là \"BAN NHAP\"."])
+        prov = _Prov([json.dumps(raw)])
+        got = run_intake("ghi", prov, Ledger(), clarify_max=0, ask=lambda _q: "",
+                         model="claude-test", declared_price=(1.0, 1.0),
+                         files=["label.txt"], originals={"label.txt": "BAN NHAP\n"})
+        self.assertTrue(got["ok"], got.get("reason"))
+        self.assertEqual(got["proposed"], [])
+        self.assertIsInstance(got["brief"]["acceptance_criteria"][0], str)
+        fresh = _Prov([json.dumps(raw)])
+        other = run_intake("ghi", fresh, Ledger(), clarify_max=0, ask=lambda _q: "",
+                           model="claude-test", declared_price=(1.0, 1.0),
+                           files=["label.txt"], originals={"label.txt": "CU\n"})
+        self.assertEqual(other["brief"]["acceptance_criteria"][0]["validator"]["must_contain"], ["BAN NHAP"])
+
     def test_schema_sai_duoc_sua_mot_lan(self):
         from frog.intake import run_intake
         from frog.team import Ledger

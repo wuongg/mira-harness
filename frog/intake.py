@@ -331,7 +331,50 @@ def bind_deliverables(obj: dict, files: list[str]) -> tuple[list[tuple[str, str]
     return mapped, []
 
 
-def propose_validators(obj: dict) -> list[str]:
+def original_texts(root: Path, files: list[str]) -> dict[str, str]:
+    """Nội dung file gốc. Chỉ để code so validator, không đưa vào prompt."""
+    found: dict[str, str] = {}
+    root = Path(root)
+    for rel in files:
+        path = root.joinpath(*Path(rel).parts)
+        if not path.is_file():
+            continue
+        try:
+            found[rel] = path.read_text(encoding="utf-8")
+        except (OSError, UnicodeError):
+            continue
+    return found
+
+
+def _already_in_source(spec: dict, originals: dict[str, str] | None) -> bool:
+    """Validator đã đúng trên file chưa sửa thì không chứng minh worker đã sửa."""
+    if not originals:
+        return False
+    path = str(spec.get("path") or "")
+    if path not in originals:
+        return False
+    body = originals[path]
+    kind = spec.get("kind")
+    if kind == "contains":
+        must = [item for item in spec.get("must_contain") or [] if isinstance(item, str) and item]
+        return bool(must) and all(item in body for item in must)
+    if kind == "json_keys":
+        try:
+            data = json.loads(body)
+        except json.JSONDecodeError:
+            return False
+        keys = [item for item in spec.get("required") or [] if isinstance(item, str) and item]
+        if not keys:
+            return False
+        if spec.get("expect") == "array":
+            if not isinstance(data, list) or not data:
+                return False
+            return all(isinstance(row, dict) and all(key in row for key in keys) for row in data)
+        return isinstance(data, dict) and all(key in data for key in keys)
+    return False
+
+
+def propose_validators(obj: dict, originals: dict[str, str] | None = None) -> list[str]:
     """Gắn validator suy được. Tiêu chí không suy được giữ manual."""
     from .obligations import validate_criteria
     names = _deliverable_names(obj.get("deliverables"))
@@ -343,7 +386,7 @@ def propose_validators(obj: dict) -> list[str]:
             items.append(raw)
             continue
         spec = _infer_validator(parsed[0]["text"], names)
-        if spec is None:
+        if spec is None or _already_in_source(spec, originals):
             items.append(raw)
             continue
         if isinstance(raw, str):
@@ -433,7 +476,8 @@ def _intake_user(task: str, files: list[str] | None, extra: str = "") -> str:
 
 def run_intake(task: str, prov, ledger: Ledger, *, clarify_max: int, ask, model: str,
                declared_price: tuple[float, float] | None = None,
-               files: list[str] | None = None) -> dict:
+               files: list[str] | None = None,
+               originals: dict[str, str] | None = None) -> dict:
     """Hỏi cho đến khi schema đủ hoặc hết trần. Hết trần mà schema hỏng thì dừng."""
     user = _intake_user(task, files)
     asked = 0
@@ -499,7 +543,7 @@ def run_intake(task: str, prov, ledger: Ledger, *, clarify_max: int, ask, model:
                 return {"ok": True, "reason": "", "brief": obj, "asked": asked,
                         "normalization": filled, "proposed": [], "pending": question,
                         "files": list(files), "mapping": []}
-        proposed = propose_validators(obj)
+        proposed = propose_validators(obj, originals)
         return {"ok": True, "reason": "", "brief": obj, "asked": asked,
                 "normalization": filled, "proposed": proposed,
                 "files": list(files) if files is not None else None,
