@@ -604,7 +604,7 @@ Bước tiếp theo không làm trong đợt này: chạy V01, V05, V10 bằng m
 
 ## AUTONOMY
 
-Nhánh `agent/autonomy-repair-2026-10-16` tách từ `70e09b5`. `origin/main` vẫn là `959e041` và chưa có rename, nên đợt này không merge.
+Nhánh `agent/autonomy-repair-2026-10-16` tách từ `70e09b5`. Số dưới đây là provider giả, không phải chất lượng model thật.
 
 Đo bằng `frog giao` và provider giả, cùng 5 nhiệm vụ (3 tiêu chí tự động, 1 tiêu chí thủ công, 1 run bị chặn vì chưa cấp lệnh). Selftest 586 tests, OK, skipped=2.
 
@@ -614,4 +614,17 @@ Nhánh `agent/autonomy-repair-2026-10-16` tách từ `70e09b5`. `origin/main` v�
 | Lượt người sau khi đưa nhiệm vụ, trên 5 run | 1.20 | 0.40 |
 | Tiêu chí tự động đã được validator chốt | 1.00 (3/3) | 1.00 (3/3) |
 
-Run bị chặn không vào mẫu tự chốt vì validator chưa chạy. `frog giao box --accept` là một thao tác cho cả lô. `box --pull` là một thao tác để xem run bị chặn.
+Run bị chặn không vào mẫu tự chốt vì validator chưa chạy. `frog giao box --accept` là một thao tác cho cả lô. `box --pull` là một thao tác để xem run bị chặn. Không thấy bàn giao sai tăng: tỷ lệ tự chốt đúng của walk-away bằng watch.
+
+Giới hạn vẫn đúng: hash không phải sandbox; promote nhiều file không phải giao dịch nguyên tử.
+
+## TIẾN ĐỘ W1–W6
+
+| Mục | Trạng thái | Bằng chứng | CI | Cần quyết |
+| --- | --- | --- | --- | --- |
+| W1 | xong | `main` fast-forward `959e041..70e09b5`. Nhánh remote rename đã xóa. Không mở được PR vì `gh` chưa đăng nhập. | main `70e09b5` 11/11 success: https://github.com/wuongg/mira-harness/actions/runs/39207146403 | không |
+| W2 | xong, chờ vào main | Phản chứng: sai rồi đúng promote 1 lần; hết 2 lượt thì `failed` và bảng có `sai:`; `stopped_budget` không promote và không gửi thêm. Verifier PASS không miễn validator. | `6939f79` 11/11 success: https://github.com/wuongg/mira-harness/actions/runs/39207160645 | không |
+| W3 | xong, chờ vào main | Cùng 5 nhiệm vụ, provider giả: watch 11 thao tác, walk-away 7. Lượt người sau khi đưa việc: 1.20 so với 0.40. Tự chốt đúng 1.00 cả hai. Model không chọn được nấc. | cùng SHA `6939f79` | không |
+| W4 | xong, chờ vào main | `frog giao box` liệt kê lý do, `--pull` một run, `--accept` một lượt cho cả lô. | cùng SHA `6939f79` | không |
+| W5 | chưa chạy | Runner giữ nguyên. Chưa có dòng duyệt ngân sách trong file này. | không | Ghi đúng dòng `DUYỆT NGÂN SÁCH: ...` thì mới chạy V01/V05/V10, trần $2 |
+| W6 | chưa tới | Chờ số của W5. | không | không, cho đến khi có số W5 |
