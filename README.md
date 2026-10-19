@@ -27,15 +27,26 @@ Gõ `frog` không kèm gì để vào phiên. Chưa có khóa thì `frog menu` h
 
 `frog bench` in dòng `công cụ benchmark nội bộ`. Đó là shadow 320 tác vụ, phiếu gán nhãn, chấm nhãn và thống kê. Không nằm trong menu mặc định.
 
-## Kết quả đo
+## Kết quả đo lường
 
 Chỉ tiêu chốt là cặp `completed_correct` > 0 và `false_complete` = 0. Cặp này chưa đạt. Chưa đóng băng 1.0.0.
 
-| Đợt | completed_correct | false_complete | Kết |
-| --- | --- | --- | --- |
-| FINAL | 0 | 1 | V09 bàn giao `BAN NHAP` |
-| CRIT | 0 | 0 | mọi task bị chặn |
-| TIER-1 | 0 | 0 | dừng sau V05 |
-| FINAL-2 | 2 | 1 | V01 và V04 đúng; V09 vẫn bàn giao sai |
+Tổng chi là ước lượng sổ của đợt đó. Đợt có baseline B thì cộng A và B. G3 còn cộng lượt gọi lại lý do.
 
-Hành trình chi tiết ở [docs/history/](docs/history/).
+| Đợt | model | tổng chi | completed_correct | false_complete |
+| --- | --- | --- | --- | --- |
+| W5 | gpt-5.6-luna | $0.001213 | — | — |
+| F3 | gpt-5.6-luna | $0.002601 | — | — |
+| D3 | gpt-5.6-luna | $0.019703 | — | — |
+| FIX-V | gpt-5.6-luna | $0.022812 | 0 | 0 |
+| G3 | gpt-5.6-luna | $0.036389 | 0 | 0 |
+| G1b | gpt-5.6-luna | $0.015626 | 2 | 1 |
+| X3 | gpt-5.6-luna | $0.011378 | 0 | 0 |
+| X4 | gpt-5.6-luna | $0.000286 | 0 | 0 |
+| F-2 | gpt-5.6-luna | $0.019379 | 0 | 1 |
+| FINAL | gpt-5.6-luna | $0.021082 | 0 | 1 |
+| CRIT | gpt-5.6-luna | $0.015603 | 0 | 0 |
+| TIER-1 | gpt-5.6-sol + gpt-5.6-luna | $0.038587 | 0 | 0 |
+| FINAL-2 | gpt-5.6-sol + gpt-5.6-luna | $0.153721 | 2 | 1 |
+
+Mọi số đo là ước tính sổ cái trên model OpenAI thật từ ngày 2026-10-14, không phải hóa đơn. T-REAL của bộ overnight cũ là `not_evaluated` — xem [docs/history/](docs/history/).
