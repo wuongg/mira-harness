@@ -1335,65 +1335,69 @@ class Session:
         approved = None
         ceiling = self._skill_ceiling(name)
         role_block = self._role_block(name)
-        if ceiling or role_block:
-            res = ceiling or role_block
+        try:
+            if ceiling or role_block:
+                res = ceiling or role_block
+                approved = False
+            elif name == "read_file":
+                res = self.read_file(args.get("path", ""),
+                                     start=int(args.get("start") or 1),
+                                     n=int(args.get("n") or 100),
+                                     symbol=str(args.get("symbol") or ""))
+            elif name == "list_dir":
+                res = self.list_dir(args.get("path", "."))
+            elif name == "grep":
+                res = self.grep(args.get("pattern", ""), args.get("path", "."))
+            elif name == "write_file":
+                res = self.write_file(args.get("path", ""), args.get("content", ""))
+                approved = not res.startswith(("NGƯỜI DÙNG TỪ CHỐI", "BỊ CHẶN"))
+            elif name == "glob":
+                res = self.glob(args.get("pattern", "*"), args.get("path", "."))
+            elif name == "edit_file":
+                res = self.edit_file(args.get("path", ""), args.get("old", ""),
+                                     args.get("new", ""), int(args.get("count", 0) or 0))
+                approved = not res.startswith(("NGƯỜI DÙNG TỪ CHỐI", "BỊ CHẶN", "LỖI"))
+            elif name == "delete_file":
+                res = self.delete_file(args.get("path", ""))
+                approved = not res.startswith(("NGƯỜI DÙNG TỪ CHỐI", "BỊ CHẶN", "LỖI"))
+            elif name == "fetch_url":
+                res = self.fetch_url(args.get("url", ""))
+                approved = not res.startswith(("NGƯỜI DÙNG TỪ CHỐI", "BỊ CHẶN", "LỖI"))
+            elif name == "todo_write":
+                res = self.todo_write(args.get("items") or args.get("todos"))
+            elif name == "multi_edit":
+                res = self.multi_edit(args.get("edits"))
+                approved = not res.startswith(("NGƯỜI DÙNG TỪ CHỐI", "BỊ CHẶN", "LỖI"))
+            elif name == "web_search":
+                res = self.web_search(args.get("query", ""), args.get("n", 5),
+                                      args.get("provider"))
+                approved = not res.startswith(("NGƯỜI DÙNG TỪ CHỐI", "BỊ CHẶN", "LỖI"))
+            elif name == "install_skill":
+                res = self.install_skill(args.get("url", ""))
+                approved = not res.startswith(("NGƯỜI DÙNG TỪ CHỐI", "BỊ CHẶN", "LỖI"))
+            elif name == "mcp_list":
+                res = self.mcp_list(args.get("url", ""))
+                approved = not res.startswith(("NGƯỜI DÙNG TỪ CHỐI", "BỊ CHẶN", "LỖI"))
+            elif name == "mcp_call":
+                res = self.mcp_call(args.get("url", ""), args.get("tool", ""), args.get("arguments"))
+                approved = not res.startswith(("NGƯỜI DÙNG TỪ CHỐI", "BỊ CHẶN", "LỖI"))
+            elif name == "task":
+                res = self.task(args.get("task", ""), args.get("max_turns", 12),
+                                args.get("max_budget_usd"))
+            elif name == "run_shell":
+                res = self.run_shell(args.get("cmd", ""))
+                approved = not res.startswith(("NGƯỜI DÙNG TỪ CHỐI", "BỊ CHẶN"))
+            elif name == "plan_skills":
+                res = self.plan_skills(args.get("names") or [])
+            elif name == "use_skill":
+                res = self.use_skill(args.get("name", ""))
+            elif name == "read_skill_file":
+                res = self.read_skill_file(args.get("name", ""), args.get("path", ""))
+            else:
+                res = f"LỖI: không có công cụ {name}"
+        except PermissionError as exc:
+            res = f"BỊ CHẶN: từ chối — {exc}"
             approved = False
-        elif name == "read_file":
-            res = self.read_file(args.get("path", ""),
-                                 start=int(args.get("start") or 1),
-                                 n=int(args.get("n") or 100),
-                                 symbol=str(args.get("symbol") or ""))
-        elif name == "list_dir":
-            res = self.list_dir(args.get("path", "."))
-        elif name == "grep":
-            res = self.grep(args.get("pattern", ""), args.get("path", "."))
-        elif name == "write_file":
-            res = self.write_file(args.get("path", ""), args.get("content", ""))
-            approved = not res.startswith(("NGƯỜI DÙNG TỪ CHỐI", "BỊ CHẶN"))
-        elif name == "glob":
-            res = self.glob(args.get("pattern", "*"), args.get("path", "."))
-        elif name == "edit_file":
-            res = self.edit_file(args.get("path", ""), args.get("old", ""),
-                                 args.get("new", ""), int(args.get("count", 0) or 0))
-            approved = not res.startswith(("NGƯỜI DÙNG TỪ CHỐI", "BỊ CHẶN", "LỖI"))
-        elif name == "delete_file":
-            res = self.delete_file(args.get("path", ""))
-            approved = not res.startswith(("NGƯỜI DÙNG TỪ CHỐI", "BỊ CHẶN", "LỖI"))
-        elif name == "fetch_url":
-            res = self.fetch_url(args.get("url", ""))
-            approved = not res.startswith(("NGƯỜI DÙNG TỪ CHỐI", "BỊ CHẶN", "LỖI"))
-        elif name == "todo_write":
-            res = self.todo_write(args.get("items") or args.get("todos"))
-        elif name == "multi_edit":
-            res = self.multi_edit(args.get("edits"))
-            approved = not res.startswith(("NGƯỜI DÙNG TỪ CHỐI", "BỊ CHẶN", "LỖI"))
-        elif name == "web_search":
-            res = self.web_search(args.get("query", ""), args.get("n", 5),
-                                  args.get("provider"))
-            approved = not res.startswith(("NGƯỜI DÙNG TỪ CHỐI", "BỊ CHẶN", "LỖI"))
-        elif name == "install_skill":
-            res = self.install_skill(args.get("url", ""))
-            approved = not res.startswith(("NGƯỜI DÙNG TỪ CHỐI", "BỊ CHẶN", "LỖI"))
-        elif name == "mcp_list":
-            res = self.mcp_list(args.get("url", ""))
-            approved = not res.startswith(("NGƯỜI DÙNG TỪ CHỐI", "BỊ CHẶN", "LỖI"))
-        elif name == "mcp_call":
-            res = self.mcp_call(args.get("url", ""), args.get("tool", ""), args.get("arguments"))
-            approved = not res.startswith(("NGƯỜI DÙNG TỪ CHỐI", "BỊ CHẶN", "LỖI"))
-        elif name == "task":
-            res = self.task(args.get("task", ""), args.get("max_turns", 12),
-                            args.get("max_budget_usd"))
-        elif name == "run_shell":
-            res = self.run_shell(args.get("cmd", ""))
-            approved = not res.startswith(("NGƯỜI DÙNG TỪ CHỐI", "BỊ CHẶN"))
-        elif name == "plan_skills":
-            res = self.plan_skills(args.get("names") or [])
-        elif name == "use_skill":
-            res = self.use_skill(args.get("name", ""))
-        elif name == "read_skill_file":
-            res = self.read_skill_file(args.get("name", ""), args.get("path", ""))
-        else:
-            res = f"LỖI: không có công cụ {name}"
         ev = ToolEvent(name=name, args=args, result=res,
                        ok=not res.startswith(("LỖI", "NGƯỜI DÙNG TỪ CHỐI", "BỊ CHẶN")),
                        approved=approved, seconds=time.time() - t0)
