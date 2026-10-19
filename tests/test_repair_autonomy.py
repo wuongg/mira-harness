@@ -232,11 +232,14 @@ class RepairAutonomyTest(unittest.TestCase):
             self.assertTrue(_state(root, run_id)["promoted"])
             (root / "report.md").unlink()
             second = _frog(root, self.base, ["Ghi DOC_REPORT report.md", "--approve-brief", "--autonomy", "direct"])
-            self.assertEqual(second.returncode, 0, second.stdout + second.stderr)
-            self.assertIn("chạy trực tiếp", second.stdout)
+            self.assertNotEqual(second.returncode, 0, second.stdout + second.stderr)
+            self.assertIn("bàn giao: chưa", second.stdout)
             other = _run_id(second.stdout)
-            self.assertTrue(_state(root, other)["promoted"])
-            self.assertEqual(_state(root, other)["direct_from"], run_id)
+            saved = _state(root, other)
+            self.assertFalse(saved["promoted"])
+            self.assertEqual(saved["phase"], "awaiting_confirmation")
+            self.assertEqual(saved["direct_from"], run_id)
+            self.assertFalse((root / "report.md").exists())
 
     def test_walk_away_it_thao_tac_hon_watch(self):
         cmd = shlex.join([sys.executable, "-c", "import calc; print(calc.add(2, 3))"])

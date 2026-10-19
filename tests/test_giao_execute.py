@@ -49,6 +49,10 @@ class _Stub(BaseHTTPRequestHandler):
             call = {"name": "write_file", "args": {
                 "path": "rows.json", "content": '[{"invoice_id":"a"}]'}}
             text = "<tool>" + json.dumps(call, ensure_ascii=False) + "</tool>"
+        elif "label.txt" in blob:
+            call = {"name": "write_file", "args": {
+                "path": "label.txt", "content": "BAN NHAP"}}
+            text = "<tool>" + json.dumps(call, ensure_ascii=False) + "</tool>"
         elif "report.md" in blob:
             call = {"name": "write_file", "args": {
                 "path": "report.md", "content": "Nguon: so tay\n"}}
@@ -379,6 +383,39 @@ class GiaoExecuteTest(unittest.TestCase):
                 self.assertEqual(state["previous"], run)
                 ran = _frog(root, base, ["--run", new_id])
                 self.assertNotIn("bàn giao: đủ", ran.stdout + ran.stderr)
+        finally:
+            srv.shutdown()
+            srv.server_close()
+
+    def test_v09_ban_nhap_khong_ban_giao_du_verifier_pass(self):
+        brief = {
+            "goal": "Ghi noi dung BAN NHAP vao tep label.txt.",
+            "deliverables": ["Tệp label.txt chứa nội dung \"BAN NHAP\"."],
+            "acceptance_criteria": [
+                "Tệp có tên chính xác là label.txt.",
+                "Nội dung tệp là \"BAN NHAP\".",
+            ],
+            "constraints": [],
+            "assumptions": [],
+            "questions": [],
+            "per_role_hints": {"planner": "", "worker": "", "verifier": ""},
+        }
+        srv, base = _serve(brief)
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                opened = _frog(root, base, [
+                    "Ghi label.txt là BAN NHAP", "--approve-brief", "--autonomy", "walk-away"])
+                run = _id(opened.stdout)
+                self.assertNotEqual(opened.returncode, 0, opened.stdout + opened.stderr)
+                self.assertIn("bàn giao: chưa", opened.stdout)
+                self.assertNotIn("bàn giao dựa trên verifier", opened.stdout)
+                self.assertFalse((root / "label.txt").exists())
+                state = json.loads((root / ".frog" / "runs" / run / "handoff.json").read_text(encoding="utf-8"))
+                self.assertEqual(state["phase"], "awaiting_confirmation")
+                self.assertFalse(state["promoted"])
+                self.assertTrue(state.get("obligations"))
+                self.assertNotIn("verifier_accepted", json.dumps(state["obligations"], ensure_ascii=False))
         finally:
             srv.shutdown()
             srv.server_close()

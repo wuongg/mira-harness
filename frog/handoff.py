@@ -521,9 +521,49 @@ def _mark_verifier_delivery(rows: list[dict], autonomy: str, res: dict) -> None:
 
 def verifier_delivery(rows: list[dict], autonomy: str, verdict: str,
                       expected_hash: str, actual_hash: str) -> bool:
-    """Đã thu hồi sau khi false_complete lên 1."""
+    """Bàn giao chỉ dựa trên verifier là cấm."""
     del rows, autonomy, verdict, expected_hash, actual_hash
     return False
+
+
+def _machine_text(text: str, names: list[str]) -> bool:
+    if any(name and name in text for name in names):
+        return True
+    if "==" in text or "bằng" in text:
+        return True
+    return bool(re.search(r"\b[\w.]+\s*\(", text))
+
+
+def bare_deliverable(brief: dict) -> bool:
+    """Deliverable hoặc tiêu chí kiểm được chưa có validator thì chưa được promote."""
+    names = [item.replace("\\", "/").strip()
+             for item in brief.get("deliverables") or []
+             if isinstance(item, str) and item.strip()]
+    parsed, _why = validate_criteria(brief.get("acceptance_criteria") or [])
+    if not parsed:
+        return bool(names)
+    for item in parsed:
+        if item.get("validator"):
+            continue
+        if item.get("cmd") or _machine_text(item.get("text") or "", names):
+            return True
+    if not names:
+        return False
+    covered: set[str] = set()
+    for item in parsed:
+        validator = item.get("validator") or {}
+        if not validator:
+            continue
+        path = str(validator.get("path") or "")
+        if path:
+            covered.add(path)
+        if validator.get("kind") == "behavior":
+            cmd = str(validator.get("cmd") or "")
+            for name in names:
+                stem = Path(name).stem
+                if stem and re.search(r"\b" + re.escape(stem) + r"\b", cmd):
+                    covered.add(name)
+    return any(name not in covered for name in names)
 
 
 def _delivery(rows: list[dict]) -> tuple[str, int]:
@@ -1001,6 +1041,8 @@ def _record(root: Path, state: dict, res: dict, ledger, rows: list[dict],
     _test_pause("after-promote")
     if deliver:
         state["phase"] = "delivered"
+    elif bare_deliverable(state["brief"]):
+        state["phase"] = "awaiting_confirmation"
     elif res.get("hold") == "needs_confirmation" and res.get("status") == "withheld":
         state["phase"] = "awaiting_confirmation"
     else:
@@ -1186,6 +1228,9 @@ def _execute_locked(root: Path, run_id: str, *, provider: str | None, model: str
         status += " — " + str(res["fail_reason"])
     if state.get("autonomy") == "walk-away" and criteria_code != 0:
         deliver = False
+    if bare_deliverable(state["brief"]):
+        deliver = False
+        status, code = "bàn giao: chưa", 4
     return _record(root, state, res, led, rows, status, code, deliver)
 
 
