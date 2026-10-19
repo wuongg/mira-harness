@@ -623,8 +623,8 @@ Giới hạn vẫn đúng: hash không phải sandbox; promote nhiều file khô
 | Mục | Trạng thái | Bằng chứng | CI | Cần quyết |
 | --- | --- | --- | --- | --- |
 | W1 | xong | `main` fast-forward `959e041..70e09b5`. Nhánh remote rename đã xóa. Không mở được PR vì `gh` chưa đăng nhập. | main `70e09b5` 11/11 success: https://github.com/wuongg/mira-harness/actions/runs/39207146403 | không |
-| W2 | xong, chờ vào main | Phản chứng: sai rồi đúng promote 1 lần; hết 2 lượt thì `failed` và bảng có `sai:`; `stopped_budget` không promote và không gửi thêm. Verifier PASS không miễn validator. | `6939f79` 11/11 success: https://github.com/wuongg/mira-harness/actions/runs/39207160645 | không |
-| W3 | xong, chờ vào main | Cùng 5 nhiệm vụ, provider giả: watch 11 thao tác, walk-away 7. Lượt người sau khi đưa việc: 1.20 so với 0.40. Tự chốt đúng 1.00 cả hai. Model không chọn được nấc. | cùng SHA `6939f79` | không |
-| W4 | xong, chờ vào main | `frog giao box` liệt kê lý do, `--pull` một run, `--accept` một lượt cho cả lô. | cùng SHA `6939f79` | không |
+| W2 | xong | Phản chứng: sai rồi đúng promote 1 lần; hết 2 lượt thì `failed` và bảng có `sai:`; `stopped_budget` không promote và không gửi thêm. Verifier PASS không miễn validator. Nằm trong commit báo cáo này. | `6939f79` 11/11 success: https://github.com/wuongg/mira-harness/actions/runs/39207160645 | không |
+| W3 | xong | Cùng 5 nhiệm vụ, provider giả: watch 11 thao tác, walk-away 7. Lượt người sau khi đưa việc: 1.20 so với 0.40. Tự chốt đúng 1.00 cả hai. Model không chọn được nấc. | cùng SHA `6939f79` | không |
+| W4 | xong | `frog giao box` liệt kê lý do, `--pull` một run, `--accept` một lượt cho cả lô. | cùng SHA `6939f79` | không |
 | W5 | chưa chạy | Runner giữ nguyên. Chưa có dòng duyệt ngân sách trong file này. | không | Ghi đúng dòng `DUYỆT NGÂN SÁCH: ...` thì mới chạy V01/V05/V10, trần $2 |
 | W6 | chưa tới | Chờ số của W5. | không | không, cho đến khi có số W5 |
