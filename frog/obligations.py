@@ -556,7 +556,7 @@ def judge_obligations(criteria: list, steps: list[dict] | None = None,
             if applied.get("command_passed"):
                 command_passed = True
         verified = bool(applied and applied.get("verified"))
-        if item.get("outcome") == "ket_qua_moi":
+        if item.get("outcome") == "ket_qua_moi" and (item.get("validator") or {}).get("kind") == "contains":
             banned = ((item.get("validator") or {}).get("must_not_contain") or [])
             if not banned:
                 verified = False

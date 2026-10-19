@@ -132,7 +132,7 @@ class _Split(BaseHTTPRequestHandler):
         if "INTAKE" in blob:
             text = json.dumps({
                 "goal": "Sua", "deliverables": ["nums.py"],
-                "acceptance_criteria": ["giong van de doc"],
+                "acceptance_criteria": [{"text": "giong van de doc", "outcome": "nhan_dinh"}],
                 "constraints": [], "assumptions": [], "questions": [],
                 "per_role_hints": {"planner": "", "worker": "", "verifier": ""},
             })

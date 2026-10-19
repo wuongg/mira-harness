@@ -93,8 +93,9 @@ class IntakeTier1Test(unittest.TestCase):
             asked.append(prompt)
             return "làm rõ rồi"
 
-        first = json.dumps(_brief(questions=["mục tiêu là gì?"]))
-        second = json.dumps(_brief(questions=["còn gì nữa?"]))
+        chosen = [{"text": "có số liệu", "outcome": "nhan_dinh"}]
+        first = json.dumps(_brief(questions=["mục tiêu là gì?"], acceptance_criteria=chosen))
+        second = json.dumps(_brief(questions=["còn gì nữa?"], acceptance_criteria=chosen))
         prov = _Prov([first, second])
         with tempfile.TemporaryDirectory() as tmp:
             with patch("frog.team.provider_for", lambda *a, **k: prov), \
@@ -227,7 +228,9 @@ class IntakeTier3Test(unittest.TestCase):
         fresh = _brief(per_role_hints={})
         filled = normalize_role_hints(fresh)
         self.assertEqual(filled, ["planner", "worker", "verifier"])
-        prov = _Prov([json.dumps(_brief(per_role_hints={}))])
+        prov = _Prov([json.dumps(_brief(
+            per_role_hints={},
+            acceptance_criteria=[{"text": "có số liệu", "outcome": "nhan_dinh"}]))])
         got = run_intake("soạn báo cáo", prov, Ledger(), clarify_max=0, ask=lambda _q: "",
                          model="claude-test", declared_price=(1.0, 1.0))
         self.assertTrue(got["ok"], got.get("reason"))
@@ -289,17 +292,17 @@ class IntakeTier3Test(unittest.TestCase):
         raw = _brief(
             deliverables=["sum_to.py", "people.json", "label.txt"],
             acceptance_criteria=[
-                "sum_to(3) == 6",
-                "Moi phan tu co id va name",
-                "Ghi label.txt la BAN NHAP",
-                "giong van de doc",
+                {"text": "sum_to(3) == 6", "outcome": "file_thay_doi"},
+                {"text": "Moi phan tu co id va name", "outcome": "file_thay_doi"},
+                {"text": "Ghi label.txt la BAN NHAP", "outcome": "nhan_dinh"},
+                {"text": "giong van de doc", "outcome": "nhan_dinh"},
             ])
         prov = _Prov([json.dumps(raw)])
         got = run_intake("sua", prov, Ledger(), clarify_max=0, ask=lambda _q: "",
                          model="claude-test", declared_price=(1.0, 1.0))
         self.assertTrue(got["ok"], got.get("reason"))
         self.assertEqual(len(prov.systems), 1)
-        self.assertIn("danh sách chuỗi", prov.systems[0])
+        self.assertIn("ket_qua_moi", prov.systems[0])
         self.assertIn("Không viết validator", prov.systems[0])
         rows = got["brief"]["acceptance_criteria"]
         self.assertEqual(rows[0]["validator"]["kind"], "behavior")
@@ -342,7 +345,7 @@ class IntakeTier3Test(unittest.TestCase):
         from frog.team import Ledger
         raw = _brief(
             deliverables=["Tệp label.txt chứa nội dung \"BAN NHAP\"."],
-            acceptance_criteria=["Nội dung tệp là \"BAN NHAP\"."])
+            acceptance_criteria=[{"text": "Nội dung tệp là \"BAN NHAP\".", "outcome": "nhan_dinh"}])
         prov = _Prov([json.dumps(raw)])
         got = run_intake("ghi nhan", prov, Ledger(), clarify_max=0, ask=lambda _q: "",
                          model="claude-test", declared_price=(1.0, 1.0),
@@ -363,7 +366,9 @@ class IntakeTier3Test(unittest.TestCase):
     def test_khong_file_khop_thi_hoi_khong_bia(self):
         from frog.intake import run_intake
         from frog.team import Ledger
-        raw = _brief(deliverables=["Tệp ghost.py chua code"])
+        raw = _brief(
+            deliverables=["Tệp ghost.py chua code"],
+            acceptance_criteria=[{"text": "có số liệu", "outcome": "nhan_dinh"}])
         prov = _Prov([json.dumps(raw), json.dumps(raw)])
         got = run_intake("sua", prov, Ledger(), clarify_max=0, ask=lambda _q: "",
                          model="claude-test", declared_price=(1.0, 1.0),
@@ -380,7 +385,9 @@ class IntakeTier3Test(unittest.TestCase):
     def test_path_tuong_doi_khong_co_san_van_giu(self):
         from frog.intake import run_intake
         from frog.team import Ledger
-        raw = _brief(deliverables=["report.md"])
+        raw = _brief(
+            deliverables=["report.md"],
+            acceptance_criteria=[{"text": "có số liệu", "outcome": "nhan_dinh"}])
         prov = _Prov([json.dumps(raw)])
         got = run_intake("ghi", prov, Ledger(), clarify_max=0, ask=lambda _q: "",
                          model="claude-test", declared_price=(1.0, 1.0), files=[])
@@ -415,7 +422,7 @@ class IntakeTier3Test(unittest.TestCase):
         from frog.team import Ledger
         raw = _brief(
             deliverables=["label.txt"],
-            acceptance_criteria=["Nội dung tệp là \"BAN NHAP\"."])
+            acceptance_criteria=[{"text": "Nội dung tệp là \"BAN NHAP\".", "outcome": "nhan_dinh"}])
         prov = _Prov([json.dumps(raw)])
         got = run_intake("ghi", prov, Ledger(), clarify_max=0, ask=lambda _q: "",
                          model="claude-test", declared_price=(1.0, 1.0),
@@ -435,7 +442,9 @@ class IntakeTier3Test(unittest.TestCase):
         from frog.team import Ledger
         raw = _brief(
             deliverables=["label.txt"],
-            acceptance_criteria=["thay \"BAN NHAP\" bằng \"BAN CUOI\""])
+            acceptance_criteria=[{
+                "text": "thay \"BAN NHAP\" bằng \"BAN CUOI\"", "outcome": "ket_qua_moi",
+            }])
         prov = _Prov([json.dumps(raw)])
         got = run_intake("doi", prov, Ledger(), clarify_max=0, ask=lambda _q: "",
                          model="claude-test", declared_price=(1.0, 1.0),
@@ -452,7 +461,10 @@ class IntakeTier3Test(unittest.TestCase):
         from frog.intake import propose_validators
         code = _brief(
             deliverables=["nums.py", "people.json"],
-            acceptance_criteria=["median([1, 10, 2]) == 2", "Moi phan tu co id va name"])
+            acceptance_criteria=[
+                {"text": "median([1, 10, 2]) == 2", "outcome": "file_thay_doi"},
+                {"text": "Moi phan tu co id va name", "outcome": "file_thay_doi"},
+            ])
         ids = propose_validators(code, {"nums.py": "def median(nums):\n    return 0\n"})
         self.assertEqual(len(ids), 2)
         rows = code["acceptance_criteria"]
@@ -477,6 +489,39 @@ class IntakeTier3Test(unittest.TestCase):
         self.assertEqual(len(prov.systems), 2)
         self.assertIn("PHẢN HỒI SCHEMA", prov.users[1])
         self.assertEqual(got["brief"]["per_role_hints"]["worker"], "")
+
+    def test_outcome_sai_kieu_thanh_nhan_dinh(self):
+        from frog.intake import run_intake
+        from frog.team import Ledger
+        bad = _brief(acceptance_criteria=[{"text": "median([1, 10, 2]) trả về số 2", "outcome": "maybe"}])
+        still = _brief(acceptance_criteria=[{"text": "median([1, 10, 2]) trả về số 2", "outcome": "nope"}])
+        prov = _Prov([json.dumps(bad), json.dumps(still)])
+        got = run_intake("sua", prov, Ledger(), clarify_max=0, ask=lambda _q: "",
+                         model="claude-test", declared_price=(1.0, 1.0))
+        self.assertTrue(got["ok"], got.get("reason"))
+        self.assertEqual(len(prov.systems), 2)
+        self.assertIn("PHẢN HỒI SCHEMA", prov.users[1])
+        row = got["brief"]["acceptance_criteria"][0]
+        self.assertEqual(row["outcome"], "nhan_dinh")
+        self.assertIsNone(row.get("validator"))
+
+    def test_model_chon_ket_qua_moi_suy_median(self):
+        from frog.intake import run_intake
+        from frog.team import Ledger
+        raw = _brief(
+            deliverables=["nums.py"],
+            acceptance_criteria=[{
+                "text": "median([1,10,2]) trả về số 2", "outcome": "ket_qua_moi",
+            }])
+        prov = _Prov([json.dumps(raw)])
+        got = run_intake("sua median", prov, Ledger(), clarify_max=0, ask=lambda _q: "",
+                         model="claude-test", declared_price=(1.0, 1.0),
+                         files=["nums.py"], originals={"nums.py": "def median(nums):\n    return 0\n"})
+        self.assertTrue(got["ok"], got.get("reason"))
+        row = got["brief"]["acceptance_criteria"][0]
+        self.assertEqual(row["outcome"], "ket_qua_moi")
+        self.assertEqual(row["validator"]["kind"], "behavior")
+        self.assertIn("nums.median([1, 10, 2]) == 2", row["validator"]["cmd"])
 
 
 if __name__ == "__main__":

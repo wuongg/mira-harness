@@ -24,8 +24,12 @@ INTAKE_SYSTEM = (
     "Bạn là INTAKE. Trả đúng một object JSON với các khóa goal, deliverables, "
     "acceptance_criteria, constraints, assumptions, questions, per_role_hints. "
     "Không được trả surface, lane, floor, labels, records, dollars, roles hay gate. "
-    "acceptance_criteria là danh sách chuỗi. Mỗi chuỗi là một tiêu chí chữ. "
+    "acceptance_criteria là danh sách object. Mỗi object có text và outcome. "
     "Không viết validator. "
+    "outcome chỉ là một trong ba giá trị: "
+    "file_thay_doi (file phải khác file gốc theo cách cụ thể, ví dụ people.json có khóa id và name), "
+    "ket_qua_moi (kết quả mới thay giá trị cũ, ví dụ median([1, 10, 2]) trả về số 2), "
+    "nhan_dinh (chủ quan, cần người, ví dụ văn phong dễ đọc). "
     "deliverables chỉ được lấy từ danh sách file workspace đi kèm, đúng đường dẫn, không bịa path. "
     "Nếu câu còn mơ hồ, đặt câu hỏi trong questions. Không tự bịa tiêu chí khi chưa đủ dữ liệu."
 )
@@ -171,7 +175,8 @@ def _behavior_spec(path: str, text: str) -> dict | None:
     if not module.isidentifier():
         return None
     found = re.finditer(
-        r"\b([A-Za-z_][A-Za-z0-9_]*)\s*\(\s*([^)]*)\s*\)\s*(?:==|bằng|bang|trả|tra)\s*"
+        r"\b([A-Za-z_][A-Za-z0-9_]*)\s*\(\s*([^)]*)\s*\)\s*"
+        r"(?:==|bằng|bang|trả về|tra ve|trả|tra)\s*(?:số|so)?\s*"
         r"(-?\d+(?:\.\d+)?|\"[^\"\n]*\"|'[^'\n]*')",
         text, re.IGNORECASE)
     checks = []
@@ -401,9 +406,71 @@ def _replacement(text: str) -> tuple[str, str] | None:
     return None
 
 
-def _stamp(text: str, names: list[str], originals: dict[str, str] | None):
-    """Cờ nghĩa. Mơ hồ thì nhan_dinh, không gắn validator."""
-    repl = _replacement(text)
+def _model_shaped(raw) -> bool:
+    return isinstance(raw, dict) and "schema" not in raw and "validator" not in raw
+
+
+def _criterion_id(text: str) -> str:
+    return "c" + hashlib.sha256(text.encode("utf-8")).hexdigest()[:12]
+
+
+def _nhan_dinh_item(raw) -> dict:
+    if isinstance(raw, dict) and isinstance(raw.get("text"), str) and raw["text"].strip():
+        text = raw["text"].strip()
+    elif isinstance(raw, str) and raw.strip():
+        text = raw.strip()
+    else:
+        text = "tiêu chí"
+    return {
+        "schema": 1, "id": _criterion_id(text), "text": text,
+        "outcome": "nhan_dinh", "proves": "",
+    }
+
+
+def _outcome_fault(raw) -> str:
+    """Chuỗi prose hoặc outcome ngoài enum. Lệnh check: không phải cờ."""
+    from .obligations import OUTCOMES
+    if isinstance(raw, str):
+        if raw.strip().lower().startswith("check:"):
+            return ""
+        return "outcome thiếu"
+    if _model_shaped(raw):
+        text = raw.get("text")
+        if not isinstance(text, str) or not text.strip():
+            return "tiêu chí thiếu text"
+        if raw.get("outcome") not in OUTCOMES:
+            return "outcome không thuộc enum"
+    return ""
+
+
+def _accept_outcomes(obj: dict, *, force_manual: bool) -> str:
+    """Rỗng nếu mọi cờ hợp lệ. force_manual biến cờ sai thành nhan_dinh."""
+    items = []
+    fault = ""
+    for raw in obj.get("acceptance_criteria") or []:
+        problem = _outcome_fault(raw)
+        if problem and not force_manual:
+            return problem
+        if problem:
+            items.append(_nhan_dinh_item(raw))
+            fault = fault or problem
+            continue
+        if _model_shaped(raw):
+            text = raw["text"].strip()
+            items.append({
+                "schema": 1, "id": _criterion_id(text), "text": text,
+                "outcome": raw["outcome"], "proves": "",
+            })
+            continue
+        items.append(raw)
+    if fault or any(_model_shaped(raw) for raw in obj.get("acceptance_criteria") or []):
+        obj["acceptance_criteria"] = items
+    return "" if force_manual or not fault else fault
+
+
+def _attach(text: str, outcome: str, names: list[str], originals: dict[str, str] | None):
+    """Validator theo cờ model đã chọn. Không đổi cờ."""
+    repl = _replacement(text) if outcome == "ket_qua_moi" else None
     if repl:
         old, new = repl
         path = _pick_deliverable(names, {".md", ".txt"}, text)
@@ -418,18 +485,17 @@ def _stamp(text: str, names: list[str], originals: dict[str, str] | None):
                 "must_contain": [new], "must_not_contain": [old],
             }
             digest = _text_sha(originals[path]) if originals and path in originals else ""
-            return "ket_qua_moi", spec, path, digest
-        return "nhan_dinh", None, "", ""
+            return spec, path, digest
     spec = _infer_validator(text, names)
-    if spec and spec.get("kind") in ("behavior", "json_keys"):
-        if spec["kind"] == "json_keys" and _already_in_source(spec, originals):
-            return "nhan_dinh", None, "", ""
-        path = str(spec.get("path") or "")
-        if spec["kind"] == "behavior":
-            path = _pick_deliverable(names, {".py"}, text) or path
-        digest = _text_sha(originals[path]) if originals and path and path in originals else ""
-        return "file_thay_doi", spec, path, digest
-    return "nhan_dinh", None, "", ""
+    if not spec:
+        return None, "", ""
+    if spec.get("kind") == "json_keys" and _already_in_source(spec, originals):
+        return None, "", ""
+    path = str(spec.get("path") or "")
+    if spec.get("kind") == "behavior":
+        path = _pick_deliverable(names, {".py"}, text) or path
+    digest = _text_sha(originals[path]) if originals and path and path in originals else ""
+    return spec, path, digest
 
 
 def outcome_note(brief) -> str:
@@ -461,24 +527,29 @@ def propose_validators(obj: dict, originals: dict[str, str] | None = None) -> li
     items = []
     stamped = False
     for raw in obj.get("acceptance_criteria") or []:
-        if not isinstance(raw, str):
+        if isinstance(raw, str):
+            parsed, _why = validate_criteria([raw])
+            if not parsed or parsed[0].get("cmd"):
+                items.append(raw)
+                continue
+            items.append(_nhan_dinh_item(raw))
+            stamped = True
+            continue
+        if not isinstance(raw, dict) or raw.get("validator") or raw.get("outcome") not in (
+                "file_thay_doi", "ket_qua_moi"):
             items.append(raw)
             continue
-        parsed, _why = validate_criteria([raw])
-        if not parsed or parsed[0].get("cmd"):
-            items.append(raw)
-            continue
-        text = parsed[0]["text"]
-        outcome, spec, path, digest = _stamp(text, names, originals)
-        cid = "c" + hashlib.sha256(text.encode("utf-8")).hexdigest()[:12]
-        built = {
-            "schema": 1, "id": cid, "text": text,
-            "outcome": outcome, "proves": LABEL if spec else "",
-            "source_path": path, "source_sha256": digest,
-        }
+        text = str(raw.get("text") or "")
+        spec, path, digest = _attach(text, raw["outcome"], names, originals)
+        built = dict(raw)
+        built.setdefault("schema", 1)
+        built.setdefault("id", _criterion_id(text))
+        built["proves"] = LABEL if spec else ""
+        built["source_path"] = path
+        built["source_sha256"] = digest
         if spec:
             built["validator"] = spec
-            proposed.append(cid)
+            proposed.append(str(built["id"]))
         items.append(built)
         stamped = True
     if not proposed and not stamped:
@@ -584,6 +655,15 @@ def run_intake(task: str, prov, ledger: Ledger, *, clarify_max: int, ask, model:
             return {"ok": False, "reason": "intake không trả JSON", "brief": None,
                     "asked": asked, "normalization": filled}
         filled.extend(role for role in normalize_role_hints(obj) if role not in filled)
+        fault = _accept_outcomes(obj, force_manual=False)
+        if fault:
+            if schema_repairs < 1:
+                schema_repairs += 1
+                user = _intake_user(
+                    task, files,
+                    "PHẢN HỒI SCHEMA: outcome phải là file_thay_doi, ket_qua_moi hoặc nhan_dinh")
+                continue
+            _accept_outcomes(obj, force_manual=True)
         ok, why = validate_brief(obj)
         pending = _questions(obj) if isinstance(obj.get("questions"), list) else []
         if pending and asked < clarify_max:

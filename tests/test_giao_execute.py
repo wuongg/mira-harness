@@ -608,6 +608,42 @@ class GiaoExecuteTest(unittest.TestCase):
             srv.shutdown()
             srv.server_close()
 
+    def test_v03_model_chon_ket_qua_moi_ban_giao(self):
+        brief = {
+            "goal": "Sua median",
+            "deliverables": ["nums.py"],
+            "acceptance_criteria": [{
+                "text": "median([1,10,2]) trả về số 2",
+                "outcome": "ket_qua_moi",
+            }],
+            "constraints": [], "assumptions": [], "questions": [],
+            "per_role_hints": {"planner": "", "worker": "", "verifier": ""},
+        }
+        _Stub.reply = "<tool>" + json.dumps({
+            "name": "write_file",
+            "args": {"path": "nums.py", "content": (
+                "def median(nums):\n"
+                "    ordered = sorted(nums)\n"
+                "    return ordered[len(ordered) // 2]\n"
+            )},
+        }, ensure_ascii=False) + "</tool>"
+        srv, base = _serve(brief)
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                (root / "nums.py").write_text("def median(nums):\n    return 0\n", encoding="utf-8")
+                opened = _frog(root, base, ["Sửa nums.py", "--approve-brief", "--autonomy", "walk-away"])
+                self.assertEqual(opened.returncode, 0, opened.stdout + opened.stderr)
+                self.assertIn("bàn giao: đủ", opened.stdout)
+                check = subprocess.run(
+                    [sys.executable, str(Path(__file__).resolve().parents[1] / "eval" / "value" / "checks" / "V03.py"), str(root)],
+                    cwd=str(root), capture_output=True, text=True)
+                self.assertEqual(check.returncode, 0, check.stdout + check.stderr)
+        finally:
+            _Stub.reply = ""
+            srv.shutdown()
+            srv.server_close()
+
 
 def _id(text: str) -> str:
     for line in text.splitlines():
