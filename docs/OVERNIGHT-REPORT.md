@@ -627,7 +627,7 @@ Giới hạn vẫn đúng: hash không phải sandbox; promote nhiều file khô
 | W3 | xong | Cùng 5 nhiệm vụ, provider giả: watch 11 thao tác, walk-away 7. Lượt người sau khi đưa việc: 1.20 so với 0.40. Tự chốt đúng 1.00 cả hai. Model không chọn được nấc. | cùng SHA `6939f79` | không |
 | W4 | xong | `frog giao box` liệt kê lý do, `--pull` một run, `--accept` một lượt cho cả lô. | cùng SHA `6939f79` | không |
 | W5 | chạy xong, không bàn giao | `gpt-5.6-luna`, 3 request, ước lượng $0.001213 trong trần $2. Cả V01, V05, V10 dừng ở intake, worker không chạy. | xem mục W5 | không so A/B vì chưa có run |
-| W6 | chưa đóng băng | 12 task đã chạy, số xấu. Một điểm nghẽn: bản sửa đúng nằm trong staging withheld, không được promote. | `d47ff68` rồi commit báo cáo này | một sửa: verifier phải thấy file staged trước khi FAIL |
+| W6 | chưa đóng băng | FIX-V đã vào `436c3e1`. Chạy lại 12 task: `completed_correct` vẫn 0, `false_complete` vẫn 0. | `436c3e1` | tiêu chí prose chặn promote dù verifier PASS |
 
 main sau W2–W4: `de75750`. CI main 11/11 success: https://github.com/wuongg/mira-harness/actions/runs/39208461705
 
@@ -739,3 +739,34 @@ Tổng các đợt ước lượng khoảng $0.0235, còn trong trần $2. Khôn
 Điểm nghẽn: worker đã ghi bản đúng vào staging, verifier hoặc cổng bằng chứng không thấy nội dung file nên FAIL, promote không chạy, phép kiểm trên workspace thất bại.
 
 Một sửa: đưa byte file staged vào prompt verifier trước khi cho phép verdict FAIL vì thiếu nội dung, rồi promote nếu phép kiểm của task thoát 0.
+
+## FIX-V
+
+`436c3e1`. Khi `stage_worker` bật, prompt verifier chỉ nhận file staging khác cây nguồn, kèm `kiểm trên bản staged (hash ...)`. `judge_obligations(..., surface="staged")` đọc cwd là staging và ghi cùng hash vào bảng. FAIL đổi tên staging thành `.withheld`, không xóa byte. Ba phản chứng trong `tests/test_staged_check.py` đều xanh.
+
+Chạy chốt, `gpt-5.6-luna`, `stopped=finished`. 49 HTTP, ước lượng $0.015808, `uncertain_usd` 0. `completed_correct` = 0, `false_complete` = 0. Không tăng so với đợt trước.
+
+| Task | HTTP | USD | Verifier | Phép kiểm | Ghi chú |
+| --- | --- | --- | --- | --- | --- |
+| V01 | 3 | 0.000878 | FAIL | fail | staged vẫn `range(n)` |
+| V02 | 6 | 0.001613 | PASS | fail | staged đúng `row["name"]`, tiêu chí manual, chờ xác nhận |
+| V03 | 3 | 0.001053 | FAIL | fail | withheld |
+| V04 | 6 | 0.001865 | PASS | fail | staged có `return acc`, tiêu chí manual, chờ xác nhận |
+| V05 | 6 | 0.002049 | PASS | fail | `people.json` đúng trong staging, tiêu chí manual, chờ xác nhận |
+| V06 | 5 | 0.001693 | FAIL | fail | withheld |
+| V07 | 2 | 0.000796 | — | fail | intake-failed |
+| V08 | 2 | 0.000878 | — | fail | intake-failed |
+| V09 | 4 | 0.001126 | PASS | fail | không comparable |
+| V10 | 3 | 0.000817 | FAIL | pass | không bàn giao, đúng kỳ vọng giữ |
+| V11 | 7 | 0.002264 | PASS | pass | không comparable, nguồn không đổi |
+| V12 | 2 | 0.000776 | — | pass | intake-failed, không comparable |
+
+Baseline B cùng model, task comparable. Ước lượng $0.007004. Phép kiểm V01–V08 fail, V10 pass.
+
+So A/B: không task comparable nào `completed_correct`. A không hơn B. V10 pass cả hai.
+
+Tổng các đợt ước lượng khoảng $0.046, còn trong trần $2. Không đóng băng, không chuẩn bị v1.0.
+
+Nghẽn mới: tiêu chí do intake trả là câu chữ, kind `manual`. Verifier PASS và file staged đúng vẫn `needs_confirmation`, không promote. Bảng không có hash vì không có validator path.
+
+Một sửa: khi `stage_worker` bật và verifier PASS, tiêu chí manual không được giữ run ở chờ xác nhận. Promote bản staged, ghi các câu manual là chưa tự kiểm.
