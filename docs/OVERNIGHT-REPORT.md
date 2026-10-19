@@ -627,7 +627,7 @@ Giới hạn vẫn đúng: hash không phải sandbox; promote nhiều file khô
 | W3 | xong | Cùng 5 nhiệm vụ, provider giả: watch 11 thao tác, walk-away 7. Lượt người sau khi đưa việc: 1.20 so với 0.40. Tự chốt đúng 1.00 cả hai. Model không chọn được nấc. | cùng SHA `6939f79` | không |
 | W4 | xong | `frog giao box` liệt kê lý do, `--pull` một run, `--accept` một lượt cho cả lô. | cùng SHA `6939f79` | không |
 | W5 | chạy xong, không bàn giao | `gpt-5.6-luna`, 3 request, ước lượng $0.001213 trong trần $2. Cả V01, V05, V10 dừng ở intake, worker không chạy. | xem mục W5 | không so A/B vì chưa có run |
-| W6 | chưa đóng băng | FIX-V đã vào `436c3e1`. Chạy lại 12 task: `completed_correct` vẫn 0, `false_complete` vẫn 0. | `436c3e1` | tiêu chí prose chặn promote dù verifier PASS |
+| W6 | chưa đóng băng | G1+G2 ở `ae75be5`. Chạy lại 12 task: cả 12 intake-failed. `completed_correct` 0, `false_complete` 0. | `ae75be5` | intake không ra brief |
 
 main sau W2–W4: `de75750`. CI main 11/11 success: https://github.com/wuongg/mira-harness/actions/runs/39208461705
 
@@ -770,3 +770,35 @@ Tổng các đợt ước lượng khoảng $0.046, còn trong trần $2. Không
 Nghẽn mới: tiêu chí do intake trả là câu chữ, kind `manual`. Verifier PASS và file staged đúng vẫn `needs_confirmation`, không promote. Bảng không có hash vì không có validator path.
 
 Một sửa: khi `stage_worker` bật và verifier PASS, tiêu chí manual không được giữ run ở chờ xác nhận. Promote bản staged, ghi các câu manual là chưa tự kiểm.
+
+## G1 và G2
+
+`ae75be5`. Intake từ chối tiêu chí kiểm được nếu thiếu validator, và từ chối validator có path ngoài deliverables. Một lượt `PHẢN HỒI SCHEMA` giữ nguyên. Hash phiếu gồm validator. `walk-away` và `direct`: tiêu chí manual còn lại, verifier PASS, hash staging khớp thì promote, bảng và `trace.jsonl` ghi `bàn giao dựa trên verifier — chưa xác nhận tay` kèm hash. `watch` không promote. Validator fail thì walk-away cũng không promote.
+
+## G3
+
+Probe A dùng `--autonomy walk-away` ở lệnh `--run`. Không task nào tới lệnh đó. `stopped=finished`. 24 HTTP, ước lượng $0.021624, `uncertain_usd` 0. Cả 12 task `intake-failed`. Harness không in bàn giao. `completed_correct` = 0. `false_complete` = 0, không tăng. Không đóng băng, không chuẩn bị v1.0, không thu hồi G2.
+
+| Task | Phép kiểm trên workspace | Harness |
+| --- | --- | --- |
+| V01–V09 | fail | intake-failed, không bàn giao |
+| V10 | pass | intake-failed, file không bị đụng |
+| V11 | pass | intake-failed, file không bị đụng |
+| V12 | pass | intake-failed, file không bị đụng |
+
+V10–V12 pass phép kiểm vì workspace còn nguyên, không phải vì harness đã giữ đúng.
+
+Lý do in ra khi gọi lại riêng, cùng model, cùng một lượt schema:
+
+| Task | Câu từ chối |
+| --- | --- |
+| V01 | intake không trả JSON |
+| V07 | schema tiêu chí không hỗ trợ |
+| V08 | intake không trả JSON |
+| V12 | brief thiếu acceptance_criteria |
+
+Tám task còn lại trong đợt 12 chỉ được runner ghi nhãn `intake-failed`. Stdout của đợt đó không được lưu, nên không chép câu từ chối cho chúng.
+
+Baseline B, intake tắt, brief có sẵn. Ước lượng $0.006755. V01–V08 fail phép kiểm. V10 pass. A không có run để hơn B.
+
+Đợt lý do riêng ước lượng $0.00801. Cộng probe và B, đợt này khoảng $0.036. Tổng các đợt vẫn dưới $2.
