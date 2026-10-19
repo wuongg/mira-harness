@@ -820,11 +820,3 @@ CI ubuntu-latest / 3.9 tại `6c9f5c2` fail vì hai worker cùng qua kiểm tr�
 Đợt xác nhận trên `6337e3f`, trần file $0.20. Dừng `provider-error` ở V09. 37 HTTP, ước lượng $0.011378, `uncertain_usd` 0. `completed_correct` = 0. `false_complete` = 0. `intake-failed` = 0 trên các task đã chạy. V01–V08 đều `awaiting_confirmation`, phép kiểm fail. V10–V12 không chạy. Không đóng băng, không chuẩn bị v1.0.
 
 Nghẽn: intake ghi deliverable là câu chữ, không phải đường dẫn file, nên không có validator nào pass trên file thật và không task nào được promote.
-
-## X4
-
-`abf3dc5`. Prompt intake kèm tên file workspace, trace ghi `source=workspace`. Code khớp câu chữ với tên file, exact rồi fuzzy, ghi `khớp deliverable` vào assumptions. Không khớp thì một lượt `PHẢN HỒI SCHEMA`, rồi hỏi người và giữ run, không bịa path. X2 không đổi.
-
-Đợt xác nhận, trần file $0.50. Dừng `provider-error` ở V01. 2 HTTP, ước lượng $0.000286, `uncertain_usd` 0. `completed_correct` = 0. `false_complete` = 0. V02–V12 không chạy. Không đóng băng, không chuẩn bị v1.0.
-
-Nghẽn: worker gọi `glob` với path tuyệt đối của thư mục staging. `PermissionError: ngoài thư mục gốc` không được bắt, `giao` thoát mã 1, cả đợt dừng.
