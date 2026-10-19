@@ -1458,16 +1458,35 @@ def cmd_giao(args) -> int:
     from .providers import provider_for
     from .team import Ledger
     model = args.model or C.ROLE_MODEL["planner"]
-    prov = provider_for(model, args.provider, base_url=args.base_url,
-                        max_tokens=args.max_tokens)
-    if not prov.available():
-        print("thiếu key cho intake")
-        return 8
+    intake_model = getattr(args, "intake_model", None) or model
     led = Ledger()
-    files = workspace_files(root)
-    got = run_intake(task, prov, led, clarify_max=0, ask=lambda _q: "",
-                     model=model, declared_price=_price(getattr(args, "price_in", None)),
-                     files=files, originals=original_texts(root, files))
+    brief_path = getattr(args, "brief", None)
+    if brief_path:
+        from .intake import load_brief_file
+        loaded, why = load_brief_file(Path(brief_path))
+        if loaded is None:
+            print(why)
+            return 8
+        got = {"ok": True, "brief": loaded, "mapping": [], "normalization": [], "proposed": []}
+        files = []
+    else:
+        prov = provider_for(intake_model, args.provider, base_url=args.base_url,
+                            max_tokens=args.max_tokens)
+        if not prov.available():
+            print("thiếu key cho intake")
+            return 8
+        files = workspace_files(root)
+        intake_price = _price(getattr(args, "price_in", None))
+        if intake_model != model:
+            from .prices import resolve_price
+            rates, _source = resolve_price(intake_model, None)
+            if rates is None:
+                print(f"model {intake_model} chưa có giá")
+                return 8
+            intake_price = (float(rates["in"]), float(rates["out"]))
+        got = run_intake(task, prov, led, clarify_max=0, ask=lambda _q: "",
+                         model=intake_model, declared_price=intake_price,
+                         files=files, originals=original_texts(root, files))
     if not got["ok"] or got["brief"] is None:
         failed = root / ".frog" / "runs" / "intake-failed"
         failed.mkdir(parents=True, exist_ok=True)

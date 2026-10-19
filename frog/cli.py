@@ -782,6 +782,9 @@ def build_parser() -> argparse.ArgumentParser:
     gx.add_argument("--run", default=None, help="chạy run đã lưu")
     gx.add_argument("--grant", action="append", default=[],
                     help="cấp đúng một lệnh; duyệt phiếu không cấp lệnh")
+    gx.add_argument("--brief", default=None, help="brief JSON đã có, bỏ intake")
+    gx.add_argument("--intake-model", dest="intake_model", default=None,
+                    help="model chỉ cho intake; worker giữ --model")
     gx.add_argument("--approve-brief", dest="approve_brief", action="store_true",
                     help="duyệt phiếu đã xem, không cấp lệnh")
     gx.add_argument("--check-only", dest="check_only", action="store_true",

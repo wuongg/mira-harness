@@ -1034,8 +1034,11 @@ def _probe_loop(probe: dict, chosen: list[str], base_url: str, progress_path: Pa
         if tid not in state["tasks_started"]:
             state["tasks_started"].append(tid)
         _progress(progress_path, state)
+        open_bits = [spec["prompt"], "--approve-brief"]
+        if probe.get("intake_model"):
+            open_bits += ["--intake-model", str(probe["intake_model"])]
         outcome = _call_giao(
-            dest, base_url, [spec["prompt"], "--approve-brief"],
+            dest, base_url, open_bits,
             price, str(probe["max_tokens"]), call_timeout,
             provider=provider, model=model, env=child_env)
         if outcome is None:
