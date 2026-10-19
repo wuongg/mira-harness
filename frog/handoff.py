@@ -1164,6 +1164,8 @@ def render_table(request: str, rows: list[dict]) -> str:
             label = f"{state} — {label}"
         if row.get("evidence_status"):
             label = f"{label} — {row['evidence_status']}"
+        if row.get("checked_on") == "staged" and row.get("staged_hash"):
+            label = f"{label} — kiểm trên bản staged (hash {row['staged_hash']})"
         lines.append(" | ".join([
             row.get("criterion_id") or "",
             (row.get("criterion") or "").replace("\n", " "),

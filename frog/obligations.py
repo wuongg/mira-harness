@@ -466,7 +466,7 @@ def judge_obligations(criteria: list, steps: list[dict] | None = None,
                       evidence: dict | None = None, *, cwd: Path | None = None,
                       granted: set[str] | None = None, run_id: str | None = None,
                       artifacts: dict | None = None, validators: bool = True,
-                      brief_hash: str = "") -> list[dict]:
+                      brief_hash: str = "", surface: str = "") -> list[dict]:
     """steps và diff không phải proof. Hash chỉ là danh tính file. proves trùng câu là khai báo."""
     del steps, evidence
     allowed = set(granted or ())
@@ -542,6 +542,12 @@ def judge_obligations(criteria: list, steps: list[dict] | None = None,
             bound_evidence = bind_evidence(validator, root, brief_hash)
             if verified:
                 evidence_status = "còn hiệu lực"
+        staged_hash = ""
+        if surface == "staged" and validator and root is not None:
+            rel = str(validator.get("path") or "")
+            file = (root / rel) if rel else None
+            if file is not None and file.is_file():
+                staged_hash = hashlib.sha256(file.read_bytes()).hexdigest()
         rows.append({
             "criterion": item["text"],
             "criterion_id": item["id"],
@@ -558,6 +564,8 @@ def judge_obligations(criteria: list, steps: list[dict] | None = None,
             "criterion_verified": verified,
             "state": state,
             "reason": reason,
+            "checked_on": "staged" if surface == "staged" else "",
+            "staged_hash": staged_hash,
             "ref": {"kind": "check", "criterion_id": item["id"], "cmd": cmd,
                     "via": "run_shell", "exit": exit_code} if cmd else None,
         })

@@ -409,6 +409,30 @@ class CheckpointError(Exception):
         self.message = message
 
 
+def staging_prompt(source: Path, staging: Path) -> str:
+    """Chỉ file worker vừa tạo hoặc sửa. Hash là byte trong staging."""
+    source = Path(source)
+    staging = Path(staging)
+    chunks = []
+    for path in sorted(staging.rglob("*")):
+        if not path.is_file():
+            continue
+        rel = path.relative_to(staging)
+        if _rel_skipped(rel):
+            continue
+        data = path.read_bytes()
+        old = source / rel
+        previous = old.read_bytes() if old.is_file() else None
+        if previous == data:
+            continue
+        digest = hashlib.sha256(data).hexdigest()
+        shown = data.decode("utf-8", "replace")
+        if len(shown) > 8000:
+            shown = shown[:8000]
+        chunks.append(f"kiểm trên bản staged (hash {digest})\n{rel.as_posix()}\n{shown}")
+    return "\n\n".join(chunks)
+
+
 def withhold_staging(staging: Path) -> Path:
     """Đổi tên staging thành *.withheld. Không đụng cây nguồn."""
     staging = Path(staging)
@@ -850,6 +874,12 @@ def execute_plan(plan: TeamPlan, *, provider_name: str | None = None,
         prompts = getattr(plan, "role_prompts", None) or {}
         if role in prompts:
             u = prompts[role] + "\n\n" + u
+        if (role == "verifier" and root is not None
+                and getattr(plan, "stage_worker", False)
+                and staging_box[0] is not None):
+            block = staging_prompt(Path(root), staging_box[0])
+            if block:
+                u += "\n\n" + block
         if root is not None and role in ("planner", "worker"):
             from .skills import catalog_for_prompt, load_skills, memory_block, worker_skill_block
             skills = load_skills(root)
@@ -1244,7 +1274,11 @@ def execute_plan(plan: TeamPlan, *, provider_name: str | None = None,
             explicit = getattr(plan, "granted_cmds", None)
             granted = all_cmds if explicit is None else set(explicit) & all_cmds
         records = {}
+        surface = ""
         base = staging_box[0] or root
+        if getattr(plan, "stage_worker", False) and staging_box[0] is not None:
+            surface = "staged"
+            base = staging_box[0]
         if isinstance(evidence, dict) and base is not None:
             import hashlib
             for rel in evidence.get("changed") or []:
@@ -1258,7 +1292,8 @@ def execute_plan(plan: TeamPlan, *, provider_name: str | None = None,
         obligations = judge_obligations(
             criteria, steps, evidence, cwd=base, granted=granted,
             run_id=run_id, artifacts=records, validators=trusted,
-            brief_hash=getattr(plan, "brief_hash", None) or "")
+            brief_hash=getattr(plan, "brief_hash", None) or "",
+            surface=surface)
         missing = unproven(obligations)
         if status == "ok" and missing:
             states = {row.get("state") for row in missing}
@@ -1313,6 +1348,8 @@ def _obligation_note(row: dict) -> str:
     text = f"{label}: {row.get('criterion') or ''}"
     if reason:
         text += f" — {reason}."
+    if row.get("checked_on") == "staged" and row.get("staged_hash"):
+        text += f" kiểm trên bản staged (hash {row['staged_hash']})."
     return text + hint
 
 
