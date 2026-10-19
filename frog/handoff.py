@@ -95,6 +95,18 @@ def _history_ok(item) -> bool:
             and isinstance(item["cost_usd"], (int, float)))
 
 
+_EXTRAS = ("autonomy", "repair", "direct_from")
+_AUTONOMY = {"watch", "walk-away", "direct"}
+_REPAIR_MAX = 2
+
+
+def _repair_ok(item) -> bool:
+    return (isinstance(item, dict)
+            and set(item) == {"criterion_id", "delta", "evidence", "attempt"}
+            and isinstance(item["criterion_id"], str) and isinstance(item["delta"], str)
+            and isinstance(item["evidence"], str) and isinstance(item["attempt"], int))
+
+
 def _empty_ledger() -> dict:
     return {
         "rows": [], "total_usd": 0.0, "total_in": 0, "total_out": 0,
@@ -165,8 +177,12 @@ def _load(root: Path, run_id: str) -> dict:
         state = json.loads(_read_text(path))
     except json.JSONDecodeError:
         raise HandoffError("state hỏng: JSON cụt") from None
-    if not isinstance(state, dict) or set(state) != set(_STATE_FIELDS) | {"state_hash"}:
+    if not isinstance(state, dict):
         raise HandoffError("state hỏng: sai schema")
+    unknown = set(state) - set(_STATE_FIELDS) - {"state_hash"} - set(_EXTRAS)
+    if unknown or not set(_STATE_FIELDS) <= set(state):
+        raise HandoffError("state hỏng: sai schema")
+    extra = {key: state.pop(key) for key in _EXTRAS if key in state}
     if state.get("id") != run_id or not isinstance(state.get("request"), str):
         raise HandoffError("state hỏng: sai schema")
     if not isinstance(state.get("approved"), bool) or not isinstance(state.get("approved_hash"), str):
@@ -200,6 +216,20 @@ def _load(root: Path, run_id: str) -> dict:
         raise HandoffError("phiếu không khớp hash đã lưu")
     if state.get("state_hash") != _state_hash(state):
         raise HandoffError("trạng thái không khớp hash")
+    choice = extra.get("autonomy")
+    state["autonomy"] = choice if choice in _AUTONOMY else "watch"
+    repair = extra.get("repair")
+    if repair is None:
+        repair = []
+    if not isinstance(repair, list) or not all(_repair_ok(item) for item in repair):
+        raise HandoffError("state hỏng: sai schema")
+    state["repair"] = repair
+    origin = extra.get("direct_from")
+    if origin is None:
+        origin = ""
+    if not isinstance(origin, str):
+        raise HandoffError("state hỏng: sai schema")
+    state["direct_from"] = origin
     return state
 
 
@@ -437,11 +467,21 @@ def apply_confirmations(state: dict, rows: list[dict], root: Path) -> list[dict]
         row["reason"] = "người dùng xác nhận"
         row["proves"] = ""
         row["does_not_prove"] = "không phải kiểm chứng tự động"
+    # I5: nấc direct là chính sách code. Model không được chốt tiêu chí thủ công.
+    if state.get("autonomy") == "direct" and state.get("direct_from"):
+        known = _direct_settled_ids(root, state["direct_from"])
+        for row in rows:
+            if row.get("criterion_verified") or row.get("kind") != "manual":
+                continue
+            if row.get("state") == "needs_confirmation" and row.get("criterion_id") in known:
+                row["state"] = "direct"
+                row["reason"] = "chạy trực tiếp"
+                row["does_not_prove"] = "không phải validator của lượt này"
     return rows
 
 
 def _settled(row: dict) -> bool:
-    return bool(row.get("criterion_verified")) or row.get("state") == "user_confirmed"
+    return bool(row.get("criterion_verified")) or row.get("state") in ("user_confirmed", "direct")
 
 
 def _delivery(rows: list[dict]) -> tuple[str, int]:
@@ -503,6 +543,138 @@ def check_only(root: Path, run_id: str) -> tuple[list[dict], str, int]:
     body = render_table(state["request"], rows) + "\n" + status
     _write_table(root, run_id, body)
     return rows, body, 4
+
+
+def _run_folders(root: Path) -> list[Path]:
+    found: list[Path] = []
+    seen: set[str] = set()
+    for name in (".frog", ".mira"):
+        base = root / name / "runs"
+        if not base.is_dir():
+            continue
+        for child in sorted(base.iterdir()):
+            if child.name in seen or not (child / "handoff.json").is_file():
+                continue
+            seen.add(child.name)
+            found.append(child)
+    return found
+
+
+def _load_any(root: Path, run_id: str) -> dict | None:
+    try:
+        return _load(root, run_id)
+    except (OSError, HandoffError, FileNotFoundError):
+        return None
+
+
+def _criterion_ids(brief: dict) -> tuple[str, ...]:
+    rows, _why = validate_criteria(brief.get("acceptance_criteria"))
+    if not rows:
+        return tuple()
+    return tuple(sorted(row["id"] for row in rows))
+
+
+def _direct_settled_ids(root: Path, run_id: str) -> set[str]:
+    prior = _load_any(root, run_id)
+    if prior is None or prior.get("phase") != "delivered":
+        return set()
+    return {
+        row.get("criterion_id") for row in prior.get("obligations") or []
+        if row.get("criterion_verified") or row.get("state") in ("user_confirmed", "direct")
+    }
+
+
+def _latest_verified(root: Path, brief: dict, exclude: str) -> str:
+    """Run delivered gần nhất cùng bộ id tiêu chí. Không hỏi model."""
+    kind = _criterion_ids(brief)
+    if not kind:
+        return ""
+    found = ""
+    found_at = -1.0
+    for folder in _run_folders(root):
+        if folder.name == exclude:
+            continue
+        state = _load_any(root, folder.name)
+        if state is None or state.get("phase") != "delivered":
+            continue
+        if _criterion_ids(state.get("brief") or {}) != kind:
+            continue
+        if set(kind) - _direct_settled_ids(root, state["id"]):
+            continue
+        stamp = (folder / "handoff.json").stat().st_mtime
+        if stamp >= found_at:
+            found_at = stamp
+            found = state["id"]
+    return found
+
+
+def apply_autonomy(root: Path, run_id: str, choice: str | None) -> tuple[dict, str]:
+    """Người chọn nấc. Code hạ direct khi chưa có lịch sử verified cùng loại."""
+    state = _load(root, run_id)
+    if choice not in _AUTONOMY:
+        choice = state.get("autonomy") or "watch"
+    note = ""
+    if choice == "direct":
+        prior = _latest_verified(root, state["brief"], run_id)
+        if not prior:
+            choice = "walk-away"
+            state["direct_from"] = ""
+            note = "không chạy trực tiếp — chưa có lịch sử verified cùng loại"
+        else:
+            state["direct_from"] = prior
+    else:
+        state["direct_from"] = ""
+    state["autonomy"] = choice
+    _save(root, state)
+    return state, note
+
+
+def _repair_targets(rows: list[dict]) -> list[dict]:
+    notes = []
+    for row in rows or []:
+        if row.get("kind") in (None, "manual"):
+            continue
+        if row.get("criterion_verified") or row.get("state") not in ("failed", "unverified"):
+            continue
+        notes.append({
+            "criterion_id": str(row.get("criterion_id") or ""),
+            "delta": str(row.get("reason") or row.get("does_not_prove") or ""),
+            "evidence": str(row.get("evidence") or row.get("proves") or ""),
+        })
+    return notes
+
+
+def _feedback_block(notes: list[dict]) -> str:
+    lines = ["PHẢN HỒI VALIDATOR"]
+    for note in notes:
+        lines.append(f"- criterion_id: {note['criterion_id']}")
+        lines.append(f"  lệch: {note['delta']}")
+        lines.append(f"  evidence: {note['evidence']}")
+    return "\n".join(lines)
+
+
+def _exact_failures(rows: list[dict]) -> str:
+    lines = []
+    for note in _repair_targets(rows):
+        lines.append(
+            f"sai: {note['criterion_id']} | lệch: {note['delta']} | evidence: {note['evidence']}"
+        )
+    return "\n".join(lines)
+
+
+def _annotate(state: dict, rows: list[dict], body: str) -> str:
+    extra = []
+    if state.get("autonomy") == "direct" and state.get("direct_from"):
+        extra.append("chạy trực tiếp")
+    if state.get("phase") == "failed" or state.get("hold") == "stopped_budget":
+        failed = _exact_failures(rows)
+        if failed:
+            extra.append(failed)
+    if state.get("hold") == "stopped_budget":
+        extra.append("stopped_budget")
+    if not extra:
+        return body
+    return body + "\n" + "\n".join(extra)
 
 
 def _phase_line(state: dict) -> str:
@@ -747,10 +919,10 @@ def _finish_saved(root: Path, state: dict) -> tuple[list[dict], str, int]:
             status, code = "bàn giao: chặn", 3
     state["obligations"] = rows
     _save(root, state)
-    body = "\n".join([
+    body = _annotate(state, rows, "\n".join([
         render_table(state["request"], rows), status,
         _phase_line(state), _cost_line(state),
-    ])
+    ]))
     _write_table(root, state["id"], body)
     return rows, body, code
 
@@ -792,10 +964,10 @@ def _record(root: Path, state: dict, res: dict, ledger, rows: list[dict],
     _save(root, state)
     edited = any(step.get("edited") for step in res.get("steps") or [])
     head = "worker: đã sửa trong staging" if edited else "worker: không sửa"
-    body = "\n".join([
+    body = _annotate(state, rows, "\n".join([
         head, render_table(state["request"], rows), status,
         _phase_line(state), _cost_line(state),
-    ])
+    ]))
     _write_table(root, state["id"], body)
     return rows, body, code
 
@@ -829,10 +1001,10 @@ def settle(root: Path, run_id: str) -> tuple[list[dict], str, int]:
         status = "bàn giao: chưa"
     state["obligations"] = rows
     _save(root, state)
-    body = "\n".join([
+    body = _annotate(state, rows, "\n".join([
         render_table(state["request"], rows), status,
         _phase_line(state), _cost_line(state),
-    ])
+    ]))
     _write_table(root, run_id, body)
     return rows, body, code
 
@@ -854,6 +1026,8 @@ def _execute_locked(root: Path, run_id: str, *, provider: str | None, model: str
                     base_url: str | None, max_tokens: int, price,
                     resume: bool = False) -> tuple[list[dict], str, int]:
     state = _load(root, run_id)
+    if state.get("hold") == "stopped_budget":
+        return _view(root, state)
     if state["phase"] == "executing" and (
             state.get("want_deliver") or state.get("promoted") or state.get("obligations")):
         return _finish_saved(root, state)
@@ -872,7 +1046,6 @@ def _execute_locked(root: Path, run_id: str, *, provider: str | None, model: str
         _save(root, state)
         return [], "chưa cấp lệnh — không thực thi\n" + _phase_line(state), 8
     from .team import execute_plan, ledger_from_checkpoint, load_checkpoint
-    plan = _make_plan(state, price)
     resume_steps = None
     resume_staging = None
     if resume or state["phase"] == "executing":
@@ -882,28 +1055,82 @@ def _execute_locked(root: Path, run_id: str, *, provider: str | None, model: str
         resume_staging = data.get("staging")
     else:
         led = ledger_from_checkpoint(state["ledger"])
-    state["phase"] = "executing"
-    _save(root, state)
-    res = execute_plan(
-        plan, provider_name=provider, model_override=model, base_url=base_url,
-        max_tokens=max_tokens, root=root, run_id=state["id"], oracle="off",
-        ledger=led, on_step=lambda _m: None,
-        resume_steps=resume_steps, resume_staging=resume_staging)
-    state = _load(root, run_id)
-    rows = apply_confirmations(state, list(res.get("obligations") or []), root)
+    frozen = None
+    res: dict = {}
+    rows: list[dict] = []
+    for repair_round in range(_REPAIR_MAX + 1):
+        plan = _make_plan(state, price)
+        if frozen is None:
+            frozen = plan.cap_usd
+        elif plan.cap_usd is not None and frozen is not None and plan.cap_usd > frozen + 1e-9:
+            raise HandoffError("cấm tự tăng trần")
+        plan.cap_usd = frozen
+        if state.get("repair"):
+            plan.task_text += "\n\n" + _feedback_block(state["repair"])
+        state["phase"] = "executing"
+        state["ledger"] = _ledger_blob(led)
+        _save(root, state)
+        res = execute_plan(
+            plan, provider_name=provider, model_override=model, base_url=base_url,
+            max_tokens=max_tokens, root=root, run_id=state["id"], oracle="off",
+            ledger=led, on_step=lambda _m: None,
+            resume_steps=resume_steps, resume_staging=resume_staging,
+            book_attempt=state["attempt"])
+        resume_steps = None
+        resume_staging = None
+        state = _load(root, run_id)
+        fresh = list(res.get("obligations") or [])
+        rows = apply_confirmations(state, fresh or list(state.get("obligations") or []), root)
+        if res.get("status") == "stopped_budget":
+            state["ledger"] = _ledger_blob(led)
+            state["obligations"] = rows
+            state["hold"] = "stopped_budget"
+            state["want_deliver"] = False
+            state["phase"] = "executing"
+            state["staging"] = str(res.get("staging") or state.get("staging") or "")
+            _save(root, state)
+            body = _annotate(state, rows, "\n".join([
+                "bàn giao: chặn — stopped_budget",
+                _phase_line(state), _cost_line(state),
+            ]))
+            _write_table(root, run_id, body)
+            return rows, body, 3
+        targets = _repair_targets(rows)
+        if res.get("status") in ("error", "blocked") or not targets or repair_round >= _REPAIR_MAX:
+            break
+        state["history"].append({
+            "attempt": state["attempt"],
+            "phase": "failed",
+            "cost_usd": round(float(led.total_usd), 6),
+        })
+        for note in targets:
+            state["repair"].append({
+                "criterion_id": note["criterion_id"],
+                "delta": note["delta"],
+                "evidence": note["evidence"],
+                "attempt": state["attempt"],
+            })
+        state["attempt"] += 1
+        state["ledger"] = _ledger_blob(led)
+        state["obligations"] = rows
+        state["manifest"] = None
+        _save(root, state)
     criteria_line, criteria_code = _delivery(rows)
     team_status = res.get("status") or "error"
-    if team_status == "ok":
-        status, code = criteria_line, criteria_code
-        deliver = criteria_code == 0
-    elif res.get("hold") == "needs_confirmation" and team_status == "withheld":
+    # PASS của verifier không miễn validator. deliver chỉ theo hàng tiêu chí.
+    if team_status == "ok" or (
+            res.get("hold") == "needs_confirmation" and team_status == "withheld"):
         status, code = criteria_line, criteria_code
         deliver = criteria_code == 0
     else:
         status, code = f"bàn giao: chặn — {team_status}", 3
         deliver = False
+    if res.get("verifier_verdict") == "PASS" and criteria_code != 0:
+        deliver = False
     if not deliver and res.get("fail_reason"):
         status += " — " + str(res["fail_reason"])
+    if state.get("autonomy") == "walk-away" and criteria_code != 0:
+        deliver = False
     return _record(root, state, res, led, rows, status, code, deliver)
 
 
@@ -912,6 +1139,7 @@ def render_table(request: str, rows: list[dict]) -> str:
     labels = {
         "verified": "validator đã kiểm",
         "user_confirmed": "người dùng xác nhận",
+        "direct": "chạy trực tiếp",
         "needs_confirmation": "chưa chứng minh",
         "pending": "chưa cấp lệnh",
         "failed": "validator không đạt",
@@ -946,9 +1174,92 @@ def _price(raw: str | None):
     return left, right
 
 
+def _queue_items(root: Path) -> list[tuple[dict, list[str]]]:
+    items = []
+    for folder in _run_folders(root):
+        state = _load_any(root, folder.name)
+        if state is None or state.get("phase") == "delivered":
+            continue
+        reasons: list[str] = []
+        if state.get("phase") == "awaiting_grant":
+            reasons.append("bị chặn: chưa cấp lệnh")
+        for row in state.get("obligations") or []:
+            if row.get("state") in ("needs_confirmation", "blocked", "pending"):
+                reasons.append(
+                    f"{row.get('state')}: {row.get('criterion_id')} — "
+                    f"{row.get('reason') or row.get('does_not_prove') or ''}"
+                )
+        if state.get("phase") == "awaiting_confirmation" and not reasons:
+            reasons.append("chờ xác nhận")
+        if state.get("phase") not in ("awaiting_confirmation", "awaiting_grant") and not reasons:
+            continue
+        if reasons:
+            items.append((state, reasons))
+    return items
+
+
+def _accept_queued(root: Path, state: dict) -> int:
+    if state.get("phase") != "awaiting_confirmation":
+        return 0
+    taken = 0
+    for row in list(state.get("obligations") or []):
+        if row.get("state") != "needs_confirmation" or row.get("kind") != "manual":
+            continue
+        artifact = ""
+        for name in state["brief"].get("deliverables") or []:
+            if _artifact_file(root, state, str(name)):
+                artifact = str(name)
+                break
+        if not artifact:
+            continue
+        confirm(root, state["id"], row["criterion_id"], artifact)
+        taken += 1
+    if taken:
+        settle(root, state["id"])
+    return taken
+
+
+def cmd_box(args) -> int:
+    """Hàng đợi bàn giao. Một lần gọi --accept là một thao tác người dùng."""
+    root = Path(getattr(args, "cwd", None) or ".").resolve()
+    pull = getattr(args, "pull", None)
+    accept = getattr(args, "accept", None)
+    items = _queue_items(root)
+    if pull:
+        chosen = [item for item in items if item[0]["id"] == pull]
+        if not chosen:
+            print(f"không có {pull} trong hàng đợi")
+            return 2
+        state, reasons = chosen[0]
+        print(f"{state['id']} {state['phase']}")
+        print("\n".join(reasons))
+        return 0
+    if accept is not None:
+        chosen = items if accept in ("*", "all") else [item for item in items if item[0]["id"] == accept]
+        if accept not in ("*", "all") and not chosen:
+            print(f"không có {accept} trong hàng đợi")
+            return 2
+        taken = 0
+        for state, _reasons in chosen:
+            taken += _accept_queued(root, state)
+        print(f"duyệt lô: {taken}")
+        return 0
+    if not items:
+        print("hàng đợi trống")
+        return 0
+    print("hàng đợi:")
+    for state, reasons in items:
+        print(f"- {state['id']} {state['phase']}")
+        for reason in reasons:
+            print(f"  {reason}")
+    return 0
+
+
 def cmd_giao(args) -> int:
     root = Path(getattr(args, "cwd", None) or ".").resolve()
     run_id = getattr(args, "run", None)
+    if getattr(args, "task", None) == "box" and not run_id:
+        return cmd_box(args)
     changed = getattr(args, "change", None)
     if run_id and changed:
         try:
@@ -977,6 +1288,10 @@ def cmd_giao(args) -> int:
                         print("chưa duyệt phiếu — không chạy" if not state.get("approved")
                               else "duyệt cũ hết hiệu lực vì phiếu đã đổi")
                         return 8
+                if getattr(args, "autonomy", None):
+                    _chosen, note = apply_autonomy(root, run_id, args.autonomy)
+                    if note:
+                        print(note)
                 for cmd in getattr(args, "grant", None) or []:
                     remember_grant(root, run_id, cmd)
                 if getattr(args, "retry", False):
@@ -1028,8 +1343,13 @@ def cmd_giao(args) -> int:
                      ledger=_ledger_blob(led))
     if getattr(args, "approve_brief", False):
         state = approve(root, state["id"])
+    note = ""
+    if getattr(args, "autonomy", None):
+        state, note = apply_autonomy(root, state["id"], args.autonomy)
     print(preview(state["brief"], state["id"]))
     print(f"Hash phiếu: {state['brief_hash']}")
+    if note:
+        print(note)
     if state.get("previous"):
         print(f"Nối với run cũ: {state['previous']}")
         try:
@@ -1038,4 +1358,14 @@ def cmd_giao(args) -> int:
             old = {}
         if old.get("grants"):
             print("Không mang lệnh đã cấp của run cũ sang.")
+    if getattr(args, "approve_brief", False) and state.get("autonomy") in ("walk-away", "direct"):
+        for cmd in getattr(args, "grant", None) or []:
+            remember_grant(root, state["id"], cmd)
+        _rows, body, code = execute(
+            root, state["id"], provider=getattr(args, "provider", None),
+            model=model, base_url=getattr(args, "base_url", None),
+            max_tokens=int(getattr(args, "max_tokens", 4096) or 4096),
+            price=_price(getattr(args, "price_in", None)))
+        print(body)
+        return code
     return 0

@@ -800,6 +800,11 @@ def build_parser() -> argparse.ArgumentParser:
     gx.add_argument("--max-tokens", dest="max_tokens", type=int, default=4096)
     gx.add_argument("--price-in", dest="price_in", default=None,
                     help="giá USD mỗi triệu token, dạng IN,OUT")
+    gx.add_argument("--autonomy", choices=["watch", "walk-away", "direct"], default=None,
+                    help="nấc tự chủ; mặc định watch, code quyết, không phải model")
+    gx.add_argument("--accept", nargs="?", const="*", default=None,
+                    help="với `giao box`: duyệt một run hoặc cả lô")
+    gx.add_argument("--pull", default=None, help="với `giao box`: lôi một run ra xem lý do")
     gx.set_defaults(func=cmd_giao)
 
     from .intake import cmd_brief

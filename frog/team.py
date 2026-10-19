@@ -720,7 +720,8 @@ def execute_plan(plan: TeamPlan, *, provider_name: str | None = None,
                  run_id: str | None = None,
                  resume_steps: list | None = None,
                  resume_staging: str | None = None,
-                 record: bool = True) -> dict:
+                 record: bool = True,
+                 book_attempt: int = 1) -> dict:
     """Chạy kế hoạch. Trả về bản ghi đầy đủ. KHÔNG tự ghi ra đĩa.
 
     `workers > 1` + làn 2: N worker chạy SONG SONG, rồi N verifier chạy song song.
@@ -758,6 +759,7 @@ def execute_plan(plan: TeamPlan, *, provider_name: str | None = None,
         price = getattr(plan, "declared_price", None)
         write_checkpoint(root, {
             "id": run_id,
+            "attempt": book_attempt,
             "next_index": len(steps),
             "task": plan.task_text,
             "steps": steps,

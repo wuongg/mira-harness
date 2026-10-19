@@ -601,3 +601,17 @@ Wheel `frog_harness-2.5.0` cài vào venv trống: `len(frog.config.PRICES)` là
 SHA cuối `0fac545c9bf25537934bd6142c86f8026623fef5`. CI push xanh mọi job: https://github.com/wuongg/mira-harness/actions/runs/38914591773
 
 Bước tiếp theo không làm trong đợt này: chạy V01, V05, V10 bằng model thật. Cần duyệt ngân sách riêng. Trần đã xin trước là $2.
+
+## AUTONOMY
+
+Nhánh `agent/autonomy-repair-2026-10-16` tách từ `70e09b5`. `origin/main` vẫn là `959e041` và chưa có rename, nên đợt này không merge.
+
+Đo bằng `frog giao` và provider giả, cùng 5 nhiệm vụ (3 tiêu chí tự động, 1 tiêu chí thủ công, 1 run bị chặn vì chưa cấp lệnh). Selftest 586 tests, OK, skipped=2.
+
+| | watch | walk-away |
+| --- | --- | --- |
+| Thao tác CLI | 11 | 7 |
+| Lượt người sau khi đưa nhiệm vụ, trên 5 run | 1.20 | 0.40 |
+| Tiêu chí tự động đã được validator chốt | 1.00 (3/3) | 1.00 (3/3) |
+
+Run bị chặn không vào mẫu tự chốt vì validator chưa chạy. `frog giao box --accept` là một thao tác cho cả lô. `box --pull` là một thao tác để xem run bị chặn.

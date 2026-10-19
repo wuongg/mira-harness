@@ -673,9 +673,16 @@ def seal_inflight(view: dict) -> dict:
 
 
 def note_runs(book: dict, task_id: str, views: list[dict]) -> None:
+    """Sổ cái của một run là tích lũy. Attempt sau thay attempt trước, không cộng thêm."""
     slot = book.setdefault(task_id, {})
     for view in views:
         key = f"{view['run_id']}:{view['attempt']}"
+        siblings = [old for old in slot.values() if old.get("run_id") == view["run_id"]]
+        if any(_richer(old, view) and not _richer(view, old) for old in siblings):
+            continue
+        for old_key in [name for name, old in slot.items()
+                        if old.get("run_id") == view["run_id"] and name != key]:
+            slot.pop(old_key, None)
         old = slot.get(key)
         if old is None or _richer(view, old):
             slot[key] = view
