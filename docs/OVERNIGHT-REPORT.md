@@ -659,4 +659,4 @@ Owner chọn một phương án rồi ghi `DUYỆT NGÂN SÁCH` thì W5 mới ch
 
 W2, W3, W4 đã ở main từ trước mục này. Không làm lại.
 
-Selftest trên máy làm việc, trước commit: Ran 586, OK, skipped=2. Clone sạch và CI ghi sau khi có SHA.
+Selftest trên máy làm việc, trước commit: Ran 586, OK, skipped=2. Selftest clone sach \c5a9ea5\: Ran 586, OK, skipped=2. CI nhánh 11/11 success: https://github.com/wuongg/mira-harness/actions/runs/39211126100
