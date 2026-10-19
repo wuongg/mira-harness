@@ -119,7 +119,6 @@ def _state(root: Path, run_id: str) -> dict:
 
 def _workspace(root: Path) -> None:
     (root / "calc.py").write_text("def add(a, b):\n    return a - b\n", encoding="utf-8")
-    (root / "report.md").write_text("", encoding="utf-8")
 
 
 class RepairAutonomyTest(unittest.TestCase):
@@ -234,11 +233,12 @@ class RepairAutonomyTest(unittest.TestCase):
             (root / "report.md").unlink()
             second = _frog(root, self.base, ["Ghi DOC_REPORT report.md", "--approve-brief", "--autonomy", "direct"])
             self.assertNotEqual(second.returncode, 0, second.stdout + second.stderr)
-            self.assertIn("chờ người chọn file", second.stdout)
+            self.assertIn("bàn giao: chưa", second.stdout)
             other = _run_id(second.stdout)
             saved = _state(root, other)
             self.assertFalse(saved["promoted"])
-            self.assertEqual(saved["brief"]["deliverables"], ["report.md"])
+            self.assertEqual(saved["phase"], "awaiting_confirmation")
+            self.assertEqual(saved["direct_from"], run_id)
             self.assertFalse((root / "report.md").exists())
 
     def test_walk_away_it_thao_tac_hon_watch(self):

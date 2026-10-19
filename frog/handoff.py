@@ -18,7 +18,7 @@ import time
 import uuid
 from pathlib import Path
 
-from .intake import LABEL, brief_hash, code_proposed_commands, run_intake, validate_brief, workspace_files
+from .intake import LABEL, brief_hash, code_proposed_commands, run_intake, validate_brief
 from .obligations import criterion_commands, judge_obligations, validate_criteria
 
 _AUTO = {"contains", "json_keys", "shape", "behavior"}
@@ -95,7 +95,7 @@ def _history_ok(item) -> bool:
             and isinstance(item["cost_usd"], (int, float)))
 
 
-_EXTRAS = ("autonomy", "repair", "direct_from", "normalization", "pending_files")
+_EXTRAS = ("autonomy", "repair", "direct_from", "normalization")
 _AUTONOMY = {"watch", "walk-away", "direct"}
 _REPAIR_MAX = 2
 
@@ -236,12 +236,6 @@ def _load(root: Path, run_id: str) -> dict:
     if not isinstance(filled, list) or not all(isinstance(item, str) for item in filled):
         raise HandoffError("state hỏng: sai schema")
     state["normalization"] = filled
-    pending = extra.get("pending_files")
-    if pending is None:
-        pending = ""
-    if not isinstance(pending, str):
-        raise HandoffError("state hỏng: sai schema")
-    state["pending_files"] = pending
     return state
 
 
@@ -1128,8 +1122,6 @@ def _execute_locked(root: Path, run_id: str, *, provider: str | None, model: str
                     base_url: str | None, max_tokens: int, price,
                     resume: bool = False) -> tuple[list[dict], str, int]:
     state = _load(root, run_id)
-    if state.get("pending_files"):
-        return [], "chờ người chọn file: " + state["pending_files"] + "\n" + _phase_line(state), 4
     if state.get("hold") == "stopped_budget":
         return _view(root, state)
     if state["phase"] == "executing" and (
@@ -1445,10 +1437,8 @@ def cmd_giao(args) -> int:
         print("thiếu key cho intake")
         return 8
     led = Ledger()
-    files = workspace_files(root)
     got = run_intake(task, prov, led, clarify_max=0, ask=lambda _q: "",
-                     model=model, declared_price=_price(getattr(args, "price_in", None)),
-                     files=files)
+                     model=model, declared_price=_price(getattr(args, "price_in", None)))
     if not got["ok"] or got["brief"] is None:
         failed = root / ".frog" / "runs" / "intake-failed"
         failed.mkdir(parents=True, exist_ok=True)
@@ -1463,28 +1453,6 @@ def cmd_giao(args) -> int:
         return 8
     state = open_run(root, task, got["brief"], previous=getattr(args, "previous", None),
                      ledger=_ledger_blob(led))
-    trace = _dir(root, state["id"]) / "trace.jsonl"
-    with trace.open("a", encoding="utf-8") as handle:
-        handle.write(json.dumps({
-            "kind": "workspace_files",
-            "source": "workspace",
-            "files": files,
-        }, ensure_ascii=False) + "\n")
-        if got.get("mapping"):
-            handle.write(json.dumps({
-                "kind": "deliverable_map",
-                "map": got["mapping"],
-                "text": "khớp deliverable",
-            }, ensure_ascii=False) + "\n")
-    if got.get("pending"):
-        state["pending_files"] = str(got["pending"])
-        _save(root, state)
-        with trace.open("a", encoding="utf-8") as handle:
-            handle.write(json.dumps({
-                "kind": "pending_files",
-                "text": state["pending_files"],
-            }, ensure_ascii=False) + "\n")
-        print(state["pending_files"])
     filled = list(got.get("normalization") or [])
     proposed = list(got.get("proposed") or [])
     if proposed:

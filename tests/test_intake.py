@@ -337,46 +337,6 @@ class IntakeTier3Test(unittest.TestCase):
             self.assertEqual(held["grants"], [])
             self.assertEqual(held["phase"], "awaiting_grant")
 
-    def test_cau_khop_file_co_validator_dung_path(self):
-        from frog.intake import run_intake
-        from frog.team import Ledger
-        raw = _brief(
-            deliverables=["Tệp label.txt chứa nội dung \"BAN NHAP\"."],
-            acceptance_criteria=["Nội dung tệp là \"BAN NHAP\"."])
-        prov = _Prov([json.dumps(raw)])
-        got = run_intake("ghi nhan", prov, Ledger(), clarify_max=0, ask=lambda _q: "",
-                         model="claude-test", declared_price=(1.0, 1.0),
-                         files=["label.txt"])
-        self.assertTrue(got["ok"], got.get("reason"))
-        self.assertEqual(len(prov.systems), 1)
-        self.assertIn("File workspace:\nlabel.txt", prov.users[0])
-        self.assertEqual(got["brief"]["deliverables"], ["label.txt"])
-        self.assertTrue(any(item.startswith("khớp deliverable: ") for item in got["brief"]["assumptions"]))
-        self.assertEqual(got["mapping"], [{
-            "from": "Tệp label.txt chứa nội dung \"BAN NHAP\".",
-            "path": "label.txt",
-        }])
-        row = got["brief"]["acceptance_criteria"][0]
-        self.assertEqual(row["validator"]["path"], "label.txt")
-        self.assertEqual(row["validator"]["must_contain"], ["BAN NHAP"])
-
-    def test_khong_file_khop_thi_hoi_khong_bia(self):
-        from frog.intake import run_intake
-        from frog.team import Ledger
-        raw = _brief(deliverables=["Tệp ghost.py chua code"])
-        prov = _Prov([json.dumps(raw), json.dumps(raw)])
-        got = run_intake("sua", prov, Ledger(), clarify_max=0, ask=lambda _q: "",
-                         model="claude-test", declared_price=(1.0, 1.0),
-                         files=["label.txt"])
-        self.assertTrue(got["ok"], got.get("reason"))
-        self.assertEqual(len(prov.systems), 2)
-        self.assertIn("PHẢN HỒI SCHEMA", prov.users[1])
-        self.assertIn("label.txt", prov.users[1])
-        self.assertEqual(got["brief"]["deliverables"], ["Tệp ghost.py chua code"])
-        self.assertNotIn("ghost.py", got["brief"]["deliverables"])
-        self.assertIn("label.txt", got["pending"])
-        self.assertEqual(got["proposed"], [])
-
     def test_schema_sai_duoc_sua_mot_lan(self):
         from frog.intake import run_intake
         from frog.team import Ledger

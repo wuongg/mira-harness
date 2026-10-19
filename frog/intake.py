@@ -26,7 +26,6 @@ INTAKE_SYSTEM = (
     "Không được trả surface, lane, floor, labels, records, dollars, roles hay gate. "
     "acceptance_criteria là danh sách chuỗi. Mỗi chuỗi là một tiêu chí chữ. "
     "Không viết validator. "
-    "deliverables chỉ được lấy từ danh sách file workspace đi kèm, đúng đường dẫn, không bịa path. "
     "Nếu câu còn mơ hồ, đặt câu hỏi trong questions. Không tự bịa tiêu chí khi chưa đủ dữ liệu."
 )
 
@@ -251,68 +250,6 @@ def _infer_validator(text: str, names: list[str]) -> dict | None:
     return None
 
 
-def workspace_files(root: Path) -> list[str]:
-    """Tên file tương đối. Không đọc nội dung."""
-    root = Path(root)
-    if not root.is_dir():
-        return []
-    found = []
-    for path in sorted(root.rglob("*")):
-        if not path.is_file():
-            continue
-        rel = path.relative_to(root).as_posix()
-        parts = Path(rel).parts
-        if any(part.startswith(".") or part == "__pycache__" for part in parts):
-            continue
-        found.append(rel)
-    return found
-
-
-def match_deliverable(text: str, files: list[str]) -> str | None:
-    """exact rồi fuzzy. Nhiều ứng viên thì không chọn."""
-    raw = text.replace("\\", "/").strip()
-    if raw in files:
-        return raw
-    by_base: dict[str, list[str]] = {}
-    for rel in files:
-        by_base.setdefault(Path(rel).name, []).append(rel)
-    if raw in by_base and len(by_base[raw]) == 1:
-        return by_base[raw][0]
-    hits = [rel for rel in files if Path(rel).name and Path(rel).name in raw]
-    if len(hits) == 1:
-        return hits[0]
-    return None
-
-
-def bind_deliverables(obj: dict, files: list[str]) -> tuple[list[tuple[str, str]], list[str]]:
-    """Đổi câu chữ thành path trong danh sách. Không bịa path ngoài danh sách."""
-    mapped = []
-    missing = []
-    rewritten = []
-    for item in obj.get("deliverables") or []:
-        if not isinstance(item, str):
-            missing.append(str(item))
-            rewritten.append(item)
-            continue
-        path = match_deliverable(item, files)
-        if path is None:
-            missing.append(item)
-            rewritten.append(item)
-            continue
-        mapped.append((item, path))
-        rewritten.append(path)
-    if missing:
-        return mapped, missing
-    obj["deliverables"] = rewritten
-    assumptions = list(obj.get("assumptions") or [])
-    for old, path in mapped:
-        note = f"khớp deliverable: {old} -> {path}"
-        if note not in assumptions:
-            assumptions.append(note)
-    obj["assumptions"] = assumptions
-    return mapped, []
-
-
 def propose_validators(obj: dict) -> list[str]:
     """Gắn validator suy được. Tiêu chí không suy được giữ manual."""
     from .obligations import validate_criteria
@@ -403,24 +340,12 @@ def _questions(obj: dict) -> list[str]:
     return [item.strip() for item in obj.get("questions") or [] if isinstance(item, str) and item.strip()]
 
 
-def _intake_user(task: str, files: list[str] | None, extra: str = "") -> str:
-    lines = [task]
-    if files is not None:
-        lines.append("File workspace:")
-        lines.extend(files or ["(không có file)"])
-    if extra:
-        lines.append(extra)
-    return "\n".join(lines)
-
-
 def run_intake(task: str, prov, ledger: Ledger, *, clarify_max: int, ask, model: str,
-               declared_price: tuple[float, float] | None = None,
-               files: list[str] | None = None) -> dict:
+               declared_price: tuple[float, float] | None = None) -> dict:
     """Hỏi cho đến khi schema đủ hoặc hết trần. Hết trần mà schema hỏng thì dừng."""
-    user = _intake_user(task, files)
+    user = task
     asked = 0
     schema_repairs = 0
-    file_repairs = 0
     filled: list[str] = []
     while True:
         text, meta = charged_call(ledger, "intake", model, prov, INTAKE_SYSTEM, user,
@@ -438,7 +363,7 @@ def run_intake(task: str, prov, ledger: Ledger, *, clarify_max: int, ask, model:
         if not isinstance(obj, dict):
             if schema_repairs < 1:
                 schema_repairs += 1
-                user = _intake_user(task, files, "PHẢN HỒI SCHEMA: intake không trả JSON")
+                user = task + "\nPHẢN HỒI SCHEMA: intake không trả JSON"
                 continue
             return {"ok": False, "reason": "intake không trả JSON", "brief": None,
                     "asked": asked, "normalization": filled}
@@ -448,12 +373,12 @@ def run_intake(task: str, prov, ledger: Ledger, *, clarify_max: int, ask, model:
         if pending and asked < clarify_max:
             answer = ask(pending[0])
             asked += 1
-            user = _intake_user(task, files, "Người dùng trả lời: " + (answer or ""))
+            user = task + "\nNgười dùng trả lời: " + (answer or "")
             continue
         if not ok:
             if schema_repairs < 1:
                 schema_repairs += 1
-                user = _intake_user(task, files, "PHẢN HỒI SCHEMA: " + why)
+                user = task + "\nPHẢN HỒI SCHEMA: " + why
                 continue
             return {"ok": False, "reason": why, "brief": obj, "asked": asked,
                     "normalization": filled}
@@ -462,30 +387,9 @@ def run_intake(task: str, prov, ledger: Ledger, *, clarify_max: int, ask, model:
             assumptions.append("Hết trần hỏi. Dùng brief hiện có.")
             obj = dict(obj)
             obj["assumptions"] = assumptions
-        mapping: list[tuple[str, str]] = []
-        if files is not None:
-            mapping, missing = bind_deliverables(obj, files)
-            if missing:
-                shown = ", ".join(files) if files else "(không có file)"
-                if file_repairs < 1:
-                    file_repairs += 1
-                    user = _intake_user(
-                        task, files,
-                        "PHẢN HỒI SCHEMA: deliverable không khớp file workspace. "
-                        "Chọn lại từ danh sách: " + shown)
-                    continue
-                question = "Chọn deliverable từ file workspace: " + shown
-                obj["questions"] = list(obj.get("questions") or [])
-                if question not in obj["questions"]:
-                    obj["questions"].append(question)
-                return {"ok": True, "reason": "", "brief": obj, "asked": asked,
-                        "normalization": filled, "proposed": [], "pending": question,
-                        "files": list(files), "mapping": []}
         proposed = propose_validators(obj)
         return {"ok": True, "reason": "", "brief": obj, "asked": asked,
-                "normalization": filled, "proposed": proposed,
-                "files": list(files) if files is not None else None,
-                "mapping": [{"from": old, "path": path} for old, path in mapping]}
+                "normalization": filled, "proposed": proposed}
 
 
 PROMPT_SYSTEM = (

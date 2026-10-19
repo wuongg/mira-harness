@@ -194,7 +194,6 @@ class GiaoExecuteTest(unittest.TestCase):
         try:
             with tempfile.TemporaryDirectory() as tmp:
                 root = Path(tmp)
-                (root / "rows.json").write_text("[]\n", encoding="utf-8")
                 opened = _frog(root, base, ["Ghi rows.json", "--approve-brief"])
                 self.assertEqual(opened.returncode, 0, opened.stderr + opened.stdout)
                 run = _id(opened.stdout)
@@ -228,13 +227,12 @@ class GiaoExecuteTest(unittest.TestCase):
         try:
             with tempfile.TemporaryDirectory() as tmp:
                 root = Path(tmp)
-                (root / "report.md").write_text("", encoding="utf-8")
                 opened = _frog(root, base, ["Ghi report.md", "--approve-brief",
                                             "--autonomy", "walk-away"])
                 self.assertNotEqual(opened.returncode, 0, opened.stdout + opened.stderr)
                 self.assertIn("bàn giao: chưa", opened.stdout)
                 self.assertNotIn("bàn giao dựa trên verifier", opened.stdout)
-                self.assertEqual((root / "report.md").read_text(encoding="utf-8"), "")
+                self.assertFalse((root / "report.md").exists())
         finally:
             srv.shutdown()
             srv.server_close()
@@ -260,14 +258,13 @@ class GiaoExecuteTest(unittest.TestCase):
         try:
             with tempfile.TemporaryDirectory() as tmp:
                 root = Path(tmp)
-                (root / "report.md").write_text("", encoding="utf-8")
                 opened = _frog(root, base, ["Ghi report.md", "--approve-brief"])
                 run = _id(opened.stdout)
                 ran = _frog(root, base, ["--run", run])
                 self.assertNotEqual(ran.returncode, 0)
                 self.assertIn("bàn giao: chưa", ran.stdout)
                 self.assertNotIn("bàn giao dựa trên verifier", ran.stdout)
-                self.assertEqual((root / "report.md").read_text(encoding="utf-8"), "")
+                self.assertFalse((root / "report.md").exists())
         finally:
             srv.shutdown()
             srv.server_close()
@@ -293,7 +290,6 @@ class GiaoExecuteTest(unittest.TestCase):
         try:
             with tempfile.TemporaryDirectory() as tmp:
                 root = Path(tmp)
-                (root / "report.md").write_text("", encoding="utf-8")
                 opened = _frog(root, base, ["Ghi report.md", "--approve-brief"])
                 run = _id(opened.stdout)
                 ran = _frog(root, base, ["--run", run])
@@ -301,7 +297,7 @@ class GiaoExecuteTest(unittest.TestCase):
                 self.assertIn("verified", ran.stdout)
                 self.assertIn("needs_confirmation", ran.stdout)
                 self.assertIn("bàn giao: chưa", ran.stdout)
-                self.assertEqual((root / "report.md").read_text(encoding="utf-8"), "")
+                self.assertFalse((root / "report.md").exists())
                 staged = list((root / ".frog" / "staging").glob("**/*.withheld/report.md"))
                 self.assertTrue(staged, ran.stdout)
                 self.assertIn("Nguon:", staged[0].read_text(encoding="utf-8"))
@@ -394,7 +390,7 @@ class GiaoExecuteTest(unittest.TestCase):
     def test_v09_ban_nhap_khong_ban_giao_du_verifier_pass(self):
         brief = {
             "goal": "Ghi noi dung BAN NHAP vao tep label.txt.",
-            "deliverables": ["Tệp ghost.py chua code"],
+            "deliverables": ["Tệp label.txt chứa nội dung \"BAN NHAP\"."],
             "acceptance_criteria": [
                 "Tệp có tên chính xác là label.txt.",
                 "Nội dung tệp là \"BAN NHAP\".",
@@ -408,21 +404,18 @@ class GiaoExecuteTest(unittest.TestCase):
         try:
             with tempfile.TemporaryDirectory() as tmp:
                 root = Path(tmp)
-                (root / "label.txt").write_text("BAN CUOI\n", encoding="utf-8")
                 opened = _frog(root, base, [
                     "Ghi label.txt là BAN NHAP", "--approve-brief", "--autonomy", "walk-away"])
                 run = _id(opened.stdout)
                 self.assertNotEqual(opened.returncode, 0, opened.stdout + opened.stderr)
-                self.assertIn("chờ người chọn file", opened.stdout)
+                self.assertIn("bàn giao: chưa", opened.stdout)
                 self.assertNotIn("bàn giao dựa trên verifier", opened.stdout)
-                self.assertFalse((root / "ghost.py").exists())
-                self.assertEqual((root / "label.txt").read_text(encoding="utf-8"), "BAN CUOI\n")
+                self.assertFalse((root / "label.txt").exists())
                 state = json.loads((root / ".frog" / "runs" / run / "handoff.json").read_text(encoding="utf-8"))
+                self.assertEqual(state["phase"], "awaiting_confirmation")
                 self.assertFalse(state["promoted"])
-                self.assertIn("pending_files", state)
-                self.assertEqual(state["brief"]["deliverables"], ["Tệp ghost.py chua code"])
-                trace = (root / ".frog" / "runs" / run / "trace.jsonl").read_text(encoding="utf-8")
-                self.assertIn("\"source\": \"workspace\"", trace)
+                self.assertTrue(state.get("obligations"))
+                self.assertNotIn("verifier_accepted", json.dumps(state["obligations"], ensure_ascii=False))
         finally:
             srv.shutdown()
             srv.server_close()
