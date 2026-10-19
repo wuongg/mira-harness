@@ -260,6 +260,67 @@ class IntakeTier3Test(unittest.TestCase):
         self.assertFalse(ok)
         self.assertIn("chuỗi", why)
 
+    def test_tieu_chi_may_thieu_validator_bi_tu_choi(self):
+        from frog.intake import brief_hash, validate_brief
+        brief = _brief(
+            deliverables=["sum_to.py"],
+            acceptance_criteria=["sum_to(3) == 6"])
+        ok, why = validate_brief(brief)
+        self.assertFalse(ok)
+        self.assertIn("validator", why)
+        subjective = _brief(
+            deliverables=["sum_to.py"],
+            acceptance_criteria=["giong van de doc"])
+        ok, why = validate_brief(subjective)
+        self.assertTrue(ok, why)
+        good = _brief(
+            deliverables=["sum_to.py"],
+            acceptance_criteria=[{
+                "schema": 1, "id": "sum", "text": "sum_to(3) == 6",
+                "validator": {
+                    "kind": "contains", "path": "sum_to.py",
+                    "must_contain": ["range(n + 1)"], "must_not_contain": [],
+                },
+            }])
+        ok, why = validate_brief(good)
+        self.assertTrue(ok, why)
+        outside = _brief(
+            deliverables=["sum_to.py"],
+            acceptance_criteria=[{
+                "schema": 1, "id": "sum", "text": "file khac",
+                "validator": {
+                    "kind": "contains", "path": "other.py",
+                    "must_contain": ["x"], "must_not_contain": [],
+                },
+            }])
+        ok, why = validate_brief(outside)
+        self.assertFalse(ok)
+        self.assertIn("ngoài deliverables", why)
+        changed = json.loads(json.dumps(good))
+        changed["acceptance_criteria"][0]["validator"]["must_contain"] = ["range(n)"]
+        self.assertNotEqual(brief_hash(good), brief_hash(changed))
+
+    def test_schema_mot_luot_bao_thieu_validator(self):
+        from frog.intake import run_intake
+        from frog.team import Ledger
+        bad = _brief(deliverables=["sum_to.py"], acceptance_criteria=["sum_to(3) == 6"])
+        good = _brief(
+            deliverables=["sum_to.py"],
+            acceptance_criteria=[{
+                "schema": 1, "id": "sum", "text": "sum_to(3) == 6",
+                "validator": {
+                    "kind": "contains", "path": "sum_to.py",
+                    "must_contain": ["range(n + 1)"], "must_not_contain": [],
+                },
+            }])
+        prov = _Prov([json.dumps(bad), json.dumps(good)])
+        got = run_intake("sua sum", prov, Ledger(), clarify_max=0, ask=lambda _q: "",
+                         model="claude-test", declared_price=(1.0, 1.0))
+        self.assertTrue(got["ok"], got.get("reason"))
+        self.assertEqual(len(prov.systems), 2)
+        self.assertIn("PHẢN HỒI SCHEMA", prov.users[1])
+        self.assertIn("validator", prov.users[1])
+
     def test_schema_sai_duoc_sua_mot_lan(self):
         from frog.intake import run_intake
         from frog.team import Ledger

@@ -6,7 +6,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from frog.handoff import render_table
+from frog.handoff import render_table, verifier_delivery
 from frog.obligations import judge_obligations
 from frog.team import promote_staging, staging_prompt, withhold_staging
 
@@ -38,6 +38,25 @@ def _pair(source_body: str, staged_body: str):
     (source / "sum_to.py").write_text(source_body, encoding="utf-8")
     (staging / "sum_to.py").write_text(staged_body, encoding="utf-8")
     return tmp, source, staging
+
+
+class VerifierDeliveryTest(unittest.TestCase):
+    def test_hash_lech_hoac_watch_khong_ban_giao(self):
+        manual = {"kind": "manual", "state": "needs_confirmation", "criterion_verified": False}
+        verified = {"kind": "contains", "state": "verified", "criterion_verified": True}
+        failed = {"kind": "contains", "state": "failed", "criterion_verified": False}
+        self.assertTrue(verifier_delivery(
+            [verified, manual], "walk-away", "PASS", "abc", "abc"))
+        self.assertTrue(verifier_delivery(
+            [verified, manual], "direct", "PASS", "abc", "abc"))
+        self.assertFalse(verifier_delivery(
+            [verified, manual], "watch", "PASS", "abc", "abc"))
+        self.assertFalse(verifier_delivery(
+            [verified, manual], "walk-away", "PASS", "abc", "def"))
+        self.assertFalse(verifier_delivery(
+            [failed, manual], "walk-away", "PASS", "abc", "abc"))
+        self.assertFalse(verifier_delivery(
+            [verified, manual], "walk-away", "FAIL", "abc", "abc"))
 
 
 class StagedCheckTest(unittest.TestCase):

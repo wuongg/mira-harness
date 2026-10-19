@@ -1300,6 +1300,9 @@ def execute_plan(plan: TeamPlan, *, provider_name: str | None = None,
             hold = "needs_confirmation" if states == {"needs_confirmation"} else "unproven"
             status, fail_reason = "withheld", "còn tiêu chí chưa có bằng chứng"
 
+    staged_hash = ""
+    if getattr(plan, "stage_worker", False) and staging_box[0] is not None:
+        staged_hash = tree_hash(staging_box[0])
     staging_out = None
     if staging_box[0] is not None:
         if status != "ok":
@@ -1316,6 +1319,7 @@ def execute_plan(plan: TeamPlan, *, provider_name: str | None = None,
             "steps": steps, "ledger": ledger.summary(), "plan": plan.as_dict(),
             "depth": depth, "nested": any(s.get("sub") for s in steps),
             "staging": staging_out, "staging_evidence": evidence,
+            "staged_hash": staged_hash,
             "promoted": [], "promote_audit": [],
             "role_prompts": getattr(plan, "role_prompts", None),
             "brief_hash": getattr(plan, "brief_hash", None),

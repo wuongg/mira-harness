@@ -53,6 +53,10 @@ class _Stub(BaseHTTPRequestHandler):
             call = {"name": "write_file", "args": {
                 "path": "report.md", "content": "Nguon: so tay\n"}}
             text = "<tool>" + json.dumps(call, ensure_ascii=False) + "</tool>"
+        elif "sum_to.py" in blob:
+            call = {"name": "edit_file", "args": {
+                "path": "sum_to.py", "old": "range(n)", "new": "range(n + 1)"}}
+            text = "<tool>" + json.dumps(call, ensure_ascii=False) + "</tool>"
         elif "SAI" in blob:
             call = {"name": "edit_file", "args": {
                 "path": "calc.py", "old": "return a - b", "new": "return 0"}}
@@ -94,6 +98,38 @@ def _frog(root: Path, base: str, args: list[str]) -> subprocess.CompletedProcess
 
 
 class GiaoExecuteTest(unittest.TestCase):
+    def test_validator_di_het_giao_den_promote(self):
+        brief = {
+            "goal": "Sua sum_to",
+            "deliverables": ["sum_to.py"],
+            "acceptance_criteria": [{
+                "schema": 1, "id": "sum", "text": "sum_to(3) == 6",
+                "validator": {
+                    "kind": "contains", "path": "sum_to.py",
+                    "must_contain": ["range(n + 1)"], "must_not_contain": [],
+                },
+            }],
+            "constraints": [], "assumptions": [], "questions": [],
+            "per_role_hints": {"planner": "", "worker": "", "verifier": ""},
+        }
+        srv, base = _serve(brief)
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                (root / "sum_to.py").write_text(
+                    "def sum_to(n):\n    return range(n)\n", encoding="utf-8")
+                opened = _frog(root, base, ["Sửa sum_to.py", "--approve-brief"])
+                self.assertEqual(opened.returncode, 0, opened.stdout + opened.stderr)
+                run = _id(opened.stdout)
+                ran = _frog(root, base, ["--run", run])
+                self.assertEqual(ran.returncode, 0, ran.stdout + ran.stderr)
+                self.assertIn("bàn giao: đủ", ran.stdout)
+                self.assertIn("range(n + 1)", (root / "sum_to.py").read_text(encoding="utf-8"))
+                self.assertIn("kiểm trên bản staged (hash ", ran.stdout)
+        finally:
+            srv.shutdown()
+            srv.server_close()
+
     def test_worker_sua_file_qua_tool(self):
         cmd = shlex.join([sys.executable, "-c", "import calc; print(calc.add(2, 3))"])
         brief = _brief(cmd)
@@ -166,6 +202,73 @@ class GiaoExecuteTest(unittest.TestCase):
             srv.shutdown()
             srv.server_close()
 
+    def test_walk_away_ban_giao_manual_co_nhan(self):
+        brief = {
+            "goal": "Ghi report.md",
+            "deliverables": ["report.md"],
+            "acceptance_criteria": [
+                {
+                    "schema": 1, "id": "src", "text": "bao cao co dong nguon",
+                    "validator": {
+                        "kind": "contains", "path": "report.md",
+                        "must_contain": ["Nguon:"], "must_not_contain": [],
+                    },
+                },
+                {"schema": 1, "id": "tone", "text": "giong van phong de doc"},
+            ],
+            "constraints": [], "assumptions": [], "questions": [],
+            "per_role_hints": {"planner": "", "worker": "", "verifier": ""},
+        }
+        srv, base = _serve(brief)
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                opened = _frog(root, base, ["Ghi report.md", "--approve-brief",
+                                            "--autonomy", "walk-away"])
+                run = _id(opened.stdout)
+                self.assertEqual(opened.returncode, 0, opened.stdout + opened.stderr)
+                self.assertIn("bàn giao dựa trên verifier — chưa xác nhận tay", opened.stdout)
+                self.assertIn("kiểm trên bản staged (hash ", opened.stdout)
+                self.assertIn("Nguon:", (root / "report.md").read_text(encoding="utf-8"))
+                trace = (root / ".frog" / "runs" / run / "trace.jsonl").read_text(encoding="utf-8")
+                self.assertIn("verifier_delivery", trace)
+                self.assertIn("bàn giao dựa trên verifier — chưa xác nhận tay", trace)
+        finally:
+            srv.shutdown()
+            srv.server_close()
+
+    def test_watch_khong_ban_giao_manual(self):
+        brief = {
+            "goal": "Ghi report.md",
+            "deliverables": ["report.md"],
+            "acceptance_criteria": [
+                {
+                    "schema": 1, "id": "src", "text": "bao cao co dong nguon",
+                    "validator": {
+                        "kind": "contains", "path": "report.md",
+                        "must_contain": ["Nguon:"], "must_not_contain": [],
+                    },
+                },
+                {"schema": 1, "id": "tone", "text": "giong van phong de doc"},
+            ],
+            "constraints": [], "assumptions": [], "questions": [],
+            "per_role_hints": {"planner": "", "worker": "", "verifier": ""},
+        }
+        srv, base = _serve(brief)
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                opened = _frog(root, base, ["Ghi report.md", "--approve-brief"])
+                run = _id(opened.stdout)
+                ran = _frog(root, base, ["--run", run])
+                self.assertNotEqual(ran.returncode, 0)
+                self.assertIn("bàn giao: chưa", ran.stdout)
+                self.assertNotIn("bàn giao dựa trên verifier", ran.stdout)
+                self.assertFalse((root / "report.md").exists())
+        finally:
+            srv.shutdown()
+            srv.server_close()
+
     def test_worker_tao_bao_cao(self):
         brief = {
             "goal": "Ghi report.md",
@@ -203,6 +306,22 @@ class GiaoExecuteTest(unittest.TestCase):
                 self.assertIn("người dùng xác nhận", again.stdout)
                 self.assertIn("user_confirmed", again.stdout)
                 self.assertIn("Nguon:", (root / "report.md").read_text(encoding="utf-8"))
+        finally:
+            srv.shutdown()
+            srv.server_close()
+
+    def test_walk_away_validator_fail_khong_ban_giao(self):
+        cmd = shlex.join([sys.executable, "-c", "import calc; print(calc.add(2, 3))"])
+        srv, base = _serve(_brief(cmd))
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                (root / "calc.py").write_text("def add(a, b):\n    return a - b\n", encoding="utf-8")
+                opened = _frog(root, base, ["Sửa calc.py SAI", "--approve-brief",
+                                            "--autonomy", "walk-away"])
+                self.assertNotEqual(opened.returncode, 0, opened.stdout)
+                self.assertNotIn("bàn giao dựa trên verifier", opened.stdout)
+                self.assertIn("return a - b", (root / "calc.py").read_text(encoding="utf-8"))
         finally:
             srv.shutdown()
             srv.server_close()

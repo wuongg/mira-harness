@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from pathlib import Path
 
 from .team import Ledger, _worker_for_disk
@@ -18,7 +19,11 @@ INTAKE_SYSTEM = (
     "Bạn là INTAKE. Trả đúng một object JSON với các khóa goal, deliverables, "
     "acceptance_criteria, constraints, assumptions, questions, per_role_hints. "
     "Không được trả surface, lane, floor, labels, records, dollars, roles hay gate. "
-    "acceptance_criteria là danh sách chuỗi, hoặc object schema 1 gồm id và text. "
+    "acceptance_criteria là danh sách. Tiêu chí kiểm được bằng máy "
+    "(nội dung file, cấu trúc JSON, đuôi file, hoặc hành vi của một deliverable) "
+    "phải là object schema 1 có id, text và validator hợp lệ. "
+    "path của validator phải là một deliverable. "
+    "Chỉ tiêu chí chủ quan mới được để trống validator. "
     "Nếu câu còn mơ hồ, đặt câu hỏi trong questions. Không tự bịa tiêu chí khi chưa đủ dữ liệu."
 )
 
@@ -92,6 +97,37 @@ def validate_brief(obj) -> tuple[bool, str]:
         return False, "gợi ý vai phải là chuỗi"
     if set(hints) != set(HINT_ROLES):
         return False, "per_role_hints phải đúng ba vai"
+    return _check_validators(obj, parsed)
+
+
+def _deliverable_names(value) -> list[str]:
+    names = []
+    for item in value or []:
+        if isinstance(item, str) and item.strip():
+            names.append(item.replace("\\", "/").strip())
+    return names
+
+
+def _machine_checkable(text: str, names: list[str]) -> bool:
+    if any(name and name in text for name in names):
+        return True
+    if "==" in text:
+        return True
+    return bool(re.search(r"\b[\w.]+\s*\(", text))
+
+
+def _check_validators(obj: dict, parsed: list[dict]) -> tuple[bool, str]:
+    """Tiêu chí kiểm được phải có validator. Path phải nằm trong deliverables."""
+    names = _deliverable_names(obj.get("deliverables"))
+    for item in parsed:
+        validator = item.get("validator")
+        if validator:
+            path = str(validator.get("path") or "")
+            if path and path not in names:
+                return False, "validator path ngoài deliverables"
+            continue
+        if _machine_checkable(item.get("text") or "", names):
+            return False, "tiêu chí kiểm được phải có validator"
     return True, ""
 
 

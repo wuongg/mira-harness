@@ -489,12 +489,52 @@ def apply_confirmations(state: dict, rows: list[dict], root: Path) -> list[dict]
 
 
 def _settled(row: dict) -> bool:
-    return bool(row.get("criterion_verified")) or row.get("state") in ("user_confirmed", "direct")
+    return bool(row.get("criterion_verified")) or row.get("state") in (
+        "user_confirmed", "direct", "verifier_accepted")
+
+
+def _mark_verifier_delivery(rows: list[dict], autonomy: str, res: dict) -> None:
+    from .team import tree_hash
+    staging = str(res.get("staging") or "")
+    actual = tree_hash(Path(staging)) if staging and Path(staging).is_dir() else ""
+    if not verifier_delivery(
+            rows, autonomy, str(res.get("verifier_verdict") or ""),
+            str(res.get("staged_hash") or ""), actual):
+        return
+    for row in rows:
+        if row.get("kind") == "manual" and not _settled(row):
+            row["state"] = "verifier_accepted"
+            row["reason"] = "bàn giao dựa trên verifier — chưa xác nhận tay"
+            row["does_not_prove"] = "không phải xác nhận tay"
+            row["staged_hash"] = actual
+            row["checked_on"] = "staged"
+
+
+def verifier_delivery(rows: list[dict], autonomy: str, verdict: str,
+                      expected_hash: str, actual_hash: str) -> bool:
+    """Chỉ walk-away và direct. watch không vào đây. Hash staging phải khớp."""
+    if autonomy not in ("walk-away", "direct"):
+        return False
+    if verdict != "PASS":
+        return False
+    if not expected_hash or expected_hash != actual_hash:
+        return False
+    manuals = [row for row in rows if row.get("kind") == "manual" and not _settled(row)]
+    if not manuals:
+        return False
+    others = [row for row in rows if row not in manuals]
+    if any(not _settled(row) for row in others):
+        return False
+    if any(row.get("state") == "failed" for row in rows):
+        return False
+    return True
 
 
 def _delivery(rows: list[dict]) -> tuple[str, int]:
     if not rows or not all(_settled(row) for row in rows):
         return "bàn giao: chưa", 4
+    if any(row.get("state") == "verifier_accepted" for row in rows):
+        return "bàn giao dựa trên verifier — chưa xác nhận tay", 0
     if any(row.get("state") == "user_confirmed" for row in rows):
         return "bàn giao: người dùng xác nhận", 0
     return "bàn giao: đủ", 0
@@ -972,6 +1012,16 @@ def _record(root: Path, state: dict, res: dict, ledger, rows: list[dict],
     _save(root, state)
     edited = any(step.get("edited") for step in res.get("steps") or [])
     head = "worker: đã sửa trong staging" if edited else "worker: không sửa"
+    accepted = next((row for row in rows if row.get("state") == "verifier_accepted"), None)
+    if accepted:
+        trace = _dir(root, state["id"]) / "trace.jsonl"
+        trace.parent.mkdir(parents=True, exist_ok=True)
+        with trace.open("a", encoding="utf-8") as handle:
+            handle.write(json.dumps({
+                "kind": "verifier_delivery",
+                "text": "bàn giao dựa trên verifier — chưa xác nhận tay",
+                "staged_hash": accepted.get("staged_hash") or "",
+            }, ensure_ascii=False) + "\n")
     body = _annotate(state, rows, "\n".join([
         head, render_table(state["request"], rows), status,
         _phase_line(state), _cost_line(state),
@@ -1123,6 +1173,7 @@ def _execute_locked(root: Path, run_id: str, *, provider: str | None, model: str
         state["obligations"] = rows
         state["manifest"] = None
         _save(root, state)
+    _mark_verifier_delivery(rows, state.get("autonomy") or "watch", res)
     criteria_line, criteria_code = _delivery(rows)
     team_status = res.get("status") or "error"
     # PASS của verifier không miễn validator. deliver chỉ theo hàng tiêu chí.
@@ -1148,6 +1199,7 @@ def render_table(request: str, rows: list[dict]) -> str:
         "verified": "validator đã kiểm",
         "user_confirmed": "người dùng xác nhận",
         "direct": "chạy trực tiếp",
+        "verifier_accepted": "bàn giao dựa trên verifier — chưa xác nhận tay",
         "needs_confirmation": "chưa chứng minh",
         "pending": "chưa cấp lệnh",
         "failed": "validator không đạt",

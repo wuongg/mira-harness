@@ -135,7 +135,7 @@ def _object_item(raw: dict) -> tuple[dict | None, str]:
         if rel is None:
             return None, why
     validator = None
-    if "validator" in raw:
+    if "validator" in raw and raw.get("validator") not in (None, ""):
         validator, why = _parse_validator(raw.get("validator"))
         if validator is None:
             return None, why

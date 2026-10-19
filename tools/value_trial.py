@@ -1063,7 +1063,8 @@ def _probe_loop(probe: dict, chosen: list[str], base_url: str, progress_path: Pa
             _progress(progress_path, state)
             continue
         outcome = _call_giao(
-            dest, base_url, ["--run", run], price, str(probe["max_tokens"]), call_timeout,
+            dest, base_url, ["--run", run, "--autonomy", "walk-away"],
+            price, str(probe["max_tokens"]), call_timeout,
             provider=provider, model=model, env=child_env)
         if outcome is None:
             _remember(state, tid, dest, died=True)
