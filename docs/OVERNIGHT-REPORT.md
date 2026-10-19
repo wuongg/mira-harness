@@ -645,7 +645,7 @@ Dò không gửi key, không có `CURSOR_API_KEY` trong Process/User/Machine:
 | POST https://api.cursor.com/v1/chat/completions body rỗng | 404 | `{"message":"Route POST:/v1/chat/completions not found","error":"Not Found","statusCode":404}` |
 | GET https://api.cursor.com/v1/agents | 401 | `{"code":"error","message":"Invalid User API Key"}` |
 
-Kết luận: **ONLY_AGENTS_API**. Không thêm provider Cursor. Không bọc Agents API thành chat. Không gửi request `hi` vì route chat không tồn tại; phép thử một request có key cũng không chạy vì biến môi trường chưa đặt.
+Kết luận: **ONLY_AGENTS_API**. Không thêm provider Cursor. Không bọc Agents API thành chat. Sau khi owner đặt `CURSOR_API_KEY` trong môi trường user, đúng một POST `https://api.cursor.com/v1/chat/completions` (`max_tokens` 16, nội dung `hi`, model `composer-2.5-fast`) vẫn trả 404: `{"message":"Route POST:/v1/chat/completions not found","error":"Not Found","statusCode":404}`. Key không in ra.
 
 Giá Cursor, cùng ngày, https://cursor.com/docs/models-and-pricing : model bên thứ ba tính theo giá niêm yết API, trả từ prepaid credit. Pool model của Cursor là usage theo tuần, không phải đơn giá token mình được bịa. `probe.json` vẫn là Anthropic `claude-sonnet-5-5`, `billing: per_token`, giá đã ghi ngày 2026-10-14. Code đọc model từ file, không còn ghim cứng trong `validate_probe_model`.
 
@@ -659,4 +659,4 @@ Owner chọn một phương án rồi ghi `DUYỆT NGÂN SÁCH` thì W5 mới ch
 
 W2, W3, W4 đã ở main từ trước mục này. Không làm lại.
 
-Selftest trên máy làm việc, trước commit: Ran 586, OK, skipped=2. Selftest clone sach \c5a9ea5\: Ran 586, OK, skipped=2. CI nhánh 11/11 success: https://github.com/wuongg/mira-harness/actions/runs/39211126100
+Selftest clone sạch `c5a9ea5`: Ran 586, OK, skipped=2. CI nhánh 11/11 success: https://github.com/wuongg/mira-harness/actions/runs/39211126100
