@@ -627,7 +627,7 @@ Giới hạn vẫn đúng: hash không phải sandbox; promote nhiều file khô
 | W3 | xong | Cùng 5 nhiệm vụ, provider giả: watch 11 thao tác, walk-away 7. Lượt người sau khi đưa việc: 1.20 so với 0.40. Tự chốt đúng 1.00 cả hai. Model không chọn được nấc. | cùng SHA `6939f79` | không |
 | W4 | xong | `frog giao box` liệt kê lý do, `--pull` một run, `--accept` một lượt cho cả lô. | cùng SHA `6939f79` | không |
 | W5 | chạy xong, không bàn giao | `gpt-5.6-luna`, 3 request, ước lượng $0.001213 trong trần $2. Cả V01, V05, V10 dừng ở intake, worker không chạy. | xem mục W5 | không so A/B vì chưa có run |
-| W6 | nghẽn đã rõ | Intake từ chối brief vì `per_role_hints` không đúng ba vai. Đề xuất một sửa: trả lỗi schema cho model đúng một lần, vẫn trong trần $2, trước khi đóng task. Chưa sửa. | không | chọn có làm sửa đó hay đóng |
+| W6 | chưa chốt | F2 đã vào code. Probe lại chỉ xong intake của V01 rồi chạm trần 8 HTTP/task. Chưa đủ 12 task, chưa so A/B, chưa v1.0. | chưa có SHA mục này | có nới trần HTTP/task hay giữ 8 |
 
 main sau W2–W4: `de75750`. CI main 11/11 success: https://github.com/wuongg/mira-harness/actions/runs/39208461705
 
@@ -680,3 +680,23 @@ Kết quả, trần $2, tối đa 8 HTTP mỗi task. `stopped=finished`. Ước 
 Tổng 3 request, $0.001213. `uncertain_usd` = 0. Không request nào vượt hold. Worker, verifier và bàn giao không chạy. Không so A/B vì không có run để chấm. Lý do intake in ra ở lần gọi riêng: `per_role_hints phải đúng ba vai`.
 
 HEAD lúc chạy là `2d0e198`; số này đo trên cây làm việc có sửa `max_completion_tokens` và ghi sổ khi intake hỏng. Key không nằm trong `probe.json` hay progress.
+
+## F1
+
+`test_cay_hien_tai_khong_loi_da_cham` đỏ với stderr rỗng vì `trust_eval` trả 1 khi có dòng `fail`, và chỉ ghi lý do trong JSON, không ghi stderr. `T-REAL` vốn đã là `not_evaluated` và không kéo exit. Trên cây này và trên CI Ubuntu của `2e76c41`, test đó thoát 0. Hợp đồng mới: `decide` chỉ trả 1 khi mục đánh giá được không phải `pass`; JSON có `summary.not_evaluated` và `summary.failed`. Khi exit khác 0, stderr ghi `trust_eval fail:` kèm id.
+
+## F2
+
+ADR `docs/adr/0001-intake-role-hints.md`. Vai thiếu được điền chuỗi rỗng, preview in `đã điền thay`, trace run có dòng `normalization`. Sai kiểu vẫn từ chối. Schema còn lỗi thì một lần `PHẢN HỒI SCHEMA`, cùng sổ, cùng trần $2.
+
+## F3
+
+Chạy lại sau F2, trần còn $1.998787 (đã trừ $0.001213 của W5). `gpt-5.6-luna`. `stopped=calls`.
+
+| Task | HTTP | token vào | token ra | USD ước lượng | intake-failed | Kết quả |
+| --- | --- | --- | --- | --- | --- | --- |
+| V01 | 8 | 7709 | 882 | 0.002601 | không | 1 intake, 6 worker, 1 verifier, rồi trần 8 HTTP/task |
+| V05 | 0 | 0 | 0 | 0 | — | chưa chạy |
+| V10 | 0 | 0 | 0 | 0 | — | chưa chạy |
+
+9 task còn lại chưa mở. Tổng hai đợt ước lượng $0.003814, còn xa $2. Không đủ 12 nên không so A/B và không chốt v1.0. Điểm nghẽn còn lại là trần 8 HTTP mỗi task cắt đợt trước khi có số bàn giao.

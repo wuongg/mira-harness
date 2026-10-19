@@ -1672,6 +1672,9 @@ def cmd_team(args) -> int:
                 ui.note(got["reason"] or "brief hỏng", "bad")
                 return 8
             obj = got["brief"]
+            filled = list(got.get("normalization") or [])
+            if filled:
+                ui.note("đã điền thay: " + ", ".join(filled), "info")
             from_file = False
         plan.brief = obj
         plan.brief_hash = brief_hash(obj)

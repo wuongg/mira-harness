@@ -29,6 +29,7 @@ class _Prov:
     def __init__(self, replies):
         self.replies = list(replies)
         self.systems: list[str] = []
+        self.users: list[str] = []
         self.name = "anthropic"
 
     def available(self) -> bool:
@@ -36,6 +37,7 @@ class _Prov:
 
     def call(self, system: str, user: str):
         self.systems.append(system or "")
+        self.users.append(user or "")
         if "PROMPT_WRITER" in (system or ""):
             names = ("planner", "coordinator", "worker", "verifier", "oracle", "critic")
             return json.dumps({name: f"làm {name}" for name in names}, ensure_ascii=False), {"in": 2, "out": 2}
@@ -104,7 +106,7 @@ class IntakeTier1Test(unittest.TestCase):
         self.assertNotIn("còn gì nữa", " ".join(asked))
         self.assertEqual(code, 8)
 
-        prov2 = _Prov([json.dumps(_brief(goal=""))])
+        prov2 = _Prov([json.dumps(_brief(goal="")), json.dumps(_brief(goal=""))])
         asked2 = []
         with tempfile.TemporaryDirectory() as tmp:
             with patch("frog.team.provider_for", lambda *a, **k: prov2), \
@@ -112,6 +114,7 @@ class IntakeTier1Test(unittest.TestCase):
                 code2 = team.cmd_team(_ns(Path(tmp), clarify_max=0))
         self.assertEqual(code2, 8)
         self.assertEqual(asked2, [])
+        self.assertEqual(len(prov2.systems), 2)
         self.assertFalse(any("PLANNER" in s for s in prov2.systems))
 
     def test_khong_duyet_brief_thi_khong_goi_planner(self):
@@ -211,6 +214,45 @@ class IntakeTier3Test(unittest.TestCase):
             self.assertTrue(data["brief_hash"])
             self.assertFalse(any("INTAKE" in s for s in prov.systems))
             self.assertTrue(any("PROMPT_WRITER" in s for s in prov.systems))
+
+    def test_thieu_vai_duoc_dien_rong(self):
+        from frog.intake import normalize_role_hints, validate_brief
+        brief = _brief()
+        del brief["per_role_hints"]["worker"]
+        filled = normalize_role_hints(brief)
+        self.assertEqual(filled, ["worker"])
+        self.assertEqual(brief["per_role_hints"]["worker"], "")
+        ok, why = validate_brief(brief)
+        self.assertTrue(ok, why)
+        from frog.handoff import preview
+        text = preview(brief, "abc123abc123", filled)
+        self.assertIn("đã điền thay: worker", text)
+
+    def test_sai_kieu_hint_bi_tu_choi(self):
+        from frog.intake import normalize_role_hints, validate_brief
+        brief = _brief(per_role_hints=["planner"])
+        self.assertEqual(normalize_role_hints(brief), [])
+        ok, why = validate_brief(brief)
+        self.assertFalse(ok)
+        self.assertIn("object", why)
+        brief = _brief(per_role_hints={"planner": "", "worker": 1, "verifier": ""})
+        normalize_role_hints(brief)
+        ok, why = validate_brief(brief)
+        self.assertFalse(ok)
+        self.assertIn("chuỗi", why)
+
+    def test_schema_sai_duoc_sua_mot_lan(self):
+        from frog.intake import run_intake
+        from frog.team import Ledger
+        bad = _brief(per_role_hints="planner")
+        good = _brief()
+        prov = _Prov([json.dumps(bad), json.dumps(good)])
+        got = run_intake("soạn báo cáo", prov, Ledger(), clarify_max=0, ask=lambda _q: "",
+                         model="claude-test", declared_price=(1.0, 1.0))
+        self.assertTrue(got["ok"], got.get("reason"))
+        self.assertEqual(len(prov.systems), 2)
+        self.assertIn("PHẢN HỒI SCHEMA", prov.users[1])
+        self.assertEqual(got["brief"]["per_role_hints"]["worker"], "")
 
 
 if __name__ == "__main__":

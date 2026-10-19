@@ -39,6 +39,25 @@ def _string_list(value, *, allow_empty: bool) -> bool:
     return any(item.strip() for item in value)
 
 
+def normalize_role_hints(obj: dict) -> list[str]:
+    """Vai thiếu thành chuỗi rỗng. Sai kiểu không bị ghi đè."""
+    if not isinstance(obj, dict):
+        return []
+    if "per_role_hints" not in obj or obj.get("per_role_hints") is None:
+        obj["per_role_hints"] = {}
+    hints = obj["per_role_hints"]
+    if not isinstance(hints, dict):
+        return []
+    filled = []
+    for role in HINT_ROLES:
+        if role not in hints:
+            hints[role] = ""
+            filled.append(role)
+    for key in [key for key in hints if key not in HINT_ROLES and isinstance(hints[key], str)]:
+        del hints[key]
+    return filled
+
+
 def validate_brief(obj) -> tuple[bool, str]:
     """Schema do code giữ. Khóa cổng và khóa lạ đều hỏng."""
     if not isinstance(obj, dict):
@@ -61,11 +80,15 @@ def validate_brief(obj) -> tuple[bool, str]:
         return False, "assumptions phải là danh sách chuỗi"
     if not _string_list(obj["questions"], allow_empty=True):
         return False, "questions phải là danh sách chuỗi"
-    hints = obj["per_role_hints"]
-    if not isinstance(hints, dict) or set(hints) != set(HINT_ROLES):
-        return False, "per_role_hints phải đúng ba vai"
-    if not all(isinstance(hints[name], str) for name in HINT_ROLES):
+    hints = obj.get("per_role_hints")
+    if not isinstance(hints, dict):
+        return False, "per_role_hints phải là object"
+    if any(not isinstance(hints.get(name), str) for name in HINT_ROLES):
         return False, "gợi ý vai phải là chuỗi"
+    if any(not isinstance(value, str) for value in hints.values()):
+        return False, "gợi ý vai phải là chuỗi"
+    if set(hints) != set(HINT_ROLES):
+        return False, "per_role_hints phải đúng ba vai"
     return True, ""
 
 
@@ -105,19 +128,29 @@ def run_intake(task: str, prov, ledger: Ledger, *, clarify_max: int, ask, model:
     """Hỏi cho đến khi schema đủ hoặc hết trần. Hết trần mà schema hỏng thì dừng."""
     user = task
     asked = 0
+    schema_repairs = 0
+    filled: list[str] = []
     while True:
         text, meta = charged_call(ledger, "intake", model, prov, INTAKE_SYSTEM, user,
                                   declared_price=declared_price)
         if meta.get("blocked"):
-            return {"ok": False, "reason": meta["error"], "brief": None, "asked": asked}
+            return {"ok": False, "reason": meta["error"], "brief": None, "asked": asked,
+                    "normalization": filled}
         if meta.get("error"):
-            return {"ok": False, "reason": meta["error"], "brief": None, "asked": asked, "uncertain": True}
+            return {"ok": False, "reason": meta["error"], "brief": None, "asked": asked,
+                    "uncertain": True, "normalization": filled}
         try:
             obj = json.loads(text)
         except json.JSONDecodeError:
             obj = None
         if not isinstance(obj, dict):
-            return {"ok": False, "reason": "intake không trả JSON", "brief": None, "asked": asked}
+            if schema_repairs < 1:
+                schema_repairs += 1
+                user = task + "\nPHẢN HỒI SCHEMA: intake không trả JSON"
+                continue
+            return {"ok": False, "reason": "intake không trả JSON", "brief": None,
+                    "asked": asked, "normalization": filled}
+        filled.extend(role for role in normalize_role_hints(obj) if role not in filled)
         ok, why = validate_brief(obj)
         pending = _questions(obj) if isinstance(obj.get("questions"), list) else []
         if pending and asked < clarify_max:
@@ -126,13 +159,19 @@ def run_intake(task: str, prov, ledger: Ledger, *, clarify_max: int, ask, model:
             user = task + "\nNgười dùng trả lời: " + (answer or "")
             continue
         if not ok:
-            return {"ok": False, "reason": why, "brief": obj, "asked": asked}
+            if schema_repairs < 1:
+                schema_repairs += 1
+                user = task + "\nPHẢN HỒI SCHEMA: " + why
+                continue
+            return {"ok": False, "reason": why, "brief": obj, "asked": asked,
+                    "normalization": filled}
         if pending and asked >= clarify_max:
             assumptions = list(obj["assumptions"])
             assumptions.append("Hết trần hỏi. Dùng brief hiện có.")
             obj = dict(obj)
             obj["assumptions"] = assumptions
-        return {"ok": True, "reason": "", "brief": obj, "asked": asked}
+        return {"ok": True, "reason": "", "brief": obj, "asked": asked,
+                "normalization": filled}
 
 
 PROMPT_SYSTEM = (

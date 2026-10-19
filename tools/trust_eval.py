@@ -401,6 +401,21 @@ def probe_real(tree: Path, task: dict, url: str) -> dict:
             "detail": "khong co API tra phi duoc duyet", "code": 0}
 
 
+def decide(rows: list[dict]) -> tuple[int, dict]:
+    """not_evaluated không kéo exit. Chỉ mục đánh giá được mà fail mới trả 1."""
+    summary = {"passed": [], "failed": [], "not_evaluated": []}
+    for row in rows:
+        status = row.get("status")
+        ident = row.get("id")
+        if status == "not_evaluated":
+            summary["not_evaluated"].append(ident)
+        elif status == "pass":
+            summary["passed"].append(ident)
+        else:
+            summary["failed"].append(ident)
+    return (1 if summary["failed"] else 0), summary
+
+
 def _finish(row: dict) -> dict:
     if row.get("not_evaluated") or row.get("remaining"):
         row["status"] = "not_evaluated"
@@ -462,6 +477,8 @@ def main() -> int:
                 baseline = run_tree(base, url)
         report = {"current": current, "baseline": baseline,
                   "note": "provider gia, khong phai hieu qua model that"}
+        code, summary = decide(current)
+        report["summary"] = summary
     finally:
         srv.shutdown()
     text = json.dumps(report, ensure_ascii=False, indent=2)
@@ -470,8 +487,10 @@ def main() -> int:
     else:
         sys.stdout.buffer.write(text.encode("utf-8"))
         sys.stdout.buffer.write(b"\n")
-    failed = [row for row in current if row.get("status") == "fail"]
-    return 1 if failed else 0
+    if code:
+        names = ",".join(str(item) for item in summary["failed"])
+        sys.stderr.write(f"trust_eval fail: {names}\n")
+    return code
 
 
 if __name__ == "__main__":

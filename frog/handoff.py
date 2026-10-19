@@ -95,7 +95,7 @@ def _history_ok(item) -> bool:
             and isinstance(item["cost_usd"], (int, float)))
 
 
-_EXTRAS = ("autonomy", "repair", "direct_from")
+_EXTRAS = ("autonomy", "repair", "direct_from", "normalization")
 _AUTONOMY = {"watch", "walk-away", "direct"}
 _REPAIR_MAX = 2
 
@@ -230,6 +230,12 @@ def _load(root: Path, run_id: str) -> dict:
     if not isinstance(origin, str):
         raise HandoffError("state hỏng: sai schema")
     state["direct_from"] = origin
+    filled = extra.get("normalization")
+    if filled is None:
+        filled = []
+    if not isinstance(filled, list) or not all(isinstance(item, str) for item in filled):
+        raise HandoffError("state hỏng: sai schema")
+    state["normalization"] = filled
     return state
 
 
@@ -281,7 +287,7 @@ def grant_commands(brief: dict) -> list[str]:
     return found
 
 
-def preview(brief: dict, run_id: str) -> str:
+def preview(brief: dict, run_id: str, filled: list[str] | None = None) -> str:
     lines = [
         f"Run: {run_id}",
         f"Mục tiêu: {brief.get('goal') or ''}",
@@ -312,6 +318,8 @@ def preview(brief: dict, run_id: str) -> str:
     for cmd in commands:
         lines.append(f"- {cmd}")
     lines.append("Duyệt phiếu không cấp các lệnh này.")
+    if filled:
+        lines.append("đã điền thay: " + ", ".join(filled))
     lines.append("Hash phát hiện phiếu đổi, không chống người sửa trực tiếp file.")
     if commands:
         grant_bits = ["--run", run_id]
@@ -1350,12 +1358,22 @@ def cmd_giao(args) -> int:
         return 8
     state = open_run(root, task, got["brief"], previous=getattr(args, "previous", None),
                      ledger=_ledger_blob(led))
+    filled = list(got.get("normalization") or [])
+    if filled:
+        state["normalization"] = filled
+        _save(root, state)
+        trace = _dir(root, state["id"]) / "trace.jsonl"
+        trace.write_text(json.dumps({
+            "kind": "normalization",
+            "filled": filled,
+            "text": "đã điền thay: " + ", ".join(filled),
+        }, ensure_ascii=False) + "\n", encoding="utf-8")
     if getattr(args, "approve_brief", False):
         state = approve(root, state["id"])
     note = ""
     if getattr(args, "autonomy", None):
         state, note = apply_autonomy(root, state["id"], args.autonomy)
-    print(preview(state["brief"], state["id"]))
+    print(preview(state["brief"], state["id"], state.get("normalization") or []))
     print(f"Hash phiếu: {state['brief_hash']}")
     if note:
         print(note)
