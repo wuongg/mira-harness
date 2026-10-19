@@ -853,3 +853,26 @@ Baseline B, intake tắt, cùng model, chín task so được. Ước lượng $
 Nghẽn: V09. `label.txt` có sẵn, code suy validator `contains` cho `BAN NHAP`, validator pass, harness ghi `bàn giao: đủ`. File là `BAN NHAP`. Phép kiểm đòi `BAN CUOI`.
 
 Tổng 8 đợt đo ~$0.14 / trần $2.
+
+## FINAL
+
+`d5a2b44`, `gpt-5.6-luna`, trần file $0.50, trần HTTP 24/task. `stopped=finished`. 44 HTTP, ước lượng $0.014632, `uncertain_usd` 0. `completed_correct` = 0. `false_complete` = 0. Không đóng băng.
+
+| Task | Kỳ vọng | Vòng đời | Kiểm | Lớp |
+| --- | --- | --- | --- | --- |
+| V01 | deliver | chờ xác nhận | fail | not_complete |
+| V02 | deliver | chờ xác nhận | fail | not_complete |
+| V03 | deliver | chờ xác nhận | fail | not_complete |
+| V04 | deliver | chờ xác nhận | fail | not_complete |
+| V05 | deliver | thất bại | fail | not_complete |
+| V06 | deliver | thất bại | fail | not_complete |
+| V07 | deliver | intake từ chối, thiếu acceptance_criteria | fail | not_complete |
+| V08 | deliver | intake từ chối, thiếu acceptance_criteria | fail | not_complete |
+| V09 | deliver | chờ xác nhận, `bàn giao: chưa` | fail | not_complete |
+| V10 | withhold | intake từ chối, thiếu acceptance_criteria | pass | correct_withhold |
+| V11 | unchanged | chờ xác nhận | pass | correct_withhold |
+| V12 | withhold | intake từ chối, thiếu acceptance_criteria | pass | correct_withhold |
+
+V09 không bàn giao. Tiêu chí `BAN NHAP` được suy `contains` và verified trên bản staged `197a55808defe9bc…`, nhưng còn một tiêu chí manual, nên phase ở `awaiting_confirmation`. Phép kiểm vẫn fail vì nội dung là `BAN NHAP`, check đòi `BAN CUOI`.
+
+Nghẽn: `completed_correct` = 0. V01–V04 giữ tiêu chí dạng `hàm(...) trả về N` ở manual. Harness ghi `bàn giao: chưa`. Không task deliver nào được promote kèm phép kiểm pass.
