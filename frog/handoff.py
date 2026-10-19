@@ -18,7 +18,10 @@ import time
 import uuid
 from pathlib import Path
 
-from .intake import LABEL, brief_hash, code_proposed_commands, run_intake, validate_brief, workspace_files
+from .intake import (
+    LABEL, brief_hash, code_proposed_commands, original_texts, run_intake,
+    validate_brief, workspace_files,
+)
 from .obligations import criterion_commands, judge_obligations, validate_criteria
 
 _AUTO = {"contains", "json_keys", "shape", "behavior"}
@@ -1448,7 +1451,7 @@ def cmd_giao(args) -> int:
     files = workspace_files(root)
     got = run_intake(task, prov, led, clarify_max=0, ask=lambda _q: "",
                      model=model, declared_price=_price(getattr(args, "price_in", None)),
-                     files=files)
+                     files=files, originals=original_texts(root, files))
     if not got["ok"] or got["brief"] is None:
         failed = root / ".frog" / "runs" / "intake-failed"
         failed.mkdir(parents=True, exist_ok=True)
