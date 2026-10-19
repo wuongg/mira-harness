@@ -1,5 +1,8 @@
+import io
 import unittest
+from contextlib import redirect_stdout
 from types import SimpleNamespace
+from unittest.mock import patch
 
 import frog.cli as cli
 import frog.repl as repl_mod
@@ -73,6 +76,22 @@ class OpenTest(unittest.TestCase):
         p = cli.build_parser()
         a = p.parse_args(["menu"])
         self.assertTrue(callable(a.func))
+
+    def test_menu_chi_nam_lenh_nguoi_dung(self):
+        buf = io.StringIO()
+        with patch("builtins.input", return_value="q"), redirect_stdout(buf):
+            self.assertEqual(cli.interactive(), 0)
+        text = buf.getvalue()
+        for label in ("frog giao", "frog team", "frog agent", "frog keys", "frog doctor"):
+            self.assertIn(label, text)
+        self.assertNotIn("320", text)
+        self.assertNotIn("phiếu", text)
+        self.assertNotIn("shadow", text.lower())
+        bench = cli.build_parser().parse_args(["bench"])
+        out = io.StringIO()
+        with redirect_stdout(out):
+            self.assertEqual(bench.func(bench), 0)
+        self.assertIn("công cụ benchmark nội bộ", out.getvalue())
 
 
 if __name__ == "__main__":

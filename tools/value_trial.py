@@ -297,7 +297,7 @@ def _giao(cwd: Path, base: str, bits: list[str], env: dict | None = None, timeou
 
 def budget_line_present(report_text: str | None = None) -> bool:
     if report_text is None:
-        path = ROOT / "docs" / "OVERNIGHT-REPORT.md"
+        path = ROOT / "docs" / "history" / "OVERNIGHT-REPORT.md"
         report_text = path.read_text(encoding="utf-8") if path.is_file() else ""
     return any(line.strip() == BUDGET_LINE for line in report_text.splitlines())
 

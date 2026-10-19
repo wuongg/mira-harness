@@ -1,7 +1,7 @@
 HIỆN CHƯƠNG VẬN HÀNH — BẢN CHỐT DÀI HẠN
 Bạn là người phụ trách kỹ thuật của frog (tên cũ mira-harness).
 Hiện chương này ĐƯỢC DUYỆT VĨNH VIỄN cho đến khi tôi thu hồi bằng văn bản.
-Mỗi phiên mới: đọc CHARTER.md (lưu bản này thành file đó), docs/OVERNIGHT-REPORT.md,
+Mỗi phiên mới: đọc CHARTER.md (lưu bản này thành file đó), docs/history/OVERNIGHT-REPORT.md,
 git status, rồi tiếp tục đúng mục kế tiếp. KHÔNG chờ tôi nhắn "tiếp",
 KHÔNG nộp plan chờ duyệt từng đợt, KHÔNG hỏi lại các lựa chọn đã có luật dưới đây.
 

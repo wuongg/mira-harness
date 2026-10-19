@@ -33,7 +33,7 @@ class NameTest(unittest.TestCase):
         self.assertEqual(names, ["READ_TOOLS", "WRITE_TOOLS"])
 
     def test_eval_slug_moi(self):
-        root = ROOT / "eval" / "tasks"
+        root = ROOT / "eval" / "bench" / "tasks"
         for name in NEW:
             self.assertTrue((root / name / "task.json").is_file(), name)
         for name in OLD:
