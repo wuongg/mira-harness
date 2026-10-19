@@ -59,6 +59,24 @@ def _serve():
     return srv, f"http://127.0.0.1:{srv.server_address[1]}"
 
 
+def _wait_worker_step(root: Path, proc: subprocess.Popen) -> dict:
+    """Đợi checkpoint ghi bước worker. Tiến trình còn sống thì không cắt theo đồng hồ."""
+    while proc.poll() is None:
+        hits = list((root / ".frog" / "runs").glob("*/checkpoint.json"))
+        for path in hits:
+            try:
+                data = json.loads(path.read_text(encoding="utf-8"))
+            except (json.JSONDecodeError, OSError):
+                continue
+            if int(data.get("next_index") or 0) >= 1:
+                return data
+        time.sleep(0.05)
+    err = b""
+    if proc.stderr:
+        err = proc.stderr.read() or b""
+    raise AssertionError(err.decode("utf-8", "replace") or "process ended before worker step")
+
+
 def _run(root: Path, url: str, resume: str | None, brief: Path | None,
          extra: dict | None = None, approve: bool = False):
     env = os.environ.copy()
@@ -88,11 +106,58 @@ def _run(root: Path, url: str, resume: str | None, brief: Path | None,
                             stderr=subprocess.PIPE)
 
 
+class _SlowWorker(_Hold):
+    """Worker trả lời sau khi mốc 15 giây của vòng đợi cũ đã qua."""
+
+    def do_POST(self):
+        n = int(self.headers.get("content-length", 0))
+        raw = self.rfile.read(n)
+        try:
+            body = json.loads(raw.decode("utf-8"))
+        except json.JSONDecodeError:
+            body = {}
+        system = str(body.get("system") or "")
+        if "VERIFIER" in system:
+            _Hold.verifier_posts += 1
+            _Hold.release.wait(30)
+            text = '{"verdict":"PASS","reasons":["khop"],"evidence":[],"confidence":0.9}'
+        else:
+            _Hold.worker_posts += 1
+            time.sleep(16)
+            text = "xong"
+        data = {"content": [{"type": "text", "text": text}],
+                "usage": {"input_tokens": 2, "output_tokens": 1}}
+        blob = json.dumps(data).encode("utf-8")
+        self.send_response(200)
+        self.send_header("content-type", "application/json")
+        self.send_header("content-length", str(len(blob)))
+        self.end_headers()
+        self.wfile.write(blob)
+
+
 class CrashResumeTest(unittest.TestCase):
     def setUp(self):
         _Hold.worker_posts = 0
         _Hold.verifier_posts = 0
         _Hold.release = threading.Event()
+
+    def test_worker_cham_hon_15_giay_van_thay_buoc(self):
+        srv = _Server(("127.0.0.1", 0), _SlowWorker)
+        threading.Thread(target=srv.serve_forever, daemon=True).start()
+        url = f"http://127.0.0.1:{srv.server_address[1]}"
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                proc = _run(root, url, None, None)
+                try:
+                    data = _wait_worker_step(root, proc)
+                    self.assertGreaterEqual(int(data["next_index"]), 1)
+                finally:
+                    proc.kill()
+                    proc.wait(timeout=10)
+        finally:
+            _Hold.release.set()
+            srv.shutdown()
 
     def test_kill_sau_worker_khong_goi_lai_worker(self):
         srv, url = _serve()
@@ -100,19 +165,7 @@ class CrashResumeTest(unittest.TestCase):
             with tempfile.TemporaryDirectory() as tmp:
                 root = Path(tmp)
                 proc = _run(root, url, None, None)
-                deadline = time.time() + 15
-                data = None
-                while time.time() < deadline:
-                    hits = list((root / ".frog" / "runs").glob("*/checkpoint.json"))
-                    if hits:
-                        try:
-                            data = json.loads(hits[0].read_text(encoding="utf-8"))
-                        except (json.JSONDecodeError, OSError):
-                            data = None
-                        if data and int(data.get("next_index") or 0) >= 1:
-                            break
-                    time.sleep(0.05)
-                self.assertIsNotNone(data)
+                data = _wait_worker_step(root, proc)
                 self.assertGreaterEqual(int(data["next_index"]), 1)
                 proc.kill()
                 proc.wait(timeout=10)
@@ -137,18 +190,7 @@ class CrashResumeTest(unittest.TestCase):
             with tempfile.TemporaryDirectory() as tmp:
                 root = Path(tmp)
                 proc = _run(root, url, None, None)
-                deadline = time.time() + 15
-                data = None
-                while time.time() < deadline:
-                    hits = list((root / ".frog" / "runs").glob("*/checkpoint.json"))
-                    if hits:
-                        try:
-                            data = json.loads(hits[0].read_text(encoding="utf-8"))
-                        except (json.JSONDecodeError, OSError):
-                            data = None
-                        if data and int(data.get("next_index") or 0) >= 1:
-                            break
-                    time.sleep(0.05)
+                data = _wait_worker_step(root, proc)
                 proc.kill()
                 proc.wait(timeout=10)
                 _Hold.release.set()
@@ -192,8 +234,7 @@ class CrashResumeTest(unittest.TestCase):
                     "FROG_PAUSE": "checkpoint",
                     "FROG_PAUSE_FLAG": str(flag),
                 })
-                deadline = time.time() + 15
-                while time.time() < deadline and not flag.exists():
+                while proc.poll() is None and not flag.exists():
                     time.sleep(0.05)
                 self.assertTrue(flag.exists(), "chưa tới lúc ghi checkpoint")
                 proc.kill()
@@ -226,10 +267,7 @@ class CrashResumeTest(unittest.TestCase):
                     "FROG_PAUSE": "handoff",
                     "FROG_PAUSE_FLAG": str(flag),
                 })
-                deadline = time.time() + 20
-                while time.time() < deadline and not flag.exists():
-                    if proc.poll() is not None:
-                        break
+                while proc.poll() is None and not flag.exists():
                     time.sleep(0.05)
                 err = b""
                 if not flag.exists():
@@ -258,18 +296,7 @@ class CrashResumeTest(unittest.TestCase):
             with tempfile.TemporaryDirectory() as tmp:
                 root = Path(tmp)
                 proc = _run(root, url, None, None)
-                deadline = time.time() + 15
-                data = None
-                while time.time() < deadline:
-                    hits = list((root / ".frog" / "runs").glob("*/checkpoint.json"))
-                    if hits:
-                        try:
-                            data = json.loads(hits[0].read_text(encoding="utf-8"))
-                        except (json.JSONDecodeError, OSError):
-                            data = None
-                        if data and int(data.get("next_index") or 0) >= 1:
-                            break
-                    time.sleep(0.05)
+                data = _wait_worker_step(root, proc)
                 proc.kill()
                 proc.wait(timeout=10)
                 _Hold.release.set()
