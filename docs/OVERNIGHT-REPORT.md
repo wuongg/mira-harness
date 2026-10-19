@@ -627,7 +627,7 @@ Giới hạn vẫn đúng: hash không phải sandbox; promote nhiều file khô
 | W3 | xong | Cùng 5 nhiệm vụ, provider giả: watch 11 thao tác, walk-away 7. Lượt người sau khi đưa việc: 1.20 so với 0.40. Tự chốt đúng 1.00 cả hai. Model không chọn được nấc. | cùng SHA `6939f79` | không |
 | W4 | xong | `frog giao box` liệt kê lý do, `--pull` một run, `--accept` một lượt cho cả lô. | cùng SHA `6939f79` | không |
 | W5 | chạy xong, không bàn giao | `gpt-5.6-luna`, 3 request, ước lượng $0.001213 trong trần $2. Cả V01, V05, V10 dừng ở intake, worker không chạy. | xem mục W5 | không so A/B vì chưa có run |
-| W6 | chưa chốt | F2 đã vào code. Probe lại chỉ xong intake của V01 rồi chạm trần 8 HTTP/task. Chưa đủ 12 task, chưa so A/B, chưa v1.0. | chưa có SHA mục này | có nới trần HTTP/task hay giữ 8 |
+| W6 | chưa đóng băng | 12 task đã chạy, số xấu. Một điểm nghẽn: bản sửa đúng nằm trong staging withheld, không được promote. | `d47ff68` rồi commit báo cáo này | một sửa: verifier phải thấy file staged trước khi FAIL |
 
 main sau W2–W4: `de75750`. CI main 11/11 success: https://github.com/wuongg/mira-harness/actions/runs/39208461705
 
@@ -710,3 +710,32 @@ Chạy lại sau F2, trần còn $1.998787 (đã trừ $0.001213 của W5). `gpt
 ## D1
 
 `max_http_per_task` 8 thành 24 trong `eval/value/probe.json` và `allow_send`. Trần $2 giữ nguyên. `max_http_trial` 24 thành 288 (12 task × 24) để trần cả đợt không cắt trước tiền. Một task đã đủ 24 HTTP thì `allow_send` trả `loop-suspect`, vòng probe ghi progress (sổ đã có) và không gọi tiếp. Trần cả đợt vẫn là `calls`.
+
+## D3
+
+Probe A, `gpt-5.6-luna`, `stopped=finished`. 44 HTTP, ước lượng $0.013365, `uncertain_usd` 0. Không chạm trần 24 HTTP/task và không chạm $2. Phép kiểm chạy trên workspace sau promote.
+
+| Task | HTTP | USD | Phép kiểm | Ghi chú |
+| --- | --- | --- | --- | --- |
+| V01 | 6 | 0.001739 | fail | `sum_to` đúng `range(n + 1)` nằm trong staging withheld |
+| V02 | 2 | 0.000864 | fail | intake-failed |
+| V03 | 3 | 0.000954 | fail | bản withheld vẫn sort theo chuỗi |
+| V04 | 6 | 0.001709 | fail | `return acc` đúng, nằm trong withheld |
+| V05 | 6 | 0.001729 | fail | `people.json` đúng, nằm trong withheld |
+| V06 | 4 | 0.001227 | fail | không có `iso.txt` |
+| V07 | 2 | 0.000655 | fail | intake-failed |
+| V08 | 4 | 0.001165 | fail | không có `merged.json` |
+| V09 | 4 | 0.001050 | fail | không comparable |
+| V10 | 2 | 0.000749 | pass | intake-failed, không bàn giao, đúng kỳ vọng giữ |
+| V11 | 3 | 0.000752 | pass | không comparable, nguồn không đổi |
+| V12 | 2 | 0.000772 | pass | intake-failed, không comparable |
+
+Baseline B (`frog team`, intake tắt, cùng model, cùng giá) trên task comparable V01–V08 và V10. Ước lượng $0.006338. Phép kiểm: V01–V08 fail, V10 pass. V01 của B cũng có bản đúng trong staging withheld và workspace vẫn `range(n)`. Exit B là 4 hoặc 3 trên hầu hết task.
+
+So A/B trên 9 task comparable: cả hai đều không bàn giao bản đúng ra workspace. A không hơn B. V10 pass cả hai vì không bịa giá.
+
+Tổng các đợt ước lượng khoảng $0.0235, còn trong trần $2. Không đóng băng tính năng, không chuẩn bị v1.0.
+
+Điểm nghẽn: worker đã ghi bản đúng vào staging, verifier hoặc cổng bằng chứng không thấy nội dung file nên FAIL, promote không chạy, phép kiểm trên workspace thất bại.
+
+Một sửa: đưa byte file staged vào prompt verifier trước khi cho phép verdict FAIL vì thiếu nội dung, rồi promote nếu phép kiểm của task thoát 0.
