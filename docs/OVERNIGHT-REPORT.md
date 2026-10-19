@@ -810,3 +810,13 @@ Intake không còn bắt validator. Tiêu chí thiếu validator vẫn là manua
 Đợt đo chạy trên cây làm việc, SHA git lúc đó `4d03df4` chưa chứa phần này. Trần của file tiến độ là $1.90. `stopped=finished`. 48 HTTP, ước lượng $0.015626, `uncertain_usd` 0. Intake không đổ hàng loạt: 11/12 task qua intake. V10 dừng với câu `brief thiếu acceptance_criteria`.
 
 `completed_correct` = 2 (V03, V05). `false_complete` = 1 (V09). V09 được bàn giao bằng nhãn verifier, nội dung `BAN NHAP`. Phép kiểm đòi `BAN CUOI`. Số `false_complete` tăng từ 0 lên 1, nên G2 bị thu hồi: `verifier_delivery` luôn trả false, walk-away không còn promote tiêu chí manual. Không chạy baseline B. Không đóng băng. Không chuẩn bị v1.0. Không ghi ADR vì không còn intake-failed hàng loạt.
+
+## X1 đến X3
+
+CI ubuntu-latest / 3.9 tại `6c9f5c2` fail vì hai worker cùng qua kiểm trần trước khi có chỗ giữ. Không phải lỗi kiểu của Python 3.9. `cb5637d` giữ chỗ trong cùng khóa.
+
+`6337e3f` cấm promote khi deliverable chưa có validator. Phase còn `awaiting_confirmation`. ADR `docs/adr/0002-verifier-khong-ban-giao.md`.
+
+Đợt xác nhận trên `6337e3f`, trần file $0.20. Dừng `provider-error` ở V09. 37 HTTP, ước lượng $0.011378, `uncertain_usd` 0. `completed_correct` = 0. `false_complete` = 0. `intake-failed` = 0 trên các task đã chạy. V01–V08 đều `awaiting_confirmation`, phép kiểm fail. V10–V12 không chạy. Không đóng băng, không chuẩn bị v1.0.
+
+Nghẽn: intake ghi deliverable là câu chữ, không phải đường dẫn file, nên không có validator nào pass trên file thật và không task nào được promote.
