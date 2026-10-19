@@ -1,4 +1,5 @@
 """Khóa đĩa của phiên: symlink, bí mật, shell, undo, https, luôn cho phép."""
+import json
 import os
 import tempfile
 import unittest
@@ -30,6 +31,26 @@ class DiskGuardTest(unittest.TestCase):
         self.assertTrue(out.startswith("BỊ CHẶN"))
         self.assertNotIn("bi-mat", out)
         self.assertNotIn("bi-mat", self._sess().grep("TOKEN", "."))
+
+    def test_glob_path_tuyet_doi_staging_thi_tu_choi_va_chay_tiep(self):
+        staging = self.root / ".frog" / "staging" / "run1"
+        staging.mkdir(parents=True)
+        (staging / "note.txt").write_text("x", encoding="utf-8")
+        absolute = str(staging.resolve())
+        tool = (
+            '<tool>{"name":"glob","args":{"pattern":"*","path":'
+            + json.dumps(absolute)
+            + "}}</tool>"
+        )
+        finish = '<tool>{"name":"finish","args":{"summary":"xong"}}</tool>'
+        script = _Scripted([tool, finish])
+        res = run_turn(task="liet ke", session=self._sess(), model="sonnet-5.5",
+                       protocol="text", no_stream=True, max_turns=4,
+                       provider=script, on_text=lambda _t: None)
+        self.assertNotIn("Traceback", "\n".join(script.prompts))
+        self.assertIn("từ chối", script.prompts[1])
+        self.assertEqual(res["status"], "ok")
+        self.assertIsNone(res["error"])
 
     def test_symlink_thoat_goc(self):
         outside = Path(self.tmp.name).parent / "frog-secret-ngoai.txt"

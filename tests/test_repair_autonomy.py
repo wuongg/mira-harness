@@ -119,6 +119,7 @@ def _state(root: Path, run_id: str) -> dict:
 
 def _workspace(root: Path) -> None:
     (root / "calc.py").write_text("def add(a, b):\n    return a - b\n", encoding="utf-8")
+    (root / "report.md").write_text("", encoding="utf-8")
 
 
 class RepairAutonomyTest(unittest.TestCase):
