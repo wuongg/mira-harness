@@ -174,8 +174,25 @@ class ValueTrialTest(unittest.TestCase):
             trial.validate_probe_model("sonnet-5.5", "anthropic")
         trial.validate_probe_model("gpt-4.1-mini", "openai")
         loaded = trial.load_probe()
-        self.assertEqual(loaded["model"], trial.OFFICIAL_MODEL)
+        self.assertEqual(loaded["model"], "gpt-5.6-luna")
+        self.assertEqual(loaded["provider"], "openai")
         self.assertEqual(loaded["billing"], "per_token")
+        self.assertEqual(loaded["price_in_usd_per_mtok"], 0.2)
+
+    def test_openai_chi_mo_khi_co_dong_duyet(self):
+        line = "DUYỆT NGÂN SÁCH: (a) OpenAI rẻ, trần $2"
+        self.assertEqual(
+            trial.probe_block_reason(True, "https://api.openai.com", report_text="chua duyet"),
+            "paid-api-not-approved")
+        self.assertEqual(
+            trial.probe_block_reason(True, "https://api.openai.com", report_text=line),
+            "")
+        self.assertEqual(
+            trial.probe_block_reason(True, "https://api.anthropic.com", report_text=line),
+            "paid-api-not-approved")
+        self.assertEqual(
+            trial.probe_block_reason(False, "https://api.openai.com", report_text=line),
+            "locked")
 
     def _view(self, usd: float, run: str, uncertain: float = 0.0, attempt: int = 2):
         return {

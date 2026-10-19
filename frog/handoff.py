@@ -1337,6 +1337,15 @@ def cmd_giao(args) -> int:
     got = run_intake(task, prov, led, clarify_max=0, ask=lambda _q: "",
                      model=model, declared_price=_price(getattr(args, "price_in", None)))
     if not got["ok"] or got["brief"] is None:
+        failed = root / ".frog" / "runs" / "intake-failed"
+        failed.mkdir(parents=True, exist_ok=True)
+        (failed / "handoff.json").write_text(json.dumps({
+            "id": "intake-failed",
+            "attempt": 1,
+            "phase": "failed",
+            "ledger": _ledger_blob(led),
+            "steps": [],
+        }, ensure_ascii=False), encoding="utf-8")
         print(got["reason"] or "brief hỏng")
         return 8
     state = open_run(root, task, got["brief"], previous=getattr(args, "previous", None),

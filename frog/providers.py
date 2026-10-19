@@ -132,7 +132,7 @@ class OpenAICompatProvider(BaseProvider):
     def call(self, system: str, user: str) -> tuple[str, dict]:
         data = self._post("/v1/chat/completions", {
             "model": self.model,
-            "max_tokens": self.max_tokens,
+            "max_completion_tokens" if self.name == "openai" else "max_tokens": self.max_tokens,
             "messages": [{"role": "system", "content": system},
                          {"role": "user", "content": user}],
         }, {"authorization": f"Bearer {self.api_key or ''}"})

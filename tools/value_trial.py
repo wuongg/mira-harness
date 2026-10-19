@@ -1,4 +1,4 @@
-"""Đo bộ nghiệm thu. Không phải executor thứ hai và không gọi API trả phí."""
+"""Đo bộ nghiệm thu. API trả phí chỉ mở cho host OpenAI đã duyệt ngân sách."""
 from __future__ import annotations
 
 import argparse
@@ -38,6 +38,8 @@ OFFICIAL = {
     "verified_on": "2026-10-14",
 }
 PROGRESS_SCHEMA = 1
+OPENAI_BASE = "https://api.openai.com"
+BUDGET_LINE = "DUYỆT NGÂN SÁCH: (a) OpenAI rẻ, trần $2"
 USER_ACTIONS = ("approve", "grant", "confirm", "change", "retry", "kill", "resume", "new_run", "run")
 
 
@@ -285,11 +287,50 @@ def _run(args: list[str], cwd: Path, env: dict, timeout: int = 90):
 
 
 def _giao(cwd: Path, base: str, bits: list[str], env: dict | None = None, timeout: int = 90,
-          max_tokens: str = "256", price: str = "1000,0"):
+          max_tokens: str = "256", price: str = "1000,0",
+          provider: str = "anthropic", model: str = "claude-test"):
     cmd = [sys.executable, "-m", "frog", "giao", *bits, "--cwd", str(cwd),
-           "--provider", "anthropic", "--base-url", base, "--model", "claude-test",
+           "--provider", provider, "--base-url", base, "--model", model,
            "--price-in", price, "--max-tokens", max_tokens]
     return _run(cmd, cwd, env or _env(), timeout)
+
+
+def budget_line_present(report_text: str | None = None) -> bool:
+    if report_text is None:
+        path = ROOT / "docs" / "OVERNIGHT-REPORT.md"
+        report_text = path.read_text(encoding="utf-8") if path.is_file() else ""
+    return any(line.strip() == BUDGET_LINE for line in report_text.splitlines())
+
+
+def _openai_key() -> str:
+    key = os.environ.get("OPENAI_API_KEY") or ""
+    if key:
+        return key
+    if os.name != "nt":
+        return ""
+    import winreg
+    try:
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, "Environment") as reg:
+            value, _ = winreg.QueryValueEx(reg, "OPENAI_API_KEY")
+    except OSError:
+        return ""
+    return value or ""
+
+
+def _openai_child_env() -> dict | None:
+    key = _openai_key()
+    if not key:
+        return None
+    env = _env()
+    env.pop("ANTHROPIC_API_KEY", None)
+    env["OPENAI_API_KEY"] = key
+    return env
+
+
+def _redact(text: str, secret: str) -> str:
+    if secret and secret in text:
+        return text.replace(secret, "[REDACTED]")
+    return text
 
 
 def _team(cwd: Path, base: str, spec: dict, brief_path: Path):
@@ -559,14 +600,17 @@ def load_probe() -> dict:
     return data
 
 
-def probe_block_reason(approve_spend: bool, base_url: str | None) -> str:
+def probe_block_reason(approve_spend: bool, base_url: str | None,
+                        report_text: str | None = None) -> str:
     if not approve_spend:
         return "locked"
     if not base_url:
         return "missing-base-url"
-    if not base_url.startswith("http://127.0.0.1:"):
-        return "paid-api-not-approved"
-    return ""
+    if base_url.startswith("http://127.0.0.1:"):
+        return ""
+    if base_url.rstrip("/") == OPENAI_BASE and budget_line_present(report_text):
+        return ""
+    return "paid-api-not-approved"
 
 
 def _progress(path: Path, state: dict) -> None:
@@ -868,11 +912,18 @@ def probe_run(approve_spend: bool, base_url: str | None, progress_path: Path,
         else:
             state = _blank_state(probe, chosen, approve_spend)
         assert base_url is not None
-        _assert_local(base_url)
         if float(state.get("uncertain_usd") or 0) > 0 or state.get("stopped") == "uncertain":
             state["stopped"] = "uncertain"
             state["real_api_requests"] = 0
             _apply_fold(state)
+            _progress(progress_path, state)
+            return state
+        local = base_url.startswith("http://127.0.0.1:")
+        if local:
+            _assert_local(base_url)
+        elif _openai_child_env() is None:
+            state["stopped"] = "missing-key"
+            state["real_api_requests"] = 0
             _progress(progress_path, state)
             return state
         price = f"{probe['price_in_usd_per_mtok']},{probe['price_out_usd_per_mtok']}"
@@ -909,9 +960,11 @@ def _remember(state: dict, task_id: str, dest: Path, *, died: bool) -> None:
 
 
 def _call_giao(dest: Path, base: str, bits: list[str], price: str, max_tokens: str,
-               timeout: float):
+               timeout: float, provider: str = "anthropic", model: str = "claude-test",
+               env: dict | None = None):
     try:
-        return _giao(dest, base, bits, max_tokens=max_tokens, price=price, timeout=timeout)
+        return _giao(dest, base, bits, env=env, max_tokens=max_tokens, price=price,
+                     timeout=timeout, provider=provider, model=model)
     except subprocess.TimeoutExpired:
         return None
 
@@ -944,6 +997,11 @@ def _probe_loop(probe: dict, chosen: list[str], base_url: str, progress_path: Pa
     specs = {item["id"]: item for item in load_tasks()}
     base_dir = Path(tempfile.mkdtemp(prefix="frog-value-probe-"))
     done = set(state.get("tasks_done") or [])
+    local = base_url.startswith("http://127.0.0.1:")
+    provider = "anthropic" if local else str(probe["provider"])
+    model = "claude-test" if local else str(probe["model"])
+    child_env = None if local else _openai_child_env()
+    secret = "" if child_env is None else child_env.get("OPENAI_API_KEY", "")
     _apply_fold(state)
     _progress(progress_path, state)
     for tid in chosen:
@@ -961,20 +1019,34 @@ def _probe_loop(probe: dict, chosen: list[str], base_url: str, progress_path: Pa
         _progress(progress_path, state)
         outcome = _call_giao(
             dest, base_url, [spec["prompt"], "--approve-brief"],
-            price, str(probe["max_tokens"]), call_timeout)
+            price, str(probe["max_tokens"]), call_timeout,
+            provider=provider, model=model, env=child_env)
         if outcome is None:
             _remember(state, tid, dest, died=True)
             state["stopped"] = "uncertain"
             break
         proc, _hits, _dur, text = outcome
+        if secret and secret in text:
+            state["key_leaked"] = True
+            text = _redact(text, secret)
         if canary_in(text):
             state["canary_leaked"] = True
         _remember(state, tid, dest, died=False)
         if proc.returncode != 0:
             if task_sends(state["books"], tid) == 0:
                 _mark_unrecorded(state, tid)
-            state["stopped"] = "uncertain"
-            break
+                state["stopped"] = "uncertain"
+                break
+            if state["uncertain_usd"] > 0:
+                state["stopped"] = "uncertain"
+                break
+            if _tokens(tid, state["books"]) == 0:
+                state["stopped"] = "usage-unknown"
+                break
+            state.setdefault("task_errors", {})[tid] = "intake-failed"
+            state["tasks_done"].append(tid)
+            _progress(progress_path, state)
+            continue
         if state["uncertain_usd"] > 0:
             state["stopped"] = "uncertain"
             break
@@ -991,12 +1063,16 @@ def _probe_loop(probe: dict, chosen: list[str], base_url: str, progress_path: Pa
             _progress(progress_path, state)
             continue
         outcome = _call_giao(
-            dest, base_url, ["--run", run], price, str(probe["max_tokens"]), call_timeout)
+            dest, base_url, ["--run", run], price, str(probe["max_tokens"]), call_timeout,
+            provider=provider, model=model, env=child_env)
         if outcome is None:
             _remember(state, tid, dest, died=True)
             state["stopped"] = "uncertain"
             break
         proc, _hits, _dur, more = outcome
+        if secret and secret in more:
+            state["key_leaked"] = True
+            more = _redact(more, secret)
         if canary_in(more):
             state["canary_leaked"] = True
         _remember(state, tid, dest, died=False)
@@ -1017,8 +1093,8 @@ def _probe_loop(probe: dict, chosen: list[str], base_url: str, progress_path: Pa
         _progress(progress_path, state)
     if not state["stopped"]:
         state["stopped"] = "finished"
-    state["real_api_requests"] = 0
     _apply_fold(state)
+    state["real_api_requests"] = 0 if local else state["http_attempts"]
     _progress(progress_path, state)
     return state
 
@@ -1061,8 +1137,13 @@ def main() -> int:
         chosen = [part for part in (args.tasks or "").split(",") if part] or None
         if args.base_url:
             _Stub.brief = {}
-        state = probe_run(args.approve_spend, args.base_url, progress, chosen)
+        timeout = 300 if (args.base_url or "").rstrip("/") == OPENAI_BASE else 90
+        state = probe_run(args.approve_spend, args.base_url, progress, chosen, call_timeout=timeout)
         text = json.dumps(state, ensure_ascii=False, indent=2)
+        secret = _openai_key()
+        if secret and secret in text:
+            text = _redact(text, secret)
+            print("KEY_LEAKED")
         if CANARY in text:
             text = text.replace(CANARY, "[redacted]")
         if args.out:

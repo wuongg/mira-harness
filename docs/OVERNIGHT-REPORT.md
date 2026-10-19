@@ -626,8 +626,8 @@ Giới hạn vẫn đúng: hash không phải sandbox; promote nhiều file khô
 | W2 | xong | Phản chứng: sai rồi đúng promote 1 lần; hết 2 lượt thì `failed` và bảng có `sai:`; `stopped_budget` không promote và không gửi thêm. Verifier PASS không miễn validator. Nằm trong commit báo cáo này. | `6939f79` 11/11 success: https://github.com/wuongg/mira-harness/actions/runs/39207160645 | không |
 | W3 | xong | Cùng 5 nhiệm vụ, provider giả: watch 11 thao tác, walk-away 7. Lượt người sau khi đưa việc: 1.20 so với 0.40. Tự chốt đúng 1.00 cả hai. Model không chọn được nấc. | cùng SHA `6939f79` | không |
 | W4 | xong | `frog giao box` liệt kê lý do, `--pull` một run, `--accept` một lượt cho cả lô. | cùng SHA `6939f79` | không |
-| W5 | dừng ở W5a | ONLY_AGENTS_API. Không có chat completions. Chưa duyệt ngân sách và chưa chọn provider. | chưa có SHA mục này | Chọn (a) OpenAI rẻ, (b) Anthropic Sonnet, hoặc (c) chờ Cursor. Rồi ghi `DUYỆT NGÂN SÁCH: ...` |
-| W6 | chưa tới | Chờ số của W5. | không | không, cho đến khi có số W5 |
+| W5 | chạy xong, không bàn giao | `gpt-5.6-luna`, 3 request, ước lượng $0.001213 trong trần $2. Cả V01, V05, V10 dừng ở intake, worker không chạy. | xem mục W5 | không so A/B vì chưa có run |
+| W6 | nghẽn đã rõ | Intake từ chối brief vì `per_role_hints` không đúng ba vai. Đề xuất một sửa: trả lỗi schema cho model đúng một lần, vẫn trong trần $2, trước khi đóng task. Chưa sửa. | không | chọn có làm sửa đó hay đóng |
 
 main sau W2–W4: `de75750`. CI main 11/11 success: https://github.com/wuongg/mira-harness/actions/runs/39208461705
 
@@ -660,3 +660,23 @@ Owner chọn một phương án rồi ghi `DUYỆT NGÂN SÁCH` thì W5 mới ch
 W2, W3, W4 đã ở main từ trước mục này. Không làm lại.
 
 Selftest clone sạch `c5a9ea5`: Ran 586, OK, skipped=2. CI nhánh 11/11 success: https://github.com/wuongg/mira-harness/actions/runs/39211126100
+
+DUYỆT NGÂN SÁCH: (a) OpenAI rẻ, trần $2
+
+## W5
+
+Chọn (a). Model `gpt-5.6-luna`, đọc 2026-10-19 tại https://developers.openai.com/api/docs/models/gpt-5.6-luna và https://developers.openai.com/api/docs/pricing. Giá chuẩn: vào $0.20, ra $1.20, cache đọc $0.02 trên 1M token. Input trên 272000 token tính 2x vào và 1.5x ra cho cả request. Ba nhiệm vụ này không chạm ngưỡng đó. Endpoint `POST https://api.openai.com/v1/chat/completions`. Model này không nhận `max_tokens`; request dùng `max_completion_tokens`.
+
+Một POST thử với `max_tokens` trả 400 `unsupported_parameter`, không có usage. Probe sau đó dùng tham số đúng.
+
+Kết quả, trần $2, tối đa 8 HTTP mỗi task. `stopped=finished`. Ước lượng sổ, không phải hóa đơn:
+
+| Task | HTTP | token vào | token ra | USD ước lượng | Kết quả |
+| --- | --- | --- | --- | --- | --- |
+| V01 | 1 | 140 | 325 | 0.000418 | intake-failed |
+| V05 | 1 | 127 | 362 | 0.000460 | intake-failed |
+| V10 | 1 | 119 | 259 | 0.000335 | intake-failed |
+
+Tổng 3 request, $0.001213. `uncertain_usd` = 0. Không request nào vượt hold. Worker, verifier và bàn giao không chạy. Không so A/B vì không có run để chấm. Lý do intake in ra ở lần gọi riêng: `per_role_hints phải đúng ba vai`.
+
+HEAD lúc chạy là `2d0e198`; số này đo trên cây làm việc có sửa `max_completion_tokens` và ghi sổ khi intake hỏng. Key không nằm trong `probe.json` hay progress.

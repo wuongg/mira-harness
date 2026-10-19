@@ -110,6 +110,8 @@ def run_intake(task: str, prov, ledger: Ledger, *, clarify_max: int, ask, model:
                                   declared_price=declared_price)
         if meta.get("blocked"):
             return {"ok": False, "reason": meta["error"], "brief": None, "asked": asked}
+        if meta.get("error"):
+            return {"ok": False, "reason": meta["error"], "brief": None, "asked": asked, "uncertain": True}
         try:
             obj = json.loads(text)
         except json.JSONDecodeError:

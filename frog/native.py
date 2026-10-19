@@ -328,7 +328,8 @@ def _converse_openai(p, system, msgs, tools, emit, stream_it) -> tuple[list[dict
 
 def _openai_once(p, system, msgs, tools, emit, stream_it) -> tuple[list[dict], dict]:
     body_msgs = [{"role": "system", "content": system}] + to_openai_messages(msgs)
-    payload = {"model": p.model, "max_tokens": p.max_tokens, "messages": body_msgs,
+    limit_key = "max_completion_tokens" if p.name == "openai" else "max_tokens"
+    payload = {"model": p.model, limit_key: p.max_tokens, "messages": body_msgs,
                "tools": to_openai_tools(tools), "tool_choice": "auto"}
     headers = {"authorization": f"Bearer {p.api_key or ''}"}
     if not stream_it:
