@@ -628,3 +628,5 @@ Giới hạn vẫn đúng: hash không phải sandbox; promote nhiều file khô
 | W4 | xong | `frog giao box` liệt kê lý do, `--pull` một run, `--accept` một lượt cho cả lô. | cùng SHA `6939f79` | không |
 | W5 | chưa chạy | Runner giữ nguyên. Chưa có dòng duyệt ngân sách trong file này. | không | Ghi đúng dòng `DUYỆT NGÂN SÁCH: ...` thì mới chạy V01/V05/V10, trần $2 |
 | W6 | chưa tới | Chờ số của W5. | không | không, cho đến khi có số W5 |
+
+main sau W2–W4: `de75750`. CI main 11/11 success: https://github.com/wuongg/mira-harness/actions/runs/39208461705
