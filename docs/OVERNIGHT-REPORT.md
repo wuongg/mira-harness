@@ -899,3 +899,22 @@ Tổng 10 đợt đo vẫn dưới trần $2.
 | V12 | withhold | intake từ chối, thiếu acceptance_criteria | pass | correct_withhold |
 
 Nghẽn: `completed_correct` = 0. Câu tiêu chí của task deliver, kể cả `median([1, 10, 2]) trả về số 2`, không khớp dạng suy `behavior` hoặc `json_keys` và không có cặp giá trị cũ → mới, nên cờ là `nhan_dinh`. Harness giữ `bàn giao: chưa`. Không task deliver nào được promote.
+
+## REF-1 và TIER-1
+
+Chỉ tiêu chốt là cặp `completed_correct` > 0 và `false_complete` = 0. Chặn hết mà `completed_correct` vẫn 0 thì không đạt.
+
+REF-1, 0 API, brief trong `task.json` cộng cờ người viết, `giao --brief`, bỏ intake. Worker cục bộ ghi đúng file. V01 `ket_qua_moi`, V03 và V05 `file_thay_doi` đều `bàn giao: đủ` và phép kiểm thoát 0. Harness chốt được khi brief đã đúng.
+
+TIER-1 trên `c045047`. Intake `gpt-5.6-sol`, giá chính thức $4 / $20 mỗi triệu token ([pricing](https://developers.openai.com/api/docs/pricing)). Worker vẫn `gpt-5.6-luna`. Trần file $0.50. Dừng `loop-suspect` sau V05. 44 HTTP, ước lượng $0.038587, `uncertain_usd` 0. `completed_correct` = 0. `false_complete` = 0. V06–V12 không chạy. Không đóng băng.
+
+| Task | Vòng đời | Kiểm | Lớp |
+| --- | --- | --- | --- |
+| V01 | chờ xác nhận | fail | not_complete |
+| V02 | chờ xác nhận | fail | not_complete |
+| V03 | chờ xác nhận | fail | not_complete |
+| V04 | chờ xác nhận | fail | not_complete |
+| V05 | chờ xác nhận | fail | not_complete |
+| V06–V12 | không chạy | — | — |
+
+Nghẽn: intake mạnh vẫn viết `trả về` và câu chữ. Code gắn `nhan_dinh`. Không task nào được promote. V05 đốt HTTP trong lúc tiêu chí vẫn manual, đợt dừng `loop-suspect`.
