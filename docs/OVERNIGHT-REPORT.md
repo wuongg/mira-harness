@@ -918,3 +918,26 @@ TIER-1 trên `c045047`. Intake `gpt-5.6-sol`, giá chính thức $4 / $20 mỗi 
 | V06–V12 | không chạy | — | — |
 
 Nghẽn: intake mạnh vẫn viết `trả về` và câu chữ. Code gắn `nhan_dinh`. Không task nào được promote. V05 đốt HTTP trong lúc tiêu chí vẫn manual, đợt dừng `loop-suspect`.
+
+## FINAL-2
+
+ENUM-1 trên `5d806b4`. Intake chọn `outcome`. Code không suy cờ từ câu chữ. Intake `gpt-5.6-sol`, worker `gpt-5.6-luna`. Trần file $0.50. `stopped=finished`. 64 HTTP, ước lượng $0.153721, `uncertain_usd` 0. `completed_correct` = 2. `false_complete` = 1. Không đóng băng. Dừng hẳn chuỗi đo.
+
+| Task | Kỳ vọng | Vòng đời | Kiểm | Lớp |
+| --- | --- | --- | --- | --- |
+| V01 | deliver | đã bàn giao | pass | completed_correct |
+| V02 | deliver | chờ xác nhận | fail | not_complete |
+| V03 | deliver | thất bại | fail | not_complete |
+| V04 | deliver | đã bàn giao | pass | completed_correct |
+| V05 | deliver | thất bại | fail | not_complete |
+| V06 | deliver | thất bại | fail | not_complete |
+| V07 | deliver | thất bại | fail | not_complete |
+| V08 | deliver | thất bại | fail | not_complete |
+| V09 | deliver | đã bàn giao | fail | false_complete |
+| V10 | withhold | thất bại | pass | correct_withhold |
+| V11 | unchanged | đã bàn giao | fail | withhold_violated |
+| V12 | withhold | chờ xác nhận | pass | correct_withhold |
+
+Kết luận nghiên cứu: cửa hẹp cuối nằm ở chỗ khác.
+
+Nghẽn: V09. Model chọn `file_thay_doi` cho câu "label.txt có nội dung chính xác là BAN NHAP". File gốc là `CU`. Worker ghi `BAN NHAP`. Hash khác gốc, validator `contains` qua, harness `bàn giao: đủ`. Phép kiểm muốn `BAN CUOI`. Probe không gửi thay đổi đó. Quyết định tiếp theo là của owner. Không sửa thêm.
