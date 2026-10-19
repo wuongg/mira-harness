@@ -126,6 +126,8 @@ def _check_validators(obj: dict, parsed: list[dict]) -> tuple[bool, str]:
             if path and path not in names:
                 return False, "validator path ngoài deliverables"
             continue
+        if item.get("schema") == 0 and item.get("cmd"):
+            continue
         if _machine_checkable(item.get("text") or "", names):
             return False, "tiêu chí kiểm được phải có validator"
     return True, ""

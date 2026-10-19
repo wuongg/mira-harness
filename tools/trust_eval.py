@@ -332,6 +332,7 @@ def probe_dup(tree: Path, task: dict, url: str) -> dict:
 
 def probe_artifact(tree: Path, task: dict, url: str) -> dict:
     brief = _brief(task["criterion"], "")
+    brief["deliverables"] = ["calc.py"]
     brief["acceptance_criteria"] = [_object("bad-file", task["criterion"], validator={
         "kind": "contains", "path": "calc.py", "must_contain": ["return 5"],
         "must_not_contain": [],
