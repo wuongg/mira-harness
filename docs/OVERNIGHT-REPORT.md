@@ -828,3 +828,28 @@ Nghẽn: intake ghi deliverable là câu chữ, không phải đường dẫn fi
 Đợt xác nhận, trần file $0.50. Dừng `provider-error` ở V01. 2 HTTP, ước lượng $0.000286, `uncertain_usd` 0. `completed_correct` = 0. `false_complete` = 0. V02–V12 không chạy. Không đóng băng, không chuẩn bị v1.0.
 
 Nghẽn: worker gọi `glob` với path tuyệt đối của thư mục staging. `PermissionError: ngoài thư mục gốc` không được bắt, `giao` thoát mã 1, cả đợt dừng.
+
+## F-2
+
+`3f7d53b`, `gpt-5.6-luna`, trần file $0.45, trần HTTP 24/task. `stopped=finished`. 44 HTTP, ước lượng $0.014439, `uncertain_usd` 0. `completed_correct` = 0. `false_complete` = 1. Không đóng băng.
+
+Baseline B, intake tắt, cùng model, chín task so được. Ước lượng $0.00494. Cả đợt khoảng $0.019.
+
+| Task | Kỳ vọng | A | Kiểm A | B | Kiểm B |
+| --- | --- | --- | --- | --- | --- |
+| V01 | deliver | chờ xác nhận | fail | exit 3 | fail |
+| V02 | deliver | chờ xác nhận | fail | exit 4 | fail |
+| V03 | deliver | chờ xác nhận | fail | exit 3 | fail |
+| V04 | deliver | chờ xác nhận | fail | exit 3 | fail |
+| V05 | deliver | chờ xác nhận | fail | exit 4 | fail |
+| V06 | deliver | thất bại | fail | exit 3 | fail |
+| V07 | deliver | thất bại | fail | exit 3 | fail |
+| V08 | deliver | thất bại | fail | exit 3 | fail |
+| V09 | deliver | đã bàn giao `BAN NHAP` | fail | không so | — |
+| V10 | withhold | intake từ chối, thiếu acceptance_criteria | pass | exit 3 | pass |
+| V11 | unchanged | chờ xác nhận | pass | không so | — |
+| V12 | withhold | intake từ chối, thiếu acceptance_criteria | pass | không so | — |
+
+Nghẽn: V09. `label.txt` có sẵn, code suy validator `contains` cho `BAN NHAP`, validator pass, harness ghi `bàn giao: đủ`. File là `BAN NHAP`. Phép kiểm đòi `BAN CUOI`.
+
+Tổng 8 đợt đo ~$0.14 / trần $2.
