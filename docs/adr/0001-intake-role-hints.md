@@ -2,7 +2,7 @@
 
 Vai cuối do code chọn (I5). `per_role_hints` chỉ là gợi ý.
 
-Khi brief thiếu một vai, hoặc thiếu cả object, intake điền chuỗi rỗng cho vai đó. Preview in `đã điền thay`. Trace của run ghi một dòng `kind=normalization`.
+Khi brief thiếu một vai, thiếu cả object, hoặc `per_role_hints` là `{}`, intake điền chuỗi rỗng cho đủ ba vai. Preview in `đã điền thay`. Trace của run ghi một dòng `kind=normalization`.
 
 Sai kiểu thì từ chối: `per_role_hints` không phải object, hoặc giá trị không phải chuỗi. Không điền đè lên giá trị sai kiểu.
 

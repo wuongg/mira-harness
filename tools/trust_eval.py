@@ -379,6 +379,10 @@ def probe_change(tree: Path, task: dict, url: str) -> dict:
                 "detail": "" if ok else "doi object van chay tiep", "code": proc.returncode}
 
 
+# Bài kill tự chờ tối đa 15s checkpoint + 10s proc.wait + 30s resume.
+KILL_PROBE_TIMEOUT = 90
+
+
 def probe_kill(tree: Path, task: dict, url: str) -> dict:
     del url
     script = tree / "tests" / "test_request_ledger.py"
@@ -389,7 +393,7 @@ def probe_kill(tree: Path, task: dict, url: str) -> dict:
         [sys.executable, "-m", "unittest", "discover", "-s", str(tree / "tests"),
          "-p", "test_request_ledger.py", "-k", "test_kill_giua_request"],
         cwd=tree, env=_env(tree), stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-        timeout=40)
+        timeout=KILL_PROBE_TIMEOUT)
     return {"id": task["id"], "kind": task["kind"], "fail": proc.returncode != 0,
             "detail": "" if proc.returncode == 0 else "kill giua request that bai",
             "code": proc.returncode}

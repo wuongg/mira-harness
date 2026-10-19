@@ -700,3 +700,13 @@ Chạy lại sau F2, trần còn $1.998787 (đã trừ $0.001213 của W5). `gpt
 | V10 | 0 | 0 | 0 | 0 | — | chưa chạy |
 
 9 task còn lại chưa mở. Tổng hai đợt ước lượng $0.003814, còn xa $2. Không đủ 12 nên không so A/B và không chốt v1.0. Điểm nghẽn còn lại là trần 8 HTTP mỗi task cắt đợt trước khi có số bàn giao.
+
+## D2
+
+1. `trust_eval --current-only` tại `a1e7e6f`. CI Ubuntu của SHA đó xanh 11/11, kể cả job unittest, và selftest gọi đúng CLI này qua `test_cay_hien_tai_khong_loi_da_cham` (kỳ vọng exit 0). Mục đánh giá được có thể kéo exit 1 mà không đụng hợp đồng `decide` là `T-INTERRUPT`. `probe_kill` bọc bài kill bằng `timeout=40`. Bài bên trong tự chờ tới 15 giây cho checkpoint, 10 giây cho `proc.wait`, và 30 giây cho resume, cộng 55 giây. Hết 40 giây thì `TimeoutExpired` rơi vào `run_tree`, dòng đó thành `fail=True`, `decide` trả 1 và stderr ghi `trust_eval fail: T-INTERRUPT`. Selftest vẫn có thể xanh khi bài kill chạy trần (không có trần 40 giây) và lần bọc CLI kịp xong dưới 40 giây; lần CLI chậm hơn thì exit 1. Trần bọc nâng lên 90 giây. `decide` và kỳ vọng exit của `not_evaluated` không đổi.
+
+2. `validate_brief` từ chối `per_role_hints: {}` vì kiểm tra kiểu chạy trước khi điền: vai vắng mặt là `None`, không phải chuỗi, nên lỗi `gợi ý vai phải là chuỗi`. `normalize_role_hints` chỉ được gọi ở `run_intake` khi field thiếu hoặc `None`, và vòng điền chỉ chạy nếu caller đã gọi nó. `{}` là object nên không bị thay, và `validate_brief` không gọi normalize. Quyết định owner: `{}` hợp lệ. `validate_brief` gọi normalize khi field là object, điền planner, worker, verifier bằng chuỗi rỗng, rồi mới kiểm kiểu. `run_intake` ghi `normalization` đủ ba vai. Sai kiểu vẫn từ chối.
+
+## D1
+
+`max_http_per_task` 8 thành 24 trong `eval/value/probe.json` và `allow_send`. Trần $2 giữ nguyên. `max_http_trial` 24 thành 288 (12 task × 24) để trần cả đợt không cắt trước tiền. Một task đã đủ 24 HTTP thì `allow_send` trả `loop-suspect`, vòng probe ghi progress (sổ đã có) và không gọi tiếp. Trần cả đợt vẫn là `calls`.

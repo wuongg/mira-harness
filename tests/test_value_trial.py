@@ -228,7 +228,7 @@ class ValueTrialTest(unittest.TestCase):
         self.assertEqual(trial.send_count(self._view(0.20, "a", attempt=2)), 2)
         blocked = dict(trial.load_probe())
         blocked["max_http_per_task"] = 1
-        self.assertEqual(trial.allow_send({"V01": {"a:1": self._view(0.20, "a")}}, "V01", blocked), "calls")
+        self.assertEqual(trial.allow_send({"V01": {"a:1": self._view(0.20, "a")}}, "V01", blocked), "loop-suspect")
         wide = dict(blocked)
         wide["max_http_per_task"] = 8
         wide["max_http_trial"] = 2
@@ -277,7 +277,7 @@ class ValueTrialTest(unittest.TestCase):
                 narrow["max_http_per_task"] = 1
                 capped = trial.probe_run(True, base, root / "cap.json", ["V10", "V01"], narrow)
                 self.assertEqual(capped["tasks_started"], ["V10"])
-                self.assertEqual(capped["stopped"], "calls")
+                self.assertEqual(capped["stopped"], "loop-suspect")
                 self.assertEqual(capped["http_attempts"], 1)
                 self.assertEqual(trial._Stub.hits, 1)
         finally:

@@ -12,8 +12,8 @@
   "cache_write_usd_per_mtok": 0.25,
   "long_context": "Input trên 272000 token tính 2x input và 1.5x output cho cả request.",
   "tasks": ["V01", "V05", "V10"],
-  "max_http_per_task": 8,
-  "max_http_trial": 24,
+  "max_http_per_task": 24,
+  "max_http_trial": 288,
   "max_tokens": 1024,
   "budget_usd": 2,
   "unknown_before_call": [

@@ -215,6 +215,25 @@ class IntakeTier3Test(unittest.TestCase):
             self.assertFalse(any("INTAKE" in s for s in prov.systems))
             self.assertTrue(any("PROMPT_WRITER" in s for s in prov.systems))
 
+    def test_object_rong_duoc_dien_ba_vai(self):
+        from frog.intake import normalize_role_hints, run_intake, validate_brief
+        from frog.team import Ledger
+        brief = _brief(per_role_hints={})
+        ok, why = validate_brief(brief)
+        self.assertTrue(ok, why)
+        self.assertEqual(
+            brief["per_role_hints"],
+            {"planner": "", "worker": "", "verifier": ""})
+        fresh = _brief(per_role_hints={})
+        filled = normalize_role_hints(fresh)
+        self.assertEqual(filled, ["planner", "worker", "verifier"])
+        prov = _Prov([json.dumps(_brief(per_role_hints={}))])
+        got = run_intake("soạn báo cáo", prov, Ledger(), clarify_max=0, ask=lambda _q: "",
+                         model="claude-test", declared_price=(1.0, 1.0))
+        self.assertTrue(got["ok"], got.get("reason"))
+        self.assertEqual(got.get("normalization"), ["planner", "worker", "verifier"])
+        self.assertEqual(len(prov.systems), 1)
+
     def test_thieu_vai_duoc_dien_rong(self):
         from frog.intake import normalize_role_hints, validate_brief
         brief = _brief()

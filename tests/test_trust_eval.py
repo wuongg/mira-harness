@@ -18,7 +18,7 @@ class TrustEvalTest(unittest.TestCase):
             proc = subprocess.run(
                 [sys.executable, str(ROOT / "tools" / "trust_eval.py"),
                  "--current-only", "--json-out", str(out)],
-                cwd=ROOT, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=60)
+                cwd=ROOT, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=180)
             self.assertEqual(proc.returncode, 0, proc.stderr.decode("utf-8", "replace"))
             data = json.loads(out.read_text(encoding="utf-8"))
             failed = [row["id"] for row in data["current"] if row.get("status") == "fail"]
@@ -29,6 +29,11 @@ class TrustEvalTest(unittest.TestCase):
                                 for row in data["current"]))
             self.assertEqual(data["summary"]["failed"], [])
             self.assertIn("T-REAL", data["summary"]["not_evaluated"])
+
+    def test_kill_probe_dai_hon_ngan_sach_bai_ben_trong(self):
+        sys.path.insert(0, str(ROOT / "tools"))
+        import trust_eval
+        self.assertGreaterEqual(trust_eval.KILL_PROBE_TIMEOUT, 15 + 10 + 30)
 
     def test_not_evaluated_khong_keo_exit_va_fail_that_moi_keo(self):
         sys.path.insert(0, str(ROOT / "tools"))

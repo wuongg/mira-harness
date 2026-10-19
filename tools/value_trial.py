@@ -754,7 +754,7 @@ def allow_send(book: dict, task_id: str, probe: dict) -> str:
     if folded["spent_usd"] + folded["reserved_usd"] + folded["uncertain_usd"] >= float(probe["budget_usd"]):
         return "budget"
     if task_sends(book, task_id) >= int(probe["max_http_per_task"]):
-        return "calls"
+        return "loop-suspect"
     if folded["http_attempts"] >= int(probe["max_http_trial"]):
         return "calls"
     return ""

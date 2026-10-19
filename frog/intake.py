@@ -81,6 +81,9 @@ def validate_brief(obj) -> tuple[bool, str]:
     if not _string_list(obj["questions"], allow_empty=True):
         return False, "questions phải là danh sách chuỗi"
     hints = obj.get("per_role_hints")
+    if isinstance(hints, dict):
+        normalize_role_hints(obj)
+        hints = obj["per_role_hints"]
     if not isinstance(hints, dict):
         return False, "per_role_hints phải là object"
     if any(not isinstance(hints.get(name), str) for name in HINT_ROLES):
