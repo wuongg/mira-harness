@@ -392,3 +392,15 @@ class ValueTrialTest(unittest.TestCase):
             trial._Stub.hold = False
             srv.shutdown()
             srv.server_close()
+
+    def test_moi_task_giu_stdout(self):
+        state = {"task_logs": {}}
+        trial._log_call(state, "V01", 8, "brief hỏng\nintake không trả JSON\n")
+        trial._log_call(state, "V01", 0, "bàn giao: đủ\n")
+        row = state["task_logs"]["V01"]
+        self.assertEqual(len(row["calls"]), 2)
+        self.assertEqual(row["reason"], "intake không trả JSON")
+        self.assertIn("bàn giao: đủ", row["calls"][1]["text"])
+        long = "a" * 25000
+        self.assertLess(len(trial._clip_log(long)), len(long))
+        self.assertTrue(trial._clip_log(long).startswith("aaaa"))

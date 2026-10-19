@@ -260,30 +260,20 @@ class IntakeTier3Test(unittest.TestCase):
         self.assertFalse(ok)
         self.assertIn("chuỗi", why)
 
-    def test_tieu_chi_may_thieu_validator_bi_tu_choi(self):
-        from frog.intake import brief_hash, validate_brief
+    def test_thieu_validator_la_manual_va_code_de_xuat(self):
+        from frog.intake import LABEL, brief_hash, propose_validators, run_intake, validate_brief
+        from frog.team import Ledger
         brief = _brief(
             deliverables=["sum_to.py"],
             acceptance_criteria=["sum_to(3) == 6"])
         ok, why = validate_brief(brief)
-        self.assertFalse(ok)
-        self.assertIn("validator", why)
+        self.assertTrue(ok, why)
+        self.assertIsInstance(brief["acceptance_criteria"][0], str)
         subjective = _brief(
             deliverables=["sum_to.py"],
             acceptance_criteria=["giong van de doc"])
-        ok, why = validate_brief(subjective)
-        self.assertTrue(ok, why)
-        good = _brief(
-            deliverables=["sum_to.py"],
-            acceptance_criteria=[{
-                "schema": 1, "id": "sum", "text": "sum_to(3) == 6",
-                "validator": {
-                    "kind": "contains", "path": "sum_to.py",
-                    "must_contain": ["range(n + 1)"], "must_not_contain": [],
-                },
-            }])
-        ok, why = validate_brief(good)
-        self.assertTrue(ok, why)
+        self.assertEqual(propose_validators(subjective), [])
+        self.assertIsInstance(subjective["acceptance_criteria"][0], str)
         outside = _brief(
             deliverables=["sum_to.py"],
             acceptance_criteria=[{
@@ -296,30 +286,56 @@ class IntakeTier3Test(unittest.TestCase):
         ok, why = validate_brief(outside)
         self.assertFalse(ok)
         self.assertIn("ngoài deliverables", why)
-        changed = json.loads(json.dumps(good))
-        changed["acceptance_criteria"][0]["validator"]["must_contain"] = ["range(n)"]
-        self.assertNotEqual(brief_hash(good), brief_hash(changed))
-
-    def test_schema_mot_luot_bao_thieu_validator(self):
-        from frog.intake import run_intake
-        from frog.team import Ledger
-        bad = _brief(deliverables=["sum_to.py"], acceptance_criteria=["sum_to(3) == 6"])
-        good = _brief(
-            deliverables=["sum_to.py"],
-            acceptance_criteria=[{
-                "schema": 1, "id": "sum", "text": "sum_to(3) == 6",
-                "validator": {
-                    "kind": "contains", "path": "sum_to.py",
-                    "must_contain": ["range(n + 1)"], "must_not_contain": [],
-                },
-            }])
-        prov = _Prov([json.dumps(bad), json.dumps(good)])
-        got = run_intake("sua sum", prov, Ledger(), clarify_max=0, ask=lambda _q: "",
+        raw = _brief(
+            deliverables=["sum_to.py", "people.json", "label.txt"],
+            acceptance_criteria=[
+                "sum_to(3) == 6",
+                "Moi phan tu co id va name",
+                "Ghi label.txt la BAN NHAP",
+                "giong van de doc",
+            ])
+        prov = _Prov([json.dumps(raw)])
+        got = run_intake("sua", prov, Ledger(), clarify_max=0, ask=lambda _q: "",
                          model="claude-test", declared_price=(1.0, 1.0))
         self.assertTrue(got["ok"], got.get("reason"))
-        self.assertEqual(len(prov.systems), 2)
-        self.assertIn("PHẢN HỒI SCHEMA", prov.users[1])
-        self.assertIn("validator", prov.users[1])
+        self.assertEqual(len(prov.systems), 1)
+        self.assertIn("danh sách chuỗi", prov.systems[0])
+        self.assertIn("Không viết validator", prov.systems[0])
+        rows = got["brief"]["acceptance_criteria"]
+        self.assertEqual(rows[0]["validator"]["kind"], "behavior")
+        self.assertEqual(rows[0]["proves"], LABEL)
+        self.assertIn("sum_to.sum_to(3) == 6", rows[0]["validator"]["cmd"])
+        self.assertEqual(rows[1]["validator"]["kind"], "json_keys")
+        self.assertEqual(rows[1]["validator"]["required"], ["id", "name"])
+        self.assertEqual(rows[1]["validator"]["expect"], "array")
+        self.assertEqual(rows[2]["validator"]["kind"], "contains")
+        self.assertEqual(rows[2]["validator"]["must_contain"], ["BAN NHAP"])
+        self.assertIsInstance(rows[3], str)
+        note = LABEL + ": " + ", ".join(got["proposed"])
+        self.assertIn(note, got["brief"]["assumptions"])
+        self.assertNotEqual(brief_hash(raw), brief_hash(got["brief"]))
+        from frog.handoff import approve, open_run, preview
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            state = open_run(root, "sua", got["brief"])
+            self.assertIn(note, preview(state["brief"], state["id"]))
+            state = approve(root, state["id"])
+            self.assertEqual(state["phase"], "ready")
+            self.assertEqual(state["grants"][0]["cmd"], rows[0]["validator"]["cmd"])
+            manual = _brief(
+                deliverables=["calc.py"],
+                acceptance_criteria=[{
+                    "schema": 1, "id": "add", "text": "add(2, 3) == 5",
+                    "validator": {
+                        "kind": "behavior", "cmd": "py -c \"print(1)\"",
+                        "expects_exit": 0, "expects_stdout": "1",
+                        "does_not_prove": "khong kiem ham khac",
+                    },
+                }])
+            held = open_run(root, "tay", manual)
+            held = approve(root, held["id"])
+            self.assertEqual(held["grants"], [])
+            self.assertEqual(held["phase"], "awaiting_grant")
 
     def test_schema_sai_duoc_sua_mot_lan(self):
         from frog.intake import run_intake

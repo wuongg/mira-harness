@@ -1,9 +1,12 @@
 """Tầng intake: brief là dữ liệu, không phải cổng. Làn vẫn do build_plan quyết."""
 from __future__ import annotations
 
+import ast
 import hashlib
 import json
 import re
+import shlex
+import sys
 from pathlib import Path
 
 from .team import Ledger, _worker_for_disk
@@ -15,15 +18,14 @@ BRIEF_KEYS = (
 HINT_ROLES = ("planner", "worker", "verifier")
 FORBIDDEN = {"surface", "lane", "floor", "labels", "records", "dollars", "roles", "gate"}
 
+LABEL = "validator do code đề xuất"
+
 INTAKE_SYSTEM = (
     "Bạn là INTAKE. Trả đúng một object JSON với các khóa goal, deliverables, "
     "acceptance_criteria, constraints, assumptions, questions, per_role_hints. "
     "Không được trả surface, lane, floor, labels, records, dollars, roles hay gate. "
-    "acceptance_criteria là danh sách. Tiêu chí kiểm được bằng máy "
-    "(nội dung file, cấu trúc JSON, đuôi file, hoặc hành vi của một deliverable) "
-    "phải là object schema 1 có id, text và validator hợp lệ. "
-    "path của validator phải là một deliverable. "
-    "Chỉ tiêu chí chủ quan mới được để trống validator. "
+    "acceptance_criteria là danh sách chuỗi. Mỗi chuỗi là một tiêu chí chữ. "
+    "Không viết validator. "
     "Nếu câu còn mơ hồ, đặt câu hỏi trong questions. Không tự bịa tiêu chí khi chưa đủ dữ liệu."
 )
 
@@ -108,29 +110,203 @@ def _deliverable_names(value) -> list[str]:
     return names
 
 
-def _machine_checkable(text: str, names: list[str]) -> bool:
-    if any(name and name in text for name in names):
-        return True
-    if "==" in text:
-        return True
-    return bool(re.search(r"\b[\w.]+\s*\(", text))
-
-
 def _check_validators(obj: dict, parsed: list[dict]) -> tuple[bool, str]:
-    """Tiêu chí kiểm được phải có validator. Path phải nằm trong deliverables."""
+    """Thiếu validator thì để manual. Validator có path phải nằm trong deliverables."""
     names = _deliverable_names(obj.get("deliverables"))
     for item in parsed:
         validator = item.get("validator")
-        if validator:
-            path = str(validator.get("path") or "")
-            if path and path not in names:
-                return False, "validator path ngoài deliverables"
+        if not validator:
             continue
-        if item.get("schema") == 0 and item.get("cmd"):
-            continue
-        if _machine_checkable(item.get("text") or "", names):
-            return False, "tiêu chí kiểm được phải có validator"
+        path = str(validator.get("path") or "")
+        if path and path not in names:
+            return False, "validator path ngoài deliverables"
     return True, ""
+
+
+def _pick_deliverable(names: list[str], suffixes: set[str], text: str) -> str:
+    hits = [name for name in names if Path(name).suffix.lower() in suffixes]
+    named = [name for name in hits if name in text or Path(name).name in text]
+    if len(named) == 1:
+        return named[0]
+    if len(hits) == 1:
+        return hits[0]
+    return ""
+
+
+def _safe_literal(value) -> bool:
+    if isinstance(value, (int, float, str)):
+        return True
+    if isinstance(value, (list, tuple)):
+        return all(_safe_literal(item) for item in value)
+    if isinstance(value, dict):
+        return all(isinstance(key, str) and _safe_literal(item) for key, item in value.items())
+    return False
+
+
+def _parse_args(raw: str):
+    text = raw.strip()
+    expr = f"({text},)" if text else "()"
+    try:
+        value = ast.literal_eval(expr)
+    except (SyntaxError, ValueError):
+        return None
+    if not isinstance(value, tuple) or not _safe_literal(value):
+        return None
+    return value
+
+
+def _parse_expected(raw: str):
+    try:
+        value = ast.literal_eval(raw)
+    except (SyntaxError, ValueError):
+        return None
+    if isinstance(value, (list, dict, tuple)) or not _safe_literal(value):
+        return None
+    return value
+
+
+def _behavior_spec(path: str, text: str) -> dict | None:
+    module = Path(path).stem
+    if not module.isidentifier():
+        return None
+    found = re.finditer(
+        r"\b([A-Za-z_][A-Za-z0-9_]*)\s*\(\s*([^)]*)\s*\)\s*(?:==|bằng|bang|trả|tra)\s*"
+        r"(-?\d+(?:\.\d+)?|\"[^\"\n]*\"|'[^'\n]*')",
+        text, re.IGNORECASE)
+    checks = []
+    for match in found:
+        name, args, expected = match.group(1), match.group(2), match.group(3)
+        parsed_args = _parse_args(args)
+        parsed_expected = _parse_expected(expected)
+        if parsed_args is None or parsed_expected is None or not name.isidentifier():
+            return None
+        rendered = ", ".join(repr(item) for item in parsed_args)
+        checks.append(f"{module}.{name}({rendered}) == {parsed_expected!r}")
+    if not checks:
+        return None
+    source = "import " + module + "; print('ok' if " + " and ".join(checks) + " else 'no')"
+    return {
+        "kind": "behavior",
+        "cmd": shlex.join([sys.executable, "-c", source]),
+        "expects_exit": 0,
+        "expects_stdout": "ok",
+        "does_not_prove": "không chứng minh lời gọi khác",
+    }
+
+
+def _json_keys(text: str) -> list[str]:
+    quoted = re.findall(r"""["']([A-Za-z_][A-Za-z0-9_]*)["']""", text)
+    if quoted:
+        return list(dict.fromkeys(quoted))
+    match = re.search(
+        r"(?:có|co)\s+([A-Za-z_][A-Za-z0-9_]*(?:\s*(?:,|và|va)\s*[A-Za-z_][A-Za-z0-9_]*)+)",
+        text, re.IGNORECASE)
+    if not match:
+        return []
+    parts = re.split(r"\s*(?:,|và|va)\s*", match.group(1), flags=re.IGNORECASE)
+    return [part for part in parts if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", part)]
+
+
+def _json_spec(path: str, text: str) -> dict | None:
+    keys = _json_keys(text)
+    if not keys:
+        return None
+    expect = "array" if re.search(
+        r"phần tử|phan tu|mảng|mang|\barray\b|danh sách|danh sach", text, re.IGNORECASE) else "object"
+    return {
+        "kind": "json_keys",
+        "path": path,
+        "required": keys,
+        "forbidden": [],
+        "expect": expect,
+        "allow_empty": False,
+    }
+
+
+def _contains_spec(path: str, text: str) -> dict | None:
+    quoted = re.findall(r"""["']([^"'\n]{1,80})["']""", text)
+    caps = re.findall(r"\b[A-Z][A-Z0-9]+(?:\s+[A-Z][A-Z0-9]+)*\b", text)
+    must = list(dict.fromkeys(quoted or caps))
+    must = [item for item in must if item != path and item != Path(path).name]
+    if not must:
+        return None
+    return {"kind": "contains", "path": path, "must_contain": must, "must_not_contain": []}
+
+
+def _infer_validator(text: str, names: list[str]) -> dict | None:
+    source = _pick_deliverable(names, {".py"}, text)
+    if source:
+        spec = _behavior_spec(source, text)
+        if spec:
+            return spec
+    data = _pick_deliverable(names, {".json"}, text)
+    if data:
+        spec = _json_spec(data, text)
+        if spec:
+            return spec
+    doc = _pick_deliverable(names, {".md", ".txt"}, text)
+    if doc:
+        return _contains_spec(doc, text)
+    return None
+
+
+def propose_validators(obj: dict) -> list[str]:
+    """Gắn validator suy được. Tiêu chí không suy được giữ manual."""
+    from .obligations import validate_criteria
+    names = _deliverable_names(obj.get("deliverables"))
+    proposed: list[str] = []
+    items = []
+    for raw in obj.get("acceptance_criteria") or []:
+        parsed, _why = validate_criteria([raw])
+        if not parsed or parsed[0].get("validator"):
+            items.append(raw)
+            continue
+        spec = _infer_validator(parsed[0]["text"], names)
+        if spec is None:
+            items.append(raw)
+            continue
+        if isinstance(raw, str):
+            cid = "c" + hashlib.sha256(raw.encode("utf-8")).hexdigest()[:12]
+            built = {
+                "schema": 1, "id": cid, "text": raw.strip(),
+                "proves": LABEL, "validator": spec,
+            }
+        else:
+            built = dict(raw)
+            built["validator"] = spec
+            if not str(built.get("proves") or "").strip():
+                built["proves"] = LABEL
+            cid = str(built.get("id") or "")
+        items.append(built)
+        proposed.append(cid)
+    if not proposed:
+        return []
+    trial = dict(obj)
+    trial["acceptance_criteria"] = items
+    note = LABEL + ": " + ", ".join(proposed)
+    assumptions = list(trial.get("assumptions") or [])
+    if note not in assumptions:
+        assumptions.append(note)
+    trial["assumptions"] = assumptions
+    ok, _why = validate_brief(trial)
+    if not ok:
+        return []
+    obj["acceptance_criteria"] = items
+    obj["assumptions"] = assumptions
+    return proposed
+
+
+def code_proposed_commands(brief: dict) -> list[str]:
+    """Lệnh behavior do code gắn. Duyệt brief là duyệt các lệnh này."""
+    found = []
+    for item in brief.get("acceptance_criteria") or []:
+        if not isinstance(item, dict) or item.get("proves") != LABEL:
+            continue
+        validator = item.get("validator") or {}
+        cmd = validator.get("cmd") if isinstance(validator, dict) else ""
+        if validator.get("kind") == "behavior" and isinstance(cmd, str) and cmd and cmd not in found:
+            found.append(cmd)
+    return found
 
 
 def contain_brief(brief, task: str = "") -> str:
@@ -211,8 +387,9 @@ def run_intake(task: str, prov, ledger: Ledger, *, clarify_max: int, ask, model:
             assumptions.append("Hết trần hỏi. Dùng brief hiện có.")
             obj = dict(obj)
             obj["assumptions"] = assumptions
+        proposed = propose_validators(obj)
         return {"ok": True, "reason": "", "brief": obj, "asked": asked,
-                "normalization": filled}
+                "normalization": filled, "proposed": proposed}
 
 
 PROMPT_SYSTEM = (

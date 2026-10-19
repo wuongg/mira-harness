@@ -808,6 +808,7 @@ def _blank_state(probe: dict, tasks: list[str], approved: bool) -> dict:
         "max_http_per_task": probe.get("max_http_per_task"),
         "max_http_trial": probe.get("max_http_trial"),
         "stopped": "",
+        "task_logs": {},
     }
 
 
@@ -992,6 +993,21 @@ def _mark_unrecorded(state: dict, task_id: str) -> None:
     _apply_fold(state)
 
 
+def _clip_log(text: str) -> str:
+    if len(text) <= 20000:
+        return text
+    return text[:4000] + "\n...\n" + text[-8000:]
+
+
+def _log_call(state: dict, tid: str, code, text: str) -> None:
+    logs = state.setdefault("task_logs", {})
+    row = logs.setdefault(tid, {"calls": []})
+    row["calls"].append({"code": code, "text": _clip_log(text)})
+    lines = [line.strip() for line in text.splitlines() if line.strip()]
+    if lines and code not in (0, None):
+        row["reason"] = lines[-1][:500]
+
+
 def _probe_loop(probe: dict, chosen: list[str], base_url: str, progress_path: Path,
                 price: str, state: dict, call_timeout: float) -> dict:
     specs = {item["id"]: item for item in load_tasks()}
@@ -1014,6 +1030,7 @@ def _probe_loop(probe: dict, chosen: list[str], base_url: str, progress_path: Pa
         spec = specs[tid]
         _Stub.brief = spec["brief"]
         dest = _prepare_dest(spec, base_dir / tid)
+        state.setdefault("task_logs", {}).setdefault(tid, {"calls": []})["workspace"] = str(dest)
         if tid not in state["tasks_started"]:
             state["tasks_started"].append(tid)
         _progress(progress_path, state)
@@ -1022,6 +1039,7 @@ def _probe_loop(probe: dict, chosen: list[str], base_url: str, progress_path: Pa
             price, str(probe["max_tokens"]), call_timeout,
             provider=provider, model=model, env=child_env)
         if outcome is None:
+            _log_call(state, tid, None, "died")
             _remember(state, tid, dest, died=True)
             state["stopped"] = "uncertain"
             break
@@ -1031,6 +1049,7 @@ def _probe_loop(probe: dict, chosen: list[str], base_url: str, progress_path: Pa
             text = _redact(text, secret)
         if canary_in(text):
             state["canary_leaked"] = True
+        _log_call(state, tid, proc.returncode, text)
         _remember(state, tid, dest, died=False)
         if proc.returncode != 0:
             if task_sends(state["books"], tid) == 0:
@@ -1067,6 +1086,7 @@ def _probe_loop(probe: dict, chosen: list[str], base_url: str, progress_path: Pa
             price, str(probe["max_tokens"]), call_timeout,
             provider=provider, model=model, env=child_env)
         if outcome is None:
+            _log_call(state, tid, None, "died")
             _remember(state, tid, dest, died=True)
             state["stopped"] = "uncertain"
             break
@@ -1076,6 +1096,7 @@ def _probe_loop(probe: dict, chosen: list[str], base_url: str, progress_path: Pa
             more = _redact(more, secret)
         if canary_in(more):
             state["canary_leaked"] = True
+        _log_call(state, tid, proc.returncode, more)
         _remember(state, tid, dest, died=False)
         if state["uncertain_usd"] > 0 or "uncertain" in more or "HTTP 5" in more:
             state["stopped"] = "uncertain"

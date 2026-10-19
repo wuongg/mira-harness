@@ -18,7 +18,7 @@ import time
 import uuid
 from pathlib import Path
 
-from .intake import brief_hash, run_intake, validate_brief
+from .intake import LABEL, brief_hash, code_proposed_commands, run_intake, validate_brief
 from .obligations import criterion_commands, judge_obligations, validate_criteria
 
 _AUTO = {"contains", "json_keys", "shape", "behavior"}
@@ -318,6 +318,9 @@ def preview(brief: dict, run_id: str, filled: list[str] | None = None) -> str:
     for cmd in commands:
         lines.append(f"- {cmd}")
     lines.append("Duyệt phiếu không cấp các lệnh này.")
+    for item in brief.get("assumptions") or []:
+        if isinstance(item, str) and item.startswith(LABEL):
+            lines.append(item)
     if filled:
         lines.append("đã điền thay: " + ", ".join(filled))
     lines.append("Hash phát hiện phiếu đổi, không chống người sửa trực tiếp file.")
@@ -375,8 +378,14 @@ def approve(root: Path, run_id: str) -> dict:
     state = _load(root, run_id)
     state["approved"] = True
     state["approved_hash"] = state["brief_hash"]
+    for cmd in code_proposed_commands(state["brief"]):
+        row = {"cmd": cmd, "brief_hash": state["brief_hash"]}
+        if row not in state["grants"]:
+            state["grants"].append(row)
     if state["phase"] in ("awaiting_approval", "awaiting_grant", "ready"):
-        state["phase"] = "awaiting_grant" if grant_commands(state["brief"]) else "ready"
+        granted = {item["cmd"] for item in state["grants"] if item.get("brief_hash") == state["brief_hash"]}
+        missing = [cmd for cmd in grant_commands(state["brief"]) if cmd not in granted]
+        state["phase"] = "awaiting_grant" if missing else "ready"
     _save(root, state)
     return state
 
@@ -512,22 +521,9 @@ def _mark_verifier_delivery(rows: list[dict], autonomy: str, res: dict) -> None:
 
 def verifier_delivery(rows: list[dict], autonomy: str, verdict: str,
                       expected_hash: str, actual_hash: str) -> bool:
-    """Chỉ walk-away và direct. watch không vào đây. Hash staging phải khớp."""
-    if autonomy not in ("walk-away", "direct"):
-        return False
-    if verdict != "PASS":
-        return False
-    if not expected_hash or expected_hash != actual_hash:
-        return False
-    manuals = [row for row in rows if row.get("kind") == "manual" and not _settled(row)]
-    if not manuals:
-        return False
-    others = [row for row in rows if row not in manuals]
-    if any(not _settled(row) for row in others):
-        return False
-    if any(row.get("state") == "failed" for row in rows):
-        return False
-    return True
+    """Đã thu hồi sau khi false_complete lên 1."""
+    del rows, autonomy, verdict, expected_hash, actual_hash
+    return False
 
 
 def _delivery(rows: list[dict]) -> tuple[str, int]:
@@ -1413,15 +1409,25 @@ def cmd_giao(args) -> int:
     state = open_run(root, task, got["brief"], previous=getattr(args, "previous", None),
                      ledger=_ledger_blob(led))
     filled = list(got.get("normalization") or [])
+    proposed = list(got.get("proposed") or [])
+    if proposed:
+        trace = _dir(root, state["id"]) / "trace.jsonl"
+        with trace.open("a", encoding="utf-8") as handle:
+            handle.write(json.dumps({
+                "kind": "proposed_validator",
+                "ids": proposed,
+                "text": LABEL,
+            }, ensure_ascii=False) + "\n")
     if filled:
         state["normalization"] = filled
         _save(root, state)
         trace = _dir(root, state["id"]) / "trace.jsonl"
-        trace.write_text(json.dumps({
-            "kind": "normalization",
-            "filled": filled,
-            "text": "đã điền thay: " + ", ".join(filled),
-        }, ensure_ascii=False) + "\n", encoding="utf-8")
+        with trace.open("a", encoding="utf-8") as handle:
+            handle.write(json.dumps({
+                "kind": "normalization",
+                "filled": filled,
+                "text": "đã điền thay: " + ", ".join(filled),
+            }, ensure_ascii=False) + "\n")
     if getattr(args, "approve_brief", False):
         state = approve(root, state["id"])
     note = ""

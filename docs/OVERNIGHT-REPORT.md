@@ -802,3 +802,11 @@ Tám task còn lại trong đợt 12 chỉ được runner ghi nhãn `intake-fai
 Baseline B, intake tắt, brief có sẵn. Ước lượng $0.006755. V01–V08 fail phép kiểm. V10 pass. A không có run để hơn B.
 
 Đợt lý do riêng ước lượng $0.00801. Cộng probe và B, đợt này khoảng $0.036. Tổng các đợt vẫn dưới $2.
+
+## G1b
+
+Intake không còn bắt validator. Tiêu chí thiếu validator vẫn là manual. Code tự gắn validator khi suy được từ deliverable: `.json` ra `json_keys` nếu câu có khóa, `.md`/`.txt` ra `contains` nếu câu có chữ cần tìm, `.py` ra `behavior` nếu câu có lời gọi và kết quả cụ thể. Nhãn `validator do code đề xuất` nằm trong assumptions trước khi duyệt. Lệnh behavior do code gắn được cấp khi duyệt phiếu. Model chỉ cần viết tiêu chí chữ. Runner lưu stdout mỗi lần gọi trong `task_logs`.
+
+Đợt đo chạy trên cây làm việc, SHA git lúc đó `4d03df4` chưa chứa phần này. Trần của file tiến độ là $1.90. `stopped=finished`. 48 HTTP, ước lượng $0.015626, `uncertain_usd` 0. Intake không đổ hàng loạt: 11/12 task qua intake. V10 dừng với câu `brief thiếu acceptance_criteria`.
+
+`completed_correct` = 2 (V03, V05). `false_complete` = 1 (V09). V09 được bàn giao bằng nhãn verifier, nội dung `BAN NHAP`. Phép kiểm đòi `BAN CUOI`. Số `false_complete` tăng từ 0 lên 1, nên G2 bị thu hồi: `verifier_delivery` luôn trả false, walk-away không còn promote tiêu chí manual. Không chạy baseline B. Không đóng băng. Không chuẩn bị v1.0. Không ghi ADR vì không còn intake-failed hàng loạt.

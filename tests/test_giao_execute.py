@@ -225,14 +225,10 @@ class GiaoExecuteTest(unittest.TestCase):
                 root = Path(tmp)
                 opened = _frog(root, base, ["Ghi report.md", "--approve-brief",
                                             "--autonomy", "walk-away"])
-                run = _id(opened.stdout)
-                self.assertEqual(opened.returncode, 0, opened.stdout + opened.stderr)
-                self.assertIn("bàn giao dựa trên verifier — chưa xác nhận tay", opened.stdout)
-                self.assertIn("kiểm trên bản staged (hash ", opened.stdout)
-                self.assertIn("Nguon:", (root / "report.md").read_text(encoding="utf-8"))
-                trace = (root / ".frog" / "runs" / run / "trace.jsonl").read_text(encoding="utf-8")
-                self.assertIn("verifier_delivery", trace)
-                self.assertIn("bàn giao dựa trên verifier — chưa xác nhận tay", trace)
+                self.assertNotEqual(opened.returncode, 0, opened.stdout + opened.stderr)
+                self.assertIn("bàn giao: chưa", opened.stdout)
+                self.assertNotIn("bàn giao dựa trên verifier", opened.stdout)
+                self.assertFalse((root / "report.md").exists())
         finally:
             srv.shutdown()
             srv.server_close()

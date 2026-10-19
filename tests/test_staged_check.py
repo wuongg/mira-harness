@@ -41,22 +41,15 @@ def _pair(source_body: str, staged_body: str):
 
 
 class VerifierDeliveryTest(unittest.TestCase):
-    def test_hash_lech_hoac_watch_khong_ban_giao(self):
+    def test_khong_ban_giao_theo_verifier(self):
         manual = {"kind": "manual", "state": "needs_confirmation", "criterion_verified": False}
         verified = {"kind": "contains", "state": "verified", "criterion_verified": True}
-        failed = {"kind": "contains", "state": "failed", "criterion_verified": False}
-        self.assertTrue(verifier_delivery(
+        self.assertFalse(verifier_delivery(
             [verified, manual], "walk-away", "PASS", "abc", "abc"))
-        self.assertTrue(verifier_delivery(
+        self.assertFalse(verifier_delivery(
             [verified, manual], "direct", "PASS", "abc", "abc"))
         self.assertFalse(verifier_delivery(
             [verified, manual], "watch", "PASS", "abc", "abc"))
-        self.assertFalse(verifier_delivery(
-            [verified, manual], "walk-away", "PASS", "abc", "def"))
-        self.assertFalse(verifier_delivery(
-            [failed, manual], "walk-away", "PASS", "abc", "abc"))
-        self.assertFalse(verifier_delivery(
-            [verified, manual], "walk-away", "FAIL", "abc", "abc"))
 
 
 class StagedCheckTest(unittest.TestCase):
