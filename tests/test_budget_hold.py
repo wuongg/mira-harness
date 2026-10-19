@@ -47,6 +47,20 @@ class BudgetHoldTest(unittest.TestCase):
         _Slow.calls = 0
         _Slow.fail = False
 
+    def test_hai_luong_khong_vuot_truoc_khi_giu_cho(self):
+        real = team.Ledger.begin_request
+
+        def slow(self, role, model, hold):
+            time.sleep(0.3)
+            return real(self, role, model, hold)
+
+        with patch.object(team, "provider_for", lambda model, name=None, **kw: _Slow()), \
+                patch.object(team.Ledger, "begin_request", slow):
+            res = execute_plan(_plan(), workers=2, max_tokens=1, api_key="k")
+        self.assertEqual(_Slow.calls, 1)
+        self.assertEqual(res["status"], "stopped_budget")
+        self.assertEqual(res["ledger"]["reserved"], 0.0)
+
     def test_luong_thu_hai_khong_goi_khi_het_cho(self):
         with patch.object(team, "provider_for", lambda model, name=None, **kw: _Slow()):
             res = execute_plan(_plan(), workers=2, max_tokens=1, api_key="k")

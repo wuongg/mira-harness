@@ -592,11 +592,14 @@ class Ledger:
 
     def tracked_call(self, role: str, model: str, prov, system: str, user: str,
                      rates: dict, *, source: str, max_out: int,
-                     declared_by_user: bool = False):
+                     declared_by_user: bool = False, reserved_id: str | None = None):
         """Ghi dispatched trước khi gửi. Usage vượt ước lượng vẫn bị tính."""
         from .providers import ProviderError
-        hold = estimate_hold(rates, system, user, max_out)
-        rid = self.begin_request(role, model, hold)
+        if reserved_id:
+            rid = reserved_id
+        else:
+            hold = estimate_hold(rates, system, user, max_out)
+            rid = self.begin_request(role, model, hold)
         self._flush()
         self.mark_request(rid, "dispatched")
         self._flush()
@@ -921,11 +924,13 @@ def execute_plan(plan: TeamPlan, *, provider_name: str | None = None,
                 return {"role": role, "model": model, "shard": shard, "blocked": True,
                         "budget": True, "error": "không đủ ngân sách để giữ chỗ",
                         "context_policy": policy}
+            rid = ledger.begin_request(role, model, hold)
         t0 = time.time()
         try:
             text, usage, usd, rid = ledger.tracked_call(
                 role, model, prov, ROLE_SYSTEM[role], _user, rates,
-                source=source, max_out=max_tokens, declared_by_user=source == "cli")
+                source=source, max_out=max_tokens, declared_by_user=source == "cli",
+                reserved_id=rid)
         except ProviderError as e:
             return {"role": role, "model": model, "shard": shard, "error": str(e),
                     "uncertain": True, "usd": round(hold, 6),
