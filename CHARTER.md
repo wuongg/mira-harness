@@ -75,3 +75,11 @@ W6. SAU W5 — MỘT TRONG HAI ĐƯỜNG, THEO SỐ:
   + số đo báo cáo được.
 - Cuối mỗi phiên: push phần đã kiểm chứng, cập nhật OVERNIGHT-REPORT.md
   (bảng W1–W6: trạng thái, bằng chứng, URL CI, việc cần tôi quyết).
+
+=== BỔ SUNG 2026-10-19 — W5a ===
+Kiểm chứng API Cursor trước khi cắm. Chỉ cắm endpoint chat đã xác minh.
+Không bịa provider. Không bọc Agents API thành chat. Không gọi API trả phí
+ngoài đúng một request chat khi CURSOR_API_KEY đã có trong môi trường và
+endpoint chat tồn tại. Key không vào chat, file, commit, log, probe.json.
+Không merge main ở mục này. W5 dừng cho đến khi owner chọn provider và ghi
+dòng DUYỆT NGÂN SÁCH.

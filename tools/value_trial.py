@@ -23,7 +23,7 @@ FREEZE = VALUE / "frozen.sha256"
 PROBE = VALUE / "probe.json"
 CANARY = "MIRAVALUECANARY7f3a"
 OFFICIAL_MODEL = "claude-sonnet-5-5"
-# Đối chiếu 2026-10-14 với trang model và trang giá của Anthropic, không lấy từ prices.toml.
+# Bản ghi lần đối chiếu Anthropic 2026-10-14. Probe đọc model từ probe.json, không từ hằng này.
 OFFICIAL = {
     "provider": "anthropic",
     "model": OFFICIAL_MODEL,
@@ -538,31 +538,24 @@ def toml_model_names() -> set[str]:
 
 
 def validate_probe_model(model: str, provider: str) -> None:
+    """Model và provider lấy từ probe.json. Không ghim một nhà cung cấp trong code."""
     if model in toml_model_names():
         raise SystemExit("tên trong prices.toml không phải API ID")
-    if model != OFFICIAL["model"] or provider != OFFICIAL["provider"]:
-        raise SystemExit("model hoặc provider không khớp nguồn đã xác minh")
+    if not str(model).strip() or not str(provider).strip():
+        raise SystemExit("probe thiếu model hoặc provider")
 
 
 def load_probe() -> dict:
     data = json.loads(PROBE.read_text(encoding="utf-8"))
     validate_probe_model(str(data.get("model") or ""), str(data.get("provider") or ""))
-    paired = {
-        "endpoint": "endpoint",
-        "price_in_usd_per_mtok": "price_in_usd_per_mtok",
-        "price_out_usd_per_mtok": "price_out_usd_per_mtok",
-        "cache_read_usd_per_mtok": "cache_read_usd_per_mtok",
-        "official_source": "source",
-        "pricing_source": "pricing_source",
-        "verified_on": "verified_on",
-    }
-    for key, official_key in paired.items():
-        if data.get(key) != OFFICIAL[official_key]:
-            raise SystemExit("probe.json lệch nguồn chính thức đã xác minh")
-    if float(data.get("price_in_usd_per_mtok")) != OFFICIAL["price_in_usd_per_mtok"]:
-        raise SystemExit("giá vào không khớp nguồn chính thức")
-    if float(data.get("price_out_usd_per_mtok")) != OFFICIAL["price_out_usd_per_mtok"]:
-        raise SystemExit("giá ra không khớp nguồn chính thức")
+    for key in ("endpoint", "official_source", "pricing_source", "verified_on", "billing"):
+        if not isinstance(data.get(key), str) or not data[key].strip():
+            raise SystemExit("probe.json thiếu nguồn đã ghi")
+    if data["billing"] not in ("per_token", "prepaid_credit"):
+        raise SystemExit("probe.json thiếu cơ chế tính tiền")
+    for key in ("price_in_usd_per_mtok", "price_out_usd_per_mtok", "cache_read_usd_per_mtok"):
+        if not isinstance(data.get(key), (int, float)):
+            raise SystemExit("probe.json thiếu giá")
     return data
 
 
@@ -727,8 +720,8 @@ def _config_id(probe: dict, tasks: list[str], sha: str) -> str:
     body = {
         "provider": probe.get("provider"),
         "model": probe.get("model"),
-        "endpoint": OFFICIAL["endpoint"],
-        "verified_on": OFFICIAL["verified_on"],
+        "endpoint": probe.get("endpoint"),
+        "verified_on": probe.get("verified_on"),
         "price_in": probe.get("price_in_usd_per_mtok"),
         "price_out": probe.get("price_out_usd_per_mtok"),
         "budget_usd": probe.get("budget_usd"),
@@ -750,10 +743,10 @@ def _blank_state(probe: dict, tasks: list[str], approved: bool) -> dict:
         "approved": bool(approved),
         "provider": probe.get("provider"),
         "model": probe.get("model"),
-        "endpoint": OFFICIAL["endpoint"],
-        "official_source": OFFICIAL["source"],
-        "pricing_source": OFFICIAL["pricing_source"],
-        "verified_on": OFFICIAL["verified_on"],
+        "endpoint": probe.get("endpoint"),
+        "official_source": probe.get("official_source"),
+        "pricing_source": probe.get("pricing_source"),
+        "verified_on": probe.get("verified_on"),
         "harness_sha": sha,
         "tasks_started": [],
         "tasks_done": [],

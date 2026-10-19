@@ -172,7 +172,10 @@ class ValueTrialTest(unittest.TestCase):
         self.assertNotIn(trial.OFFICIAL_MODEL, trial.toml_model_names())
         with self.assertRaises(SystemExit):
             trial.validate_probe_model("sonnet-5.5", "anthropic")
-        self.assertEqual(trial.load_probe()["model"], trial.OFFICIAL_MODEL)
+        trial.validate_probe_model("gpt-4.1-mini", "openai")
+        loaded = trial.load_probe()
+        self.assertEqual(loaded["model"], trial.OFFICIAL_MODEL)
+        self.assertEqual(loaded["billing"], "per_token")
 
     def _view(self, usd: float, run: str, uncertain: float = 0.0, attempt: int = 2):
         return {

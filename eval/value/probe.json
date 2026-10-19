@@ -5,6 +5,7 @@
   "official_source": "https://platform.claude.com/docs/en/models/sonnet-5-5/overview",
   "pricing_source": "https://platform.claude.com/docs/en/about-claude/pricing",
   "verified_on": "2026-10-14",
+  "billing": "per_token",
   "price_in_usd_per_mtok": 2,
   "price_out_usd_per_mtok": 10,
   "cache_write_5m_usd_per_mtok": 2.5,

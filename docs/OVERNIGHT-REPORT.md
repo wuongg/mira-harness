@@ -626,7 +626,37 @@ Giới hạn vẫn đúng: hash không phải sandbox; promote nhiều file khô
 | W2 | xong | Phản chứng: sai rồi đúng promote 1 lần; hết 2 lượt thì `failed` và bảng có `sai:`; `stopped_budget` không promote và không gửi thêm. Verifier PASS không miễn validator. Nằm trong commit báo cáo này. | `6939f79` 11/11 success: https://github.com/wuongg/mira-harness/actions/runs/39207160645 | không |
 | W3 | xong | Cùng 5 nhiệm vụ, provider giả: watch 11 thao tác, walk-away 7. Lượt người sau khi đưa việc: 1.20 so với 0.40. Tự chốt đúng 1.00 cả hai. Model không chọn được nấc. | cùng SHA `6939f79` | không |
 | W4 | xong | `frog giao box` liệt kê lý do, `--pull` một run, `--accept` một lượt cho cả lô. | cùng SHA `6939f79` | không |
-| W5 | chưa chạy | Runner giữ nguyên. Chưa có dòng duyệt ngân sách trong file này. | không | Ghi đúng dòng `DUYỆT NGÂN SÁCH: ...` thì mới chạy V01/V05/V10, trần $2 |
+| W5 | dừng ở W5a | ONLY_AGENTS_API. Không có chat completions. Chưa duyệt ngân sách và chưa chọn provider. | chưa có SHA mục này | Chọn (a) OpenAI rẻ, (b) Anthropic Sonnet, hoặc (c) chờ Cursor. Rồi ghi `DUYỆT NGÂN SÁCH: ...` |
 | W6 | chưa tới | Chờ số của W5. | không | không, cho đến khi có số W5 |
 
 main sau W2–W4: `de75750`. CI main 11/11 success: https://github.com/wuongg/mira-harness/actions/runs/39208461705
+
+## W5a
+
+Đọc ngày 2026-10-19: https://cursor.com/docs/api và https://cursor.com/docs/cloud-agent/api/endpoints và https://cursor.com/docs/models-and-pricing.
+
+Trang API ghi: Cloud Agents API và SDK chạy agent (workspace, tool, lệnh, sửa file), không phải API suy luận model hay chat-completions. `GET /v1/models` là danh sách model cho `model.id` khi tạo agent.
+
+Dò không gửi key, không có `CURSOR_API_KEY` trong Process/User/Machine:
+
+| Request | Status | Body |
+| --- | --- | --- |
+| GET https://api.cursor.com/v1/models | 401 | `{"code":"error","message":"Invalid User API Key"}` |
+| POST https://api.cursor.com/v1/chat/completions body rỗng | 404 | `{"message":"Route POST:/v1/chat/completions not found","error":"Not Found","statusCode":404}` |
+| GET https://api.cursor.com/v1/agents | 401 | `{"code":"error","message":"Invalid User API Key"}` |
+
+Kết luận: **ONLY_AGENTS_API**. Không thêm provider Cursor. Không bọc Agents API thành chat. Không gửi request `hi` vì route chat không tồn tại; phép thử một request có key cũng không chạy vì biến môi trường chưa đặt.
+
+Giá Cursor, cùng ngày, https://cursor.com/docs/models-and-pricing : model bên thứ ba tính theo giá niêm yết API, trả từ prepaid credit. Pool model của Cursor là usage theo tuần, không phải đơn giá token mình được bịa. `probe.json` vẫn là Anthropic `claude-sonnet-5-5`, `billing: per_token`, giá đã ghi ngày 2026-10-14. Code đọc model từ file, không còn ghim cứng trong `validate_probe_model`.
+
+Blocker: hãy đặt `CURSOR_API_KEY` bằng `setx CURSOR_API_KEY "..." ` rồi mở terminal mới nếu sau này endpoint chat xuất hiện. Không dán key vào chat. Nếu key đã lỡ dán, revoke key đó.
+
+Owner chọn một phương án rồi ghi `DUYỆT NGÂN SÁCH` thì W5 mới chạy:
+
+- (a) model rẻ của OpenAI, khoảng $0.2 / 1M token vào, đủ cỡ 12 nhiệm vụ trong $2
+- (b) Anthropic Sonnet cho probe chuẩn, giá đang ghi trong probe.json
+- (c) chờ Cursor mở endpoint chat
+
+W2, W3, W4 đã ở main từ trước mục này. Không làm lại.
+
+Selftest trên máy làm việc, trước commit: Ran 586, OK, skipped=2. Clone sạch và CI ghi sau khi có SHA.
