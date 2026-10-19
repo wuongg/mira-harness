@@ -273,7 +273,7 @@ class IntakeTier3Test(unittest.TestCase):
             deliverables=["sum_to.py"],
             acceptance_criteria=["giong van de doc"])
         self.assertEqual(propose_validators(subjective), [])
-        self.assertIsInstance(subjective["acceptance_criteria"][0], str)
+        self.assertEqual(subjective["acceptance_criteria"][0]["outcome"], "nhan_dinh")
         outside = _brief(
             deliverables=["sum_to.py"],
             acceptance_criteria=[{
@@ -308,9 +308,9 @@ class IntakeTier3Test(unittest.TestCase):
         self.assertEqual(rows[1]["validator"]["kind"], "json_keys")
         self.assertEqual(rows[1]["validator"]["required"], ["id", "name"])
         self.assertEqual(rows[1]["validator"]["expect"], "array")
-        self.assertEqual(rows[2]["validator"]["kind"], "contains")
-        self.assertEqual(rows[2]["validator"]["must_contain"], ["BAN NHAP"])
-        self.assertIsInstance(rows[3], str)
+        self.assertEqual(rows[2]["outcome"], "nhan_dinh")
+        self.assertIsNone(rows[2].get("validator"))
+        self.assertEqual(rows[3]["outcome"], "nhan_dinh")
         note = LABEL + ": " + ", ".join(got["proposed"])
         self.assertIn(note, got["brief"]["assumptions"])
         self.assertNotEqual(brief_hash(raw), brief_hash(got["brief"]))
@@ -357,8 +357,8 @@ class IntakeTier3Test(unittest.TestCase):
             "path": "label.txt",
         }])
         row = got["brief"]["acceptance_criteria"][0]
-        self.assertEqual(row["validator"]["path"], "label.txt")
-        self.assertEqual(row["validator"]["must_contain"], ["BAN NHAP"])
+        self.assertEqual(row["outcome"], "nhan_dinh")
+        self.assertIsNone(row.get("validator"))
 
     def test_khong_file_khop_thi_hoi_khong_bia(self):
         from frog.intake import run_intake
@@ -422,12 +422,48 @@ class IntakeTier3Test(unittest.TestCase):
                          files=["label.txt"], originals={"label.txt": "BAN NHAP\n"})
         self.assertTrue(got["ok"], got.get("reason"))
         self.assertEqual(got["proposed"], [])
-        self.assertIsInstance(got["brief"]["acceptance_criteria"][0], str)
+        self.assertEqual(got["brief"]["acceptance_criteria"][0]["outcome"], "nhan_dinh")
         fresh = _Prov([json.dumps(raw)])
         other = run_intake("ghi", fresh, Ledger(), clarify_max=0, ask=lambda _q: "",
                            model="claude-test", declared_price=(1.0, 1.0),
                            files=["label.txt"], originals={"label.txt": "CU\n"})
-        self.assertEqual(other["brief"]["acceptance_criteria"][0]["validator"]["must_contain"], ["BAN NHAP"])
+        self.assertEqual(other["brief"]["acceptance_criteria"][0]["outcome"], "nhan_dinh")
+        self.assertIsNone(other["brief"]["acceptance_criteria"][0].get("validator"))
+
+    def test_co_ket_qua_moi_kem_gia_tri_cu(self):
+        from frog.intake import outcome_note, run_intake
+        from frog.team import Ledger
+        raw = _brief(
+            deliverables=["label.txt"],
+            acceptance_criteria=["thay \"BAN NHAP\" bằng \"BAN CUOI\""])
+        prov = _Prov([json.dumps(raw)])
+        got = run_intake("doi", prov, Ledger(), clarify_max=0, ask=lambda _q: "",
+                         model="claude-test", declared_price=(1.0, 1.0),
+                         files=["label.txt"], originals={"label.txt": "BAN NHAP\n"})
+        self.assertTrue(got["ok"], got.get("reason"))
+        row = got["brief"]["acceptance_criteria"][0]
+        self.assertEqual(row["outcome"], "ket_qua_moi")
+        self.assertEqual(row["validator"]["must_contain"], ["BAN CUOI"])
+        self.assertEqual(row["validator"]["must_not_contain"], ["BAN NHAP"])
+        note = outcome_note(got["brief"])
+        self.assertIn("BAN NHAP → BAN CUOI", note)
+
+    def test_file_thay_doi_va_mo_ho(self):
+        from frog.intake import propose_validators
+        code = _brief(
+            deliverables=["nums.py", "people.json"],
+            acceptance_criteria=["median([1, 10, 2]) == 2", "Moi phan tu co id va name"])
+        ids = propose_validators(code, {"nums.py": "def median(nums):\n    return 0\n"})
+        self.assertEqual(len(ids), 2)
+        rows = code["acceptance_criteria"]
+        self.assertEqual(rows[0]["outcome"], "file_thay_doi")
+        self.assertEqual(rows[0]["validator"]["kind"], "behavior")
+        self.assertEqual(rows[1]["outcome"], "file_thay_doi")
+        self.assertEqual(rows[1]["validator"]["kind"], "json_keys")
+        vague = _brief(deliverables=["label.txt"], acceptance_criteria=["Ghi label.txt là BAN NHAP"])
+        self.assertEqual(propose_validators(vague, {"label.txt": "CU\n"}), [])
+        self.assertEqual(vague["acceptance_criteria"][0]["outcome"], "nhan_dinh")
+        self.assertIsNone(vague["acceptance_criteria"][0].get("validator"))
 
     def test_schema_sai_duoc_sua_mot_lan(self):
         from frog.intake import run_intake

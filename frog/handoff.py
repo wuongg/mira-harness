@@ -552,6 +552,8 @@ def bare_deliverable(brief: dict) -> bool:
     if not parsed:
         return bool(names)
     for item in parsed:
+        if item.get("outcome") == "nhan_dinh":
+            return True
         if item.get("validator"):
             continue
         if item.get("cmd") or _machine_text(item.get("text") or "", names):
@@ -976,6 +978,20 @@ def promote_sealed(root: Path, state: dict) -> str:
         os.replace(str(src), str(dest))
         if not dest.is_file() or hashlib.sha256(dest.read_bytes()).hexdigest() != digest:
             return "byte sau promote không khớp manifest"
+    from .obligations import _text_sha, validate_criteria
+    parsed, _why = validate_criteria(state["brief"].get("acceptance_criteria") or [])
+    for item in parsed or []:
+        if item.get("outcome") != "ket_qua_moi":
+            continue
+        rel = item.get("source_path") or (item.get("validator") or {}).get("path") or ""
+        original = item.get("source_sha256") or ""
+        if not rel or not original:
+            continue
+        landed = root / rel
+        if not landed.is_file():
+            return "file gốc thiếu sau promote"
+        if _text_sha(landed.read_text(encoding="utf-8", errors="replace")) == original:
+            return "file gốc không đổi sau promote"
     return ""
 
 

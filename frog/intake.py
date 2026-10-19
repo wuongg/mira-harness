@@ -374,43 +374,122 @@ def _already_in_source(spec: dict, originals: dict[str, str] | None) -> bool:
     return False
 
 
+def _text_sha(body: str) -> str:
+    return hashlib.sha256(body.encode("utf-8")).hexdigest()
+
+
+def _replacement(text: str) -> tuple[str, str] | None:
+    """Cặp giá trị cũ, giá trị mới. Không có cặp thì không phải nội dung mới."""
+    quoted = re.search(
+        r"(?:thay|đổi|doi|từ|tu)\s+[\"']([^\"'\n]+)[\"']\s+"
+        r"(?:bằng|bang|thành|thanh|sang)\s+[\"']([^\"'\n]+)[\"']",
+        text, re.IGNORECASE)
+    if quoted:
+        return quoted.group(1).strip(), quoted.group(2).strip()
+    arrow = re.search(
+        r"([A-Z][A-Z0-9]+(?:\s+[A-Z][A-Z0-9]+)*)\s*(?:→|->)\s*"
+        r"([A-Z][A-Z0-9]+(?:\s+[A-Z][A-Z0-9]+)*)",
+        text)
+    if arrow:
+        return arrow.group(1).strip(), arrow.group(2).strip()
+    plain = re.search(
+        r"(?:thay|đổi|doi)\s+([A-Z][A-Z0-9]+(?:\s+[A-Z][A-Z0-9]+)*)\s+"
+        r"(?:bằng|bang|thành|thanh)\s+([A-Z][A-Z0-9]+(?:\s+[A-Z][A-Z0-9]+)*)",
+        text, re.IGNORECASE)
+    if plain:
+        return plain.group(1).strip(), plain.group(2).strip()
+    return None
+
+
+def _stamp(text: str, names: list[str], originals: dict[str, str] | None):
+    """Cờ nghĩa. Mơ hồ thì nhan_dinh, không gắn validator."""
+    repl = _replacement(text)
+    if repl:
+        old, new = repl
+        path = _pick_deliverable(names, {".md", ".txt"}, text)
+        if path is None:
+            for name in names:
+                if Path(name).suffix.lower() in {".md", ".txt"}:
+                    path = name
+                    break
+        if path:
+            spec = {
+                "kind": "contains", "path": path,
+                "must_contain": [new], "must_not_contain": [old],
+            }
+            digest = _text_sha(originals[path]) if originals and path in originals else ""
+            return "ket_qua_moi", spec, path, digest
+        return "nhan_dinh", None, "", ""
+    spec = _infer_validator(text, names)
+    if spec and spec.get("kind") in ("behavior", "json_keys"):
+        if spec["kind"] == "json_keys" and _already_in_source(spec, originals):
+            return "nhan_dinh", None, "", ""
+        path = str(spec.get("path") or "")
+        if spec["kind"] == "behavior":
+            path = _pick_deliverable(names, {".py"}, text) or path
+        digest = _text_sha(originals[path]) if originals and path and path in originals else ""
+        return "file_thay_doi", spec, path, digest
+    return "nhan_dinh", None, "", ""
+
+
+def outcome_note(brief) -> str:
+    """Dòng cờ cho worker. ket_qua_moi phải thấy giá trị cũ và giá trị mới."""
+    if not isinstance(brief, dict):
+        return ""
+    lines = []
+    for item in brief.get("acceptance_criteria") or []:
+        if not isinstance(item, dict) or not item.get("outcome"):
+            continue
+        if item["outcome"] == "ket_qua_moi":
+            spec = item.get("validator") or {}
+            old = ", ".join(spec.get("must_not_contain") or [])
+            new = ", ".join(spec.get("must_contain") or [])
+            lines.append(
+                f"{item.get('id')}: ket_qua_moi. Giá trị cũ → giá trị mới: {old} → {new}")
+        else:
+            lines.append(f"{item.get('id')}: {item['outcome']}")
+    if not lines:
+        return ""
+    return "CỜ NGHĨA:\n" + "\n".join(lines)
+
+
 def propose_validators(obj: dict, originals: dict[str, str] | None = None) -> list[str]:
-    """Gắn validator suy được. Tiêu chí không suy được giữ manual."""
+    """Gắn validator suy được và cờ nghĩa. Mơ hồ thì manual."""
     from .obligations import validate_criteria
     names = _deliverable_names(obj.get("deliverables"))
     proposed: list[str] = []
     items = []
+    stamped = False
     for raw in obj.get("acceptance_criteria") or []:
+        if not isinstance(raw, str):
+            items.append(raw)
+            continue
         parsed, _why = validate_criteria([raw])
-        if not parsed or parsed[0].get("validator"):
+        if not parsed or parsed[0].get("cmd"):
             items.append(raw)
             continue
-        spec = _infer_validator(parsed[0]["text"], names)
-        if spec is None or _already_in_source(spec, originals):
-            items.append(raw)
-            continue
-        if isinstance(raw, str):
-            cid = "c" + hashlib.sha256(raw.encode("utf-8")).hexdigest()[:12]
-            built = {
-                "schema": 1, "id": cid, "text": raw.strip(),
-                "proves": LABEL, "validator": spec,
-            }
-        else:
-            built = dict(raw)
+        text = parsed[0]["text"]
+        outcome, spec, path, digest = _stamp(text, names, originals)
+        cid = "c" + hashlib.sha256(text.encode("utf-8")).hexdigest()[:12]
+        built = {
+            "schema": 1, "id": cid, "text": text,
+            "outcome": outcome, "proves": LABEL if spec else "",
+            "source_path": path, "source_sha256": digest,
+        }
+        if spec:
             built["validator"] = spec
-            if not str(built.get("proves") or "").strip():
-                built["proves"] = LABEL
-            cid = str(built.get("id") or "")
+            proposed.append(cid)
         items.append(built)
-        proposed.append(cid)
-    if not proposed:
+        stamped = True
+    if not proposed and not stamped:
         return []
     trial = dict(obj)
     trial["acceptance_criteria"] = items
-    note = LABEL + ": " + ", ".join(proposed)
     assumptions = list(trial.get("assumptions") or [])
-    if note not in assumptions:
-        assumptions.append(note)
+    if proposed:
+        note = LABEL + ": " + ", ".join(proposed)
+        if note not in assumptions:
+            assumptions.append(note)
     trial["assumptions"] = assumptions
     ok, _why = validate_brief(trial)
     if not ok:

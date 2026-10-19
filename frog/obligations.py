@@ -13,7 +13,11 @@ from pathlib import Path
 _PREFIX = "check:"
 _EXIT_ONLY = "chỉ mã thoát của lệnh này"
 CRITERIA_SCHEMA = 1
-_OBJECT_KEYS = {"schema", "id", "text", "cmd", "proves", "artifact", "validator"}
+_OBJECT_KEYS = {
+    "schema", "id", "text", "cmd", "proves", "artifact", "validator",
+    "outcome", "source_sha256", "source_path",
+}
+OUTCOMES = ("file_thay_doi", "ket_qua_moi", "nhan_dinh")
 
 
 def _declared_check(criterion: str) -> str | None:
@@ -33,6 +37,9 @@ def _string_item(text: str) -> dict:
         "proves": "",
         "artifact": "",
         "validator": None,
+        "outcome": "",
+        "source_sha256": "",
+        "source_path": "",
     }
 
 
@@ -139,6 +146,18 @@ def _object_item(raw: dict) -> tuple[dict | None, str]:
         validator, why = _parse_validator(raw.get("validator"))
         if validator is None:
             return None, why
+    outcome = raw.get("outcome", "")
+    if outcome not in ("", *OUTCOMES):
+        return None, "outcome không hỗ trợ"
+    source_sha = raw.get("source_sha256", "")
+    source_path = raw.get("source_path", "")
+    if not isinstance(source_sha, str) or not isinstance(source_path, str):
+        return None, "nguồn file gốc sai kiểu"
+    source_rel = ""
+    if source_path.strip():
+        source_rel, why = _rel_path(source_path)
+        if source_rel is None:
+            return None, why
     return {
         "schema": CRITERIA_SCHEMA,
         "id": cid.strip(),
@@ -147,6 +166,9 @@ def _object_item(raw: dict) -> tuple[dict | None, str]:
         "proves": proves.strip(),
         "artifact": rel,
         "validator": validator,
+        "outcome": outcome,
+        "source_sha256": source_sha.strip(),
+        "source_path": source_rel,
     }, ""
 
 
@@ -241,6 +263,27 @@ def _read_inside(root: Path, rel: str) -> tuple[Path | None, str]:
     if not path.is_file():
         return None, "không có file"
     return path, ""
+
+
+def _text_sha(body: str) -> str:
+    return hashlib.sha256(body.encode("utf-8")).hexdigest()
+
+
+def source_changed(item: dict, root: Path | None) -> bool:
+    """file_thay_doi chỉ đúng khi file khác bản gốc."""
+    if item.get("outcome") != "file_thay_doi":
+        return True
+    rel = item.get("source_path") or (item.get("validator") or {}).get("path") or ""
+    if not rel or root is None or not root.is_dir():
+        return False
+    path, _why = _read_inside(root, rel)
+    if path is None:
+        return False
+    current = _text_sha(path.read_text(encoding="utf-8", errors="replace"))
+    original = item.get("source_sha256") or ""
+    if not original:
+        return True
+    return current != original
 
 
 def _apply_validator(spec: dict, root: Path | None, allowed: set[str]) -> dict:
@@ -513,6 +556,22 @@ def judge_obligations(criteria: list, steps: list[dict] | None = None,
             if applied.get("command_passed"):
                 command_passed = True
         verified = bool(applied and applied.get("verified"))
+        if item.get("outcome") == "ket_qua_moi":
+            banned = ((item.get("validator") or {}).get("must_not_contain") or [])
+            if not banned:
+                verified = False
+                applied = {
+                    "state": "failed", "verified": False, "command_passed": False,
+                    "reason": "ket_qua_moi thiếu giá trị cũ",
+                    "proves": "", "does_not_prove": "không chứng minh nội dung mới",
+                }
+        if verified and not source_changed(item, root):
+            verified = False
+            applied = {
+                "state": "failed", "verified": False, "command_passed": False,
+                "reason": "file không khác file gốc",
+                "proves": "", "does_not_prove": "không chứng minh file đã đổi",
+            }
         if command_state == "pending" and not verified:
             state = "pending"
             reason = command_reason
