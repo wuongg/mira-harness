@@ -251,8 +251,11 @@ def _infer_validator(text: str, names: list[str]) -> dict | None:
     return None
 
 
+_HIDDEN_DIRS = frozenset({".mira", ".frog", "out", "__pycache__"})
+
+
 def workspace_files(root: Path) -> list[str]:
-    """Tên file tương đối. Không đọc nội dung."""
+    """Tên file tương đối. Không đọc nội dung, không lộ thư mục nội bộ."""
     root = Path(root)
     if not root.is_dir():
         return []
@@ -262,10 +265,23 @@ def workspace_files(root: Path) -> list[str]:
             continue
         rel = path.relative_to(root).as_posix()
         parts = Path(rel).parts
-        if any(part.startswith(".") or part == "__pycache__" for part in parts):
+        if any(part.startswith(".") or part in _HIDDEN_DIRS for part in parts):
             continue
         found.append(rel)
     return found
+
+
+def declared_path(text: str) -> str | None:
+    """Path tương đối đã khai trong brief. Câu chữ thì không phải path."""
+    raw = text.replace("\\", "/").strip()
+    if not raw or any(ch.isspace() for ch in raw):
+        return None
+    if raw.startswith("/") or (len(raw) >= 2 and raw[1] == ":"):
+        return None
+    parts = tuple(part for part in raw.split("/") if part != "")
+    if not parts or any(part in (".", "..") or part.startswith(".") for part in parts):
+        return None
+    return "/".join(parts)
 
 
 def match_deliverable(text: str, files: list[str]) -> str | None:
@@ -295,6 +311,8 @@ def bind_deliverables(obj: dict, files: list[str]) -> tuple[list[tuple[str, str]
             rewritten.append(item)
             continue
         path = match_deliverable(item, files)
+        if path is None:
+            path = declared_path(item)
         if path is None:
             missing.append(item)
             rewritten.append(item)
