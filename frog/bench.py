@@ -32,10 +32,10 @@ class _Scripted:
 
 
 def task_root() -> Path:
-    here = Path(__file__).resolve().parents[1] / "eval" / "tasks"
+    here = Path(__file__).resolve().parents[1] / "eval" / "bench" / "tasks"
     if here.is_dir():
         return here
-    return Path.cwd() / "eval" / "tasks"
+    return Path.cwd() / "eval" / "bench" / "tasks"
 
 
 def _check(root: Path, spec: dict, session: Session | None = None,
@@ -228,7 +228,7 @@ def run_eval(root: Path | None = None) -> int:
     base = root or task_root()
     folders = sorted(p for p in base.iterdir() if (p / "task.json").is_file()) if base.is_dir() else []
     if not folders:
-        print("không có việc trong eval/tasks")
+        print("không có việc trong eval/bench/tasks")
         return 2
     rows = [run_one(folder) for folder in folders]
     passed = sum(1 for row in rows if row["ok"])

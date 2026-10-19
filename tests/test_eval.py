@@ -10,7 +10,7 @@ from frog.tools import Session
 
 class EvalTest(unittest.TestCase):
     def test_hai_viec_deu_qua(self):
-        root = Path(__file__).resolve().parents[1] / "eval" / "tasks"
+        root = Path(__file__).resolve().parents[1] / "eval" / "bench" / "tasks"
         rows = [run_one(p) for p in sorted(root.iterdir()) if (p / "task.json").is_file()]
         names = [r["name"] for r in rows]
         self.assertEqual(

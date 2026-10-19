@@ -32,6 +32,9 @@ def _brief(cmd: str) -> dict:
 
 
 class _Stub(BaseHTTPRequestHandler):
+    seen: list[str] = []
+    reply = ""
+
     def log_message(self, *args):
         pass
 
@@ -39,7 +42,10 @@ class _Stub(BaseHTTPRequestHandler):
         n = int(self.headers.get("content-length", 0))
         req = json.loads(self.rfile.read(n) or b"{}")
         blob = json.dumps(req, ensure_ascii=False)
-        if "INTAKE" in blob:
+        _Stub.seen.append(blob)
+        if _Stub.reply and "INTAKE" not in blob and "VERIFIER" not in blob:
+            text = _Stub.reply
+        elif "INTAKE" in blob:
             text = json.dumps(_Stub.brief, ensure_ascii=False)
         elif "VERIFIER" in blob:
             text = '{"verdict":"PASS","reasons":["khop"],"evidence":["tep"],"confidence":0.9}'
@@ -81,6 +87,7 @@ class _Stub(BaseHTTPRequestHandler):
 
 def _serve(brief: dict):
     _Stub.brief = brief
+    _Stub.seen = []
     srv = ThreadingHTTPServer(("127.0.0.1", 0), _Stub)
     threading.Thread(target=srv.serve_forever, daemon=True).start()
     return srv, f"http://127.0.0.1:{srv.server_address[1]}"
@@ -427,6 +434,150 @@ class GiaoExecuteTest(unittest.TestCase):
             srv.shutdown()
             srv.server_close()
 
+    def test_v09_ket_qua_moi_khong_ban_giao(self):
+        brief = {
+            "goal": "Doi nhan",
+            "deliverables": ["label.txt"],
+            "acceptance_criteria": [{
+                "schema": 1, "id": "ban", "text": "nhan moi",
+                "outcome": "ket_qua_moi",
+                "source_path": "label.txt",
+                "source_sha256": "cu",
+                "validator": {
+                    "kind": "contains", "path": "label.txt",
+                    "must_contain": ["BAN CUOI"], "must_not_contain": ["BAN NHAP"],
+                },
+            }],
+            "constraints": [], "assumptions": [], "questions": [],
+            "per_role_hints": {"planner": "", "worker": "", "verifier": ""},
+        }
+        srv, base = _serve(brief)
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                (root / "label.txt").write_text("CU\n", encoding="utf-8")
+                opened = _frog(root, base, ["Ghi label.txt là BAN CUOI", "--approve-brief"])
+                self.assertEqual(opened.returncode, 0, opened.stdout + opened.stderr)
+                run = _id(opened.stdout)
+                ran = _frog(root, base, ["--run", run, "--autonomy", "walk-away"])
+                decoded = "\n".join(
+                    json.dumps(json.loads(item), ensure_ascii=False) for item in _Stub.seen)
+                self.assertIn("BAN NHAP → BAN CUOI", decoded)
+                self.assertNotEqual(ran.returncode, 0, ran.stdout + ran.stderr)
+                self.assertNotIn("bàn giao: đủ", ran.stdout)
+                self.assertFalse(json.loads(
+                    (root / ".frog" / "runs" / run / "handoff.json").read_text(encoding="utf-8"))["promoted"])
+                self.assertNotEqual((root / "label.txt").read_text(encoding="utf-8").strip(), "BAN CUOI")
+        finally:
+            srv.shutdown()
+            srv.server_close()
+
+    def test_v03_file_thay_doi_van_ban_giao(self):
+        brief = {
+            "goal": "Sua median",
+            "deliverables": ["nums.py"],
+            "acceptance_criteria": [{
+                "schema": 1, "id": "med", "text": "sap so",
+                "outcome": "file_thay_doi",
+                "source_path": "nums.py",
+                "source_sha256": "khac",
+                "validator": {
+                    "kind": "contains", "path": "nums.py",
+                    "must_contain": ["sorted(nums)"], "must_not_contain": [],
+                },
+            }],
+            "constraints": [], "assumptions": [], "questions": [],
+            "per_role_hints": {"planner": "", "worker": "", "verifier": ""},
+        }
+        _Stub.reply = "<tool>" + json.dumps({
+            "name": "write_file",
+            "args": {"path": "nums.py", "content": "def median(nums):\n    return sorted(nums)\n"},
+        }, ensure_ascii=False) + "</tool>"
+        srv, base = _serve(brief)
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                (root / "nums.py").write_text("def median(nums):\n    return nums\n", encoding="utf-8")
+                opened = _frog(root, base, ["Sửa nums.py", "--approve-brief"])
+                run = _id(opened.stdout)
+                ran = _frog(root, base, ["--run", run, "--autonomy", "walk-away"])
+                self.assertEqual(ran.returncode, 0, ran.stdout + ran.stderr)
+                self.assertIn("bàn giao: đủ", ran.stdout)
+                self.assertIn("sorted(nums)", (root / "nums.py").read_text(encoding="utf-8"))
+        finally:
+            _Stub.reply = ""
+            srv.shutdown()
+            srv.server_close()
+
+    def test_v05_json_moi_van_ban_giao(self):
+        brief = {
+            "goal": "Ghi people.json",
+            "deliverables": ["people.json"],
+            "acceptance_criteria": [{
+                "schema": 1, "id": "rows", "text": "co id va name",
+                "outcome": "file_thay_doi",
+                "source_path": "people.json",
+                "source_sha256": "",
+                "validator": {
+                    "kind": "json_keys", "path": "people.json", "expect": "array",
+                    "required": ["id", "name"], "forbidden": [], "allow_empty": False,
+                },
+            }],
+            "constraints": [], "assumptions": [], "questions": [],
+            "per_role_hints": {"planner": "", "worker": "", "verifier": ""},
+        }
+        _Stub.reply = "<tool>" + json.dumps({
+            "name": "write_file",
+            "args": {"path": "people.json", "content": "[{\"id\": \"1\", \"name\": \"An\"}]"},
+        }, ensure_ascii=False) + "</tool>"
+        srv, base = _serve(brief)
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                opened = _frog(root, base, ["Ghi people.json", "--approve-brief"])
+                run = _id(opened.stdout)
+                ran = _frog(root, base, ["--run", run, "--autonomy", "walk-away"])
+                self.assertEqual(ran.returncode, 0, ran.stdout + ran.stderr)
+                self.assertIn("bàn giao: đủ", ran.stdout)
+                self.assertTrue((root / "people.json").is_file())
+        finally:
+            _Stub.reply = ""
+            srv.shutdown()
+            srv.server_close()
+
+    def test_v11_nhan_dinh_cho_nguoi(self):
+        brief = {
+            "goal": "Sua hold",
+            "deliverables": ["hold_sum.py"],
+            "acceptance_criteria": [{
+                "schema": 1, "id": "sum", "text": "vong lap du",
+                "outcome": "nhan_dinh",
+                "validator": {
+                    "kind": "contains", "path": "hold_sum.py",
+                    "must_contain": ["range(n + 1)"], "must_not_contain": [],
+                },
+            }],
+            "constraints": [], "assumptions": [], "questions": [],
+            "per_role_hints": {"planner": "", "worker": "", "verifier": ""},
+        }
+        srv, base = _serve(brief)
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                (root / "hold_sum.py").write_text(
+                    "def hold_sum(n):\n    return range(n + 1)\n", encoding="utf-8")
+                opened = _frog(root, base, ["Sửa hold_sum.py", "--approve-brief"])
+                run = _id(opened.stdout)
+                ran = _frog(root, base, ["--run", run, "--autonomy", "walk-away"])
+                self.assertNotIn("bàn giao: đủ", ran.stdout)
+                self.assertIn("chờ xác nhận", ran.stdout)
+                state = json.loads((root / ".frog" / "runs" / run / "handoff.json").read_text(encoding="utf-8"))
+                self.assertEqual(state["phase"], "awaiting_confirmation")
+                self.assertFalse(state["promoted"])
+        finally:
+            srv.shutdown()
+            srv.server_close()
+
     def test_v09_ban_nhap_da_co_trong_file_goc_khong_ban_giao(self):
         brief = {
             "goal": "Ghi noi dung BAN NHAP vao tep label.txt.",
@@ -452,8 +603,44 @@ class GiaoExecuteTest(unittest.TestCase):
                 state = json.loads((root / ".frog" / "runs" / run / "handoff.json").read_text(encoding="utf-8"))
                 self.assertEqual(state["phase"], "awaiting_confirmation")
                 self.assertFalse(state["promoted"])
-                self.assertIsInstance(state["brief"]["acceptance_criteria"][0], str)
+                self.assertEqual(state["brief"]["acceptance_criteria"][0]["outcome"], "nhan_dinh")
         finally:
+            srv.shutdown()
+            srv.server_close()
+
+    def test_v03_model_chon_ket_qua_moi_ban_giao(self):
+        brief = {
+            "goal": "Sua median",
+            "deliverables": ["nums.py"],
+            "acceptance_criteria": [{
+                "text": "median([1,10,2]) trả về số 2",
+                "outcome": "ket_qua_moi",
+            }],
+            "constraints": [], "assumptions": [], "questions": [],
+            "per_role_hints": {"planner": "", "worker": "", "verifier": ""},
+        }
+        _Stub.reply = "<tool>" + json.dumps({
+            "name": "write_file",
+            "args": {"path": "nums.py", "content": (
+                "def median(nums):\n"
+                "    ordered = sorted(nums)\n"
+                "    return ordered[len(ordered) // 2]\n"
+            )},
+        }, ensure_ascii=False) + "</tool>"
+        srv, base = _serve(brief)
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                (root / "nums.py").write_text("def median(nums):\n    return 0\n", encoding="utf-8")
+                opened = _frog(root, base, ["Sửa nums.py", "--approve-brief", "--autonomy", "walk-away"])
+                self.assertEqual(opened.returncode, 0, opened.stdout + opened.stderr)
+                self.assertIn("bàn giao: đủ", opened.stdout)
+                check = subprocess.run(
+                    [sys.executable, str(Path(__file__).resolve().parents[1] / "eval" / "value" / "checks" / "V03.py"), str(root)],
+                    cwd=str(root), capture_output=True, text=True)
+                self.assertEqual(check.returncode, 0, check.stdout + check.stderr)
+        finally:
+            _Stub.reply = ""
             srv.shutdown()
             srv.server_close()
 

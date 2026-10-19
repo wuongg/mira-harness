@@ -40,7 +40,7 @@ class SelftestIsolatedTest(unittest.TestCase):
         readme = (ROOT / "README.md").read_text(encoding="utf-8")
         self.assertIn('version = {attr = "frog.__version__"}', project)
         self.assertIn(frog.__version__, readme)
-        self.assertEqual(frog.__version__, "2.5.0")
+        self.assertEqual(frog.__version__, "0.9.0")
         from frog.cli import VERSION
         self.assertEqual(VERSION, frog.__version__)
 

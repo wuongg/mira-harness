@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.9.0
+
+### Changed
+
+- Menu và mặt mặc định chỉ còn `frog giao`, `frog team`, `frog agent`, `frog keys`, `frog doctor`.
+- `frog bench` là công cụ benchmark nội bộ: shadow 320 tác vụ, phiếu gán nhãn, chấm nhãn, thống kê.
+- Bộ việc local cũ nằm ở `eval/bench/tasks`. `eval/value` và `eval/adversarial` giữ chỗ.
+- shims mira/r0-shadow sẽ bị bỏ trong v1.0.0.
+
 ## Unreleased
 
 ### Changed

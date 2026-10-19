@@ -297,7 +297,7 @@ def _giao(cwd: Path, base: str, bits: list[str], env: dict | None = None, timeou
 
 def budget_line_present(report_text: str | None = None) -> bool:
     if report_text is None:
-        path = ROOT / "docs" / "OVERNIGHT-REPORT.md"
+        path = ROOT / "docs" / "history" / "OVERNIGHT-REPORT.md"
         report_text = path.read_text(encoding="utf-8") if path.is_file() else ""
     return any(line.strip() == BUDGET_LINE for line in report_text.splitlines())
 
@@ -1034,8 +1034,11 @@ def _probe_loop(probe: dict, chosen: list[str], base_url: str, progress_path: Pa
         if tid not in state["tasks_started"]:
             state["tasks_started"].append(tid)
         _progress(progress_path, state)
+        open_bits = [spec["prompt"], "--approve-brief"]
+        if probe.get("intake_model"):
+            open_bits += ["--intake-model", str(probe["intake_model"])]
         outcome = _call_giao(
-            dest, base_url, [spec["prompt"], "--approve-brief"],
+            dest, base_url, open_bits,
             price, str(probe["max_tokens"]), call_timeout,
             provider=provider, model=model, env=child_env)
         if outcome is None:

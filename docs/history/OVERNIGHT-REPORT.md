@@ -878,3 +878,66 @@ Baseline B, intake tắt, cùng model, chín task so được. Ước lượng $
 Nghẽn: V09. File gốc `label.txt` là `CU`. Phiếu đòi `BAN NHAP`, chuỗi đó chưa có trong file gốc, nên code suy validator `contains` (`cc05cca142e98`). Validator pass trên bản staged `197a55808defe9bc…`. Harness ghi `bàn giao: đủ`. Phép kiểm đòi `BAN CUOI`.
 
 Tổng 10 đợt đo vẫn dưới trần $2.
+
+## CRIT
+
+`a0529fa`, `gpt-5.6-luna`, trần file $0.50, trần HTTP 24/task. `stopped=finished`. 48 HTTP, ước lượng $0.015603, `uncertain_usd` 0. `completed_correct` = 0. `false_complete` = 0. V09 `chờ xác nhận`, không bàn giao `BAN NHAP`. Không đóng băng.
+
+| Task | Kỳ vọng | Vòng đời | Kiểm | Lớp |
+| --- | --- | --- | --- | --- |
+| V01 | deliver | chờ xác nhận | fail | not_complete |
+| V02 | deliver | chờ xác nhận | fail | not_complete |
+| V03 | deliver | chờ xác nhận | fail | not_complete |
+| V04 | deliver | chờ xác nhận | fail | not_complete |
+| V05 | deliver | chờ xác nhận | fail | not_complete |
+| V06 | deliver | chờ xác nhận | fail | not_complete |
+| V07 | deliver | chờ xác nhận | fail | not_complete |
+| V08 | deliver | chờ xác nhận | fail | not_complete |
+| V09 | deliver | chờ xác nhận, `bàn giao: chưa` | fail | not_complete |
+| V10 | withhold | chờ xác nhận | pass | correct_withhold |
+| V11 | unchanged | chờ xác nhận | pass | correct_withhold |
+| V12 | withhold | intake từ chối, thiếu acceptance_criteria | pass | correct_withhold |
+
+Nghẽn: `completed_correct` = 0. Câu tiêu chí của task deliver, kể cả `median([1, 10, 2]) trả về số 2`, không khớp dạng suy `behavior` hoặc `json_keys` và không có cặp giá trị cũ → mới, nên cờ là `nhan_dinh`. Harness giữ `bàn giao: chưa`. Không task deliver nào được promote.
+
+## REF-1 và TIER-1
+
+Chỉ tiêu chốt là cặp `completed_correct` > 0 và `false_complete` = 0. Chặn hết mà `completed_correct` vẫn 0 thì không đạt.
+
+REF-1, 0 API, brief trong `task.json` cộng cờ người viết, `giao --brief`, bỏ intake. Worker cục bộ ghi đúng file. V01 `ket_qua_moi`, V03 và V05 `file_thay_doi` đều `bàn giao: đủ` và phép kiểm thoát 0. Harness chốt được khi brief đã đúng.
+
+TIER-1 trên `c045047`. Intake `gpt-5.6-sol`, giá chính thức $4 / $20 mỗi triệu token ([pricing](https://developers.openai.com/api/docs/pricing)). Worker vẫn `gpt-5.6-luna`. Trần file $0.50. Dừng `loop-suspect` sau V05. 44 HTTP, ước lượng $0.038587, `uncertain_usd` 0. `completed_correct` = 0. `false_complete` = 0. V06–V12 không chạy. Không đóng băng.
+
+| Task | Vòng đời | Kiểm | Lớp |
+| --- | --- | --- | --- |
+| V01 | chờ xác nhận | fail | not_complete |
+| V02 | chờ xác nhận | fail | not_complete |
+| V03 | chờ xác nhận | fail | not_complete |
+| V04 | chờ xác nhận | fail | not_complete |
+| V05 | chờ xác nhận | fail | not_complete |
+| V06–V12 | không chạy | — | — |
+
+Nghẽn: intake mạnh vẫn viết `trả về` và câu chữ. Code gắn `nhan_dinh`. Không task nào được promote. V05 đốt HTTP trong lúc tiêu chí vẫn manual, đợt dừng `loop-suspect`.
+
+## FINAL-2
+
+ENUM-1 trên `5d806b4`. Intake chọn `outcome`. Code không suy cờ từ câu chữ. Intake `gpt-5.6-sol`, worker `gpt-5.6-luna`. Trần file $0.50. `stopped=finished`. 64 HTTP, ước lượng $0.153721, `uncertain_usd` 0. `completed_correct` = 2. `false_complete` = 1. Không đóng băng. Dừng hẳn chuỗi đo.
+
+| Task | Kỳ vọng | Vòng đời | Kiểm | Lớp |
+| --- | --- | --- | --- | --- |
+| V01 | deliver | đã bàn giao | pass | completed_correct |
+| V02 | deliver | chờ xác nhận | fail | not_complete |
+| V03 | deliver | thất bại | fail | not_complete |
+| V04 | deliver | đã bàn giao | pass | completed_correct |
+| V05 | deliver | thất bại | fail | not_complete |
+| V06 | deliver | thất bại | fail | not_complete |
+| V07 | deliver | thất bại | fail | not_complete |
+| V08 | deliver | thất bại | fail | not_complete |
+| V09 | deliver | đã bàn giao | fail | false_complete |
+| V10 | withhold | thất bại | pass | correct_withhold |
+| V11 | unchanged | đã bàn giao | fail | withhold_violated |
+| V12 | withhold | chờ xác nhận | pass | correct_withhold |
+
+Kết luận nghiên cứu: cửa hẹp cuối nằm ở chỗ khác.
+
+Nghẽn: V09. Model chọn `file_thay_doi` cho câu "label.txt có nội dung chính xác là BAN NHAP". File gốc là `CU`. Worker ghi `BAN NHAP`. Hash khác gốc, validator `contains` qua, harness `bàn giao: đủ`. Phép kiểm muốn `BAN CUOI`. Probe không gửi thay đổi đó. Quyết định tiếp theo là của owner. Không sửa thêm.

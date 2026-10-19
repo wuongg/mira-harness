@@ -871,6 +871,11 @@ def execute_plan(plan: TeamPlan, *, provider_name: str | None = None,
             "floor": plan.floor,
         }
         u, policy = role_prompt(role, plan.task_text, _as_steps(prior), fields)
+        if role == "worker":
+            from .intake import outcome_note
+            note = outcome_note(getattr(plan, "brief", None))
+            if note:
+                u += "\n\n" + note
         if shard:
             u += (f"\n\n[PHẦN {shard[0]}/{shard[1]} — chỉ làm phần này, "
                   f"không lặp lại phần của phần khác]")
@@ -1032,6 +1037,10 @@ def execute_plan(plan: TeamPlan, *, provider_name: str | None = None,
         shown = budget["prev"] or plan.task_text
         if budget["policy"] != "full":
             shown = plan.task_text + "\n\n" + budget["prev"]
+        from .intake import outcome_note
+        note = outcome_note(getattr(plan, "brief", None))
+        if note:
+            shown += "\n\n" + note
         if rates is None:
             return {"role": "worker", "model": model, "blocked": True,
                     "error": f"model {model} chưa có giá", "edited": False,

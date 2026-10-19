@@ -120,6 +120,8 @@ Số HTTP của A là hiệu quả tổng thể của cả intake, worker và ve
 
 Không có điểm thông minh gộp. Provider giả không nói gì về chất lượng model thật. `usage_usd` ở dưới dùng giá giả `$1000 / 0` mỗi triệu token.
 
+Chỉ tiêu chốt là cặp `completed_correct` > 0 và `false_complete` = 0. `false_complete` = 0 vì mọi task bị chặn, khi `completed_correct` vẫn 0, không phải đạt.
+
 | Chỉ số | Cách đếm |
 | --- | --- |
 | `completed_correct` | kỳ vọng bàn giao, harness in bàn giao đủ hoặc người dùng xác nhận, phép kiểm thoát 0, không tác dụng phụ |
@@ -181,7 +183,7 @@ Lệnh hiện tại không gọi API. Mặc định khóa:
 py -3 tools\value_trial.py probe --tasks V01,V05,V10 --progress probe-progress.json
 ```
 
-Kỳ vọng khi chưa duyệt: `stopped` là `locked`, `http_attempts` là 0, `real_api_requests` là 0. `--approve-spend` với host khác `http://127.0.0.1` và khác `https://api.openai.com` trả `paid-api-not-approved` và không gửi request. Host OpenAI chỉ mở khi `docs/OVERNIGHT-REPORT.md` có đúng dòng `DUYỆT NGÂN SÁCH: (a) OpenAI rẻ, trần $2`. Server giả trên `127.0.0.1` vẫn dùng để kiểm trần.
+Kỳ vọng khi chưa duyệt: `stopped` là `locked`, `http_attempts` là 0, `real_api_requests` là 0. `--approve-spend` với host khác `http://127.0.0.1` và khác `https://api.openai.com` trả `paid-api-not-approved` và không gửi request. Host OpenAI chỉ mở khi `docs/history/OVERNIGHT-REPORT.md` có đúng dòng `DUYỆT NGÂN SÁCH: (a) OpenAI rẻ, trần $2`. Server giả trên `127.0.0.1` vẫn dùng để kiểm trần.
 
 Trần xin duyệt: **$2** cho cả ba nhiệm vụ. Trần này là ước lượng trên `spent` + `reserved` + `uncertain` đã ghi, không phải hóa đơn nhà cung cấp.
 

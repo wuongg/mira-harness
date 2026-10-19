@@ -448,33 +448,33 @@ def _menu_team() -> int:
     return cmd_team(_ns(task=t, dry_run=True))
 
 
-def _menu_chat() -> int:
-    from . import ui as _ui
-    from .repl import repl
-    _ui.note("Đang mở phiên. Gõ /help để xem lệnh.", "info")
-    return repl(_ns(mode="default"))
+def _menu_run(argv: list[str]):
+    def go() -> int:
+        args = build_parser().parse_args(argv)
+        return args.func(args)
+    return go
 
 
-def _menu_logs() -> int:
-    from .activity import cmd_logs
-    return cmd_logs(_ns())
-
-
-def _menu_dash() -> int:
-    from .activity import cmd_dash
-    return cmd_dash(_ns())
-
-
-def _menu_keys() -> int:
-    from .keys import prompt_setup
-    return prompt_setup()
+def _menu_task(name: str):
+    def go() -> int:
+        try:
+            task = input(ui.c("  câu việc  ", "bold")).strip()
+        except (EOFError, KeyboardInterrupt):
+            print()
+            return 0
+        if not task:
+            return 0
+        args = build_parser().parse_args([name, task])
+        return args.func(args)
+    return go
 
 
 MENU_PRIMARY = [
-    ("1", "Mở phiên, giao việc", _menu_chat),
-    ("2", "Xem nhật ký", _menu_logs),
-    ("3", "Bảng số", _menu_dash),
-    ("4", "Nhập khoá API", _menu_keys),
+    ("1", "frog giao", _menu_task("giao")),
+    ("2", "frog team", _menu_task("team")),
+    ("3", "frog agent", _menu_task("agent")),
+    ("4", "frog keys", _menu_run(["keys"])),
+    ("5", "frog doctor", _menu_run(["doctor"])),
 ]
 
 MENU = MENU_PRIMARY
@@ -570,7 +570,7 @@ def _menu_header() -> None:
 
 
 def interactive() -> int:
-    """Menu: bốn việc dùng thật. Số đo lường hiện trong bảng điều khiển (mục 3)."""
+    """Menu mặc định: giao, team, agent, keys, doctor."""
     while True:
         _menu_header()
         _print_menu(MENU_PRIMARY)
@@ -639,6 +639,23 @@ def _open() -> int:
 
 def _cmd_menu(a) -> int:
     return interactive()
+
+
+_BENCH_CMDS = ("run", "report", "labels", "stats", "tui", "eval", "compare", "task")
+
+
+def _cmd_bench(a) -> int:
+    """Lệnh phụ. Cùng hàm với lệnh gốc, chỉ thêm dòng nhận diện."""
+    print("công cụ benchmark nội bộ")
+    rest = [part for part in (getattr(a, "bench_args", None) or []) if part != "--"]
+    if not rest:
+        print("Lệnh phụ: " + ", ".join(_BENCH_CMDS))
+        return 0
+    if rest[0] not in _BENCH_CMDS:
+        print("Lệnh phụ: " + ", ".join(_BENCH_CMDS))
+        return 2
+    inner = build_parser().parse_args(rest)
+    return inner.func(inner)
 
 
 def _cmd_logs(a) -> int:
@@ -782,6 +799,9 @@ def build_parser() -> argparse.ArgumentParser:
     gx.add_argument("--run", default=None, help="chạy run đã lưu")
     gx.add_argument("--grant", action="append", default=[],
                     help="cấp đúng một lệnh; duyệt phiếu không cấp lệnh")
+    gx.add_argument("--brief", default=None, help="brief JSON đã có, bỏ intake")
+    gx.add_argument("--intake-model", dest="intake_model", default=None,
+                    help="model chỉ cho intake; worker giữ --model")
     gx.add_argument("--approve-brief", dest="approve_brief", action="store_true",
                     help="duyệt phiếu đã xem, không cấp lệnh")
     gx.add_argument("--check-only", dest="check_only", action="store_true",
@@ -940,8 +960,12 @@ def build_parser() -> argparse.ArgumentParser:
     ex.add_argument("--out", default=None, help="tên tệp (mặc định: r0-shadow-export-<ngày>.md)")
     ex.set_defaults(func=_cmd_export)
 
-    mn = sub.add_parser("menu", help="mở menu 4 việc (mặc định khi gõ `frog` nếu chưa có khoá)")
+    mn = sub.add_parser("menu", help="mở menu giao, team, agent, keys, doctor")
     mn.set_defaults(func=_cmd_menu)
+
+    bn = sub.add_parser("bench", help="công cụ benchmark nội bộ")
+    bn.add_argument("bench_args", nargs=argparse.REMAINDER)
+    bn.set_defaults(func=_cmd_bench)
 
     ins = sub.add_parser("install",
                          help="đặt lệnh frog vào PATH — gõ frog ở terminal nào cũng vào phiên")
