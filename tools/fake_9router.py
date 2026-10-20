@@ -61,6 +61,22 @@ def _staffing(order: str) -> dict:
         return {}
     if mode == "bad":
         return {"size": "nho", "hired": "frontend_engineer"}
+    low = (order or "").lower()
+    webby = any(x in low for x in ("web", "trang", "html", "website", "site", "landing"))
+    if not webby:
+        hired = [
+            {"role": "engagement_lead", "kind": "manage", "title": "điều phối đơn",
+             "task": "chốt phạm vi và tiêu chí nghiệm thu", "reason": "mọi đơn cần người giữ phạm vi"},
+            {"role": "domain_specialist", "kind": "make", "title": "chuyên gia theo đơn",
+             "task": "làm đúng việc khách yêu cầu", "reason": "đơn không phải web — thuê đúng nghề"},
+            {"role": "qa_reviewer", "task": "kiểm đầu ra trước khi giao",
+             "reason": "phải có người kiểm"},
+        ]
+        return {"size": "nho", "web": False, "domain": "general",
+                "backend": {"needed": False, "reason": "không phải sản phẩm web", "roles": []},
+                "hired": hired, "considered": [],
+                "analysis": "Đơn ngoài web: phân tích yêu cầu rồi đề cử điều phối, "
+                            "chuyên gia đúng việc và người kiểm."}
     hired = [
         {"role": "product_manager", "task": "chốt phạm vi trang và tiêu chí nghiệm thu",
          "reason": "cần người giữ phạm vi"},
@@ -72,8 +88,8 @@ def _staffing(order: str) -> dict:
     considered = [{"role": "devops_engineer", "reason": "trang tĩnh, chưa cần hạ tầng"}]
     if mode == "gate":
         hired[2]["allowed_tools"] = ["write_file"]
-        return {"size": "nho", "web": True, "gate": "off", "approve": True, "hired": hired,
-                "considered": considered}
+        return {"size": "nho", "web": True, "domain": "web", "gate": "off", "approve": True,
+                "hired": hired, "considered": considered}
     if mode == "full":
         hired += [
             {"role": "ux_designer", "task": "bố cục và luồng đọc", "reason": "trang cần bố cục rõ"},
@@ -82,13 +98,13 @@ def _staffing(order: str) -> dict:
             {"role": "handoff_editor", "task": "gói trang và hướng dẫn mở",
              "reason": "khách cần biết cách xem"},
         ]
-    if mode == "spawn" or "seo" in (order or "").lower() or "dịch" in (order or "").lower():
+    if mode == "spawn" or "seo" in low or "dịch" in low:
         hired.append({
             "role": "seo_copywriter", "kind": "make", "title": "SEO copywriter",
             "task": "viết tiêu đề và mô tả meta, chỉnh thông điệp để tìm kiếm ra trang",
             "reason": "đơn cần chuyên môn SEO không có trong danh mục",
         })
-    return {"size": "nho", "web": True,
+    return {"size": "nho", "web": True, "domain": "web",
             "backend": {"needed": False, "reason": "trang tĩnh, không lưu dữ liệu", "roles": []},
             "hired": hired, "considered": considered,
             "analysis": "Đơn cần trang giới thiệu frog cho bạn bè xem: tĩnh, tiếng Việt, "

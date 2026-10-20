@@ -22,9 +22,22 @@ KIND_LABEL = {"manage": "quản lý", "make": "làm", "review": "kiểm", "hando
 SLOT = {"manage": "planner", "make": "worker", "review": "verifier", "handoff": "worker"}
 READ_ONLY = ("read_file", "list_dir", "grep", "glob")
 WEB_MIN_ROLES = 4
+TEAM_MIN_ROLES = 2  # mọi đơn (kể cả ngoài web): ít nhất người làm + người kiểm
 FALLBACK_ROLES = ("planner", "worker", "verifier")
 # Trần chống bùng nổ quota khi intake đề cử hàng trăm vai — không phải "chỉ 4 nghề lạ".
 CANDIDATE_MAX = 24
+
+# Ngành suy từ đơn. Danh mục POOL là tham khảo (nặng web); nghề khác do intake tự sinh.
+DOMAIN_LABEL = {
+    "web": "web / sản phẩm số",
+    "research": "nghiên cứu / phân tích",
+    "legal": "pháp lý / tuân thủ",
+    "data": "dữ liệu / bảng biểu",
+    "content": "nội dung / truyền thông",
+    "ops": "vận hành / quy trình",
+    "education": "đào tạo / giáo dục",
+    "general": "đa ngành",
+}
 
 VERDICT_PROTOCOL = (
     "Trả đúng một object JSON, không chữ nào khác, với các khóa verdict, reasons, evidence, "
@@ -52,7 +65,7 @@ class RoleSpec:
 
 
 def _spec(name, group, kind, title, duty, body, *, cap=0.25, backend=False) -> RoleSpec:
-    head = f"Mã vai: {name}\nBạn là {title} trong một công ty làm web. "
+    head = f"Mã vai: {name}\nBạn là {title} trong một công ty đa nghề. "
     tail = VERDICT_PROTOCOL if kind == "review" else PROPOSE_ONLY
     return RoleSpec(name, group, kind, title, duty, head + body + "\n" + tail,
                     cap_usd=cap, backend=backend)
@@ -228,14 +241,48 @@ _SIGNALS = {
     "traffic": r"lưu lượng cao|nhiều người dùng|hàng triệu|high traffic",
 }
 
+# Tín hiệu ngành (không phải tín hiệu cỡ đơn web).
+_DOMAIN_SIGNALS = {
+    "web": _SIGNALS["web"],
+    "research": r"nghiên cứu|phân tích|survey|khảo sát|báo cáo|literature|đánh giá tài liệu|tóm tắt|tóm lược",
+    "legal": r"hợp đồng|pháp lý|luật|điều khoản|tuân thủ|compliance|nda|chính sách",
+    "data": r"\bcsv\b|\bexcel\b|bảng tính|dữ liệu|dashboard|thống kê|pandas|sql",
+    "content": r"viết bài|bài đăng|script|kịch bản|podcast|video|copywriting|truyền thông|marketing",
+    "ops": r"quy trình|sops?\b|vận hành|checklist nội bộ|onboarding nhân sự|điều phối",
+    "education": r"bài giảng|giáo án|khóa học|đào tạo|curriculum|slide dạy",
+}
+
 
 def signals_of(text: str) -> list[str]:
     low = (text or "").lower()
     return [name for name, pattern in _SIGNALS.items() if re.search(pattern, low)]
 
 
+def domain_signals_of(text: str) -> list[str]:
+    low = (text or "").lower()
+    return [name for name, pattern in _DOMAIN_SIGNALS.items() if re.search(pattern, low)]
+
+
+def infer_domain(text: str, proposal: dict | None = None) -> tuple[str, list[str]]:
+    """Ngành của đơn. Intake có thể ghi domain; code chỉ nâng lên web khi câu đơn rõ là web."""
+    found = domain_signals_of(text)
+    claimed = ""
+    if isinstance(proposal, dict):
+        claimed = str(proposal.get("domain") or "").strip().lower()
+    if claimed in DOMAIN_LABEL and claimed != "general":
+        if claimed != "web" and "web" in found:
+            return "web", found  # câu đơn là web thì không để intake hạ ngành
+        return claimed, found
+    if "web" in found:
+        return "web", found
+    for name in ("legal", "data", "research", "education", "ops", "content"):
+        if name in found:
+            return name, found
+    return "general", found
+
+
 def is_web_order(text: str) -> bool:
-    return "web" in signals_of(text)
+    return infer_domain(text)[0] == "web"
 
 
 def infer_size(text: str) -> tuple[str, list[str]]:
@@ -273,7 +320,7 @@ def _extra_spec(item: dict) -> RoleSpec | None:
     if kind == "review":
         body += " Kết thúc bằng phán quyết JSON theo protocol bên dưới."
     elif kind == "make":
-        body += " Nếu tạo file trang/web, dùng khối code có đường dẫn tương đối."
+        body += " Nếu tạo file giao được, dùng khối code có đường dẫn tương đối."
     return _spec(name, "Ngoài danh mục", kind, title, duty, body)
 
 
@@ -293,19 +340,26 @@ def _row(spec: RoleSpec, *, task: str, reason: str, origin: str) -> dict:
 
 
 def settle(order: str, proposal, *, hire=(), drop=()) -> dict:
-    """Đề xuất của intake qua luật của code. Trả sơ đồ cuối để khách duyệt."""
+    """Đề xuất của intake qua luật của code. Trả sơ đồ cuối để khách duyệt.
+
+    Luật cỡ đơn / vai web bắt buộc chỉ khi ngành là web. Đơn ngành khác: tuyển theo
+    phân tích + phỏng vấn; code chỉ giữ tối thiểu người làm + người kiểm.
+    """
     notes: list[str] = []
     errors: list[str] = []
-    web = is_web_order(order)
-    code_size, found = infer_size(order)
+    proposal = proposal if isinstance(proposal, dict) else {}
+    domain, domain_found = infer_domain(order, proposal)
+    web = domain == "web"
+    code_size, found = infer_size(order) if web else ("nho", signals_of(order))
     hire = [h.strip() for h in hire if h and h.strip()]
     drop = [d.strip() for d in drop if d and d.strip()]
 
-    usable = isinstance(proposal, dict) and isinstance(proposal.get("hired"), list) \
+    usable = isinstance(proposal.get("hired"), list) \
         and any(isinstance(item, dict) for item in proposal.get("hired"))
     if not usable and not hire:
         why = "intake không trả sơ đồ" if not proposal else "sơ đồ của intake hỏng"
-        out = {"version": 1, "web": web, "fallback": True, "fallback_reason": why,
+        out = {"version": 1, "web": web, "domain": domain, "fallback": True,
+               "fallback_reason": why,
                "size": {"intake": None, "code": code_size, "final": code_size, "signals": found},
                "backend": {"needed": False, "reason": "fallback không quyết backend", "roles": [],
                            "origin": "code"},
@@ -320,16 +374,22 @@ def settle(order: str, proposal, *, hire=(), drop=()) -> dict:
             out["errors"].append(
                 f"đơn web cần ít nhất {WEB_MIN_ROLES} vai, sơ đồ đang là fallback 3 vai. "
                 f"Thêm vai bằng --hire {need}")
+        else:
+            out["errors"].append(
+                f"đơn {DOMAIN_LABEL.get(domain, domain)} cần sơ đồ sau phỏng vấn "
+                f"(ít nhất {TEAM_MIN_ROLES} vai, có người kiểm)")
         return out
 
-    proposal = proposal if isinstance(proposal, dict) else {}
     claimed = str(proposal.get("size") or "").strip().lower()
     claimed = {"nhỏ": "nho", "vừa": "vua", "lớn": "lon"}.get(claimed, claimed)
     intake_size = claimed if claimed in SIZES else None
-    final = _bigger(intake_size or "nho", code_size)
-    if intake_size and final != intake_size:
+    final = _bigger(intake_size or "nho", code_size) if web else (intake_size or "nho")
+    if web and intake_size and final != intake_size:
         notes.append(f"code nâng cỡ đơn từ {SIZE_LABEL[intake_size]} lên {SIZE_LABEL[final]} "
                      f"vì câu đơn có: {', '.join(found)}")
+    if domain_found:
+        notes.append(f"ngành {DOMAIN_LABEL.get(domain, domain)} "
+                     f"(tín hiệu: {', '.join(domain_found)})")
 
     hired: dict[str, dict] = {}
     considered: dict[str, dict] = {}
@@ -340,13 +400,13 @@ def settle(order: str, proposal, *, hire=(), drop=()) -> dict:
         asked_tools = item.get("allowed_tools") or item.get("tools") or []
         if isinstance(asked_tools, list) and any(str(t) not in READ_ONLY for t in asked_tools):
             notes.append(f"bỏ quyền {', '.join(str(t) for t in asked_tools)} intake đề xuất cho "
-                         f"{name}: quyền lấy từ danh mục")
+                         f"{name}: quyền lấy từ danh mục / chỉ đọc")
         spec = POOL.get(name)
         if spec is None:
             spec = _extra_spec(item)
             if spec is None:
                 considered[name or "?"] = {"role": name or "?", "origin": "code",
-                                           "reason": "không có trong danh mục và thiếu loại hoặc việc"}
+                                           "reason": "thiếu kind hoặc việc — không nhận vào đội"}
                 continue
             row = _row(spec, task=str(item.get("task") or ""),
                        reason=str(item.get("reason") or "").strip() or "pass phỏng vấn · tự sinh",
@@ -371,42 +431,60 @@ def settle(order: str, proposal, *, hire=(), drop=()) -> dict:
         if name and name not in hired and reason:
             considered[name] = {"role": name, "reason": reason, "origin": origin}
 
-    for name in required_for(final, found):
-        if name not in hired:
-            reason = (SIGNAL_REASON[name] if name in SIGNAL_REASON and name not in REQUIRED[final]
-                      else RULE_REASON[final])
-            hired[name] = _row(POOL[name], task="", reason=f"bắt buộc: {reason}",
-                               origin="luật cỡ đơn")
-            considered.pop(name, None)
-    for name in EXPECTED[final]:
-        if name not in hired and name not in considered:
-            hired[name] = _row(POOL[name], task="", reason=f"mặc định của đơn {SIZE_LABEL[final]}",
-                               origin="luật cỡ đơn")
+    if web:
+        for name in required_for(final, found):
+            if name not in hired:
+                reason = (SIGNAL_REASON[name] if name in SIGNAL_REASON and name not in REQUIRED[final]
+                          else RULE_REASON[final])
+                hired[name] = _row(POOL[name], task="", reason=f"bắt buộc: {reason}",
+                                   origin="luật cỡ đơn")
+                considered.pop(name, None)
+        for name in EXPECTED[final]:
+            if name not in hired and name not in considered:
+                hired[name] = _row(POOL[name], task="",
+                                   reason=f"mặc định của đơn {SIZE_LABEL[final]}",
+                                   origin="luật cỡ đơn")
+    else:
+        if not any(row.get("kind") == "review" for row in hired.values()):
+            hired["qa_reviewer"] = _row(
+                POOL["qa_reviewer"], task="kiểm đầu ra trước khi bàn giao",
+                reason="mọi đơn cần người kiểm độc lập", origin="luật đội")
+            considered.pop("qa_reviewer", None)
+            notes.append("bổ sung qa_reviewer vì đội chưa có vai kiểm")
 
+    must_keep = set(required_for(final, found)) if web else {"qa_reviewer"}
     for name in hire:
         spec = POOL.get(name)
         if spec is None:
-            errors.append(f"không có vai {name} trong danh mục")
+            errors.append(f"không có vai {name} trong danh mục tham khảo — dùng intake tự sinh")
             continue
         hired[name] = _row(spec, task="", reason="khách thêm", origin="khách")
         considered.pop(name, None)
     for name in drop:
-        if name in required_for(final, found):
-            errors.append(f"không bỏ được {name}: bắt buộc với đơn {SIZE_LABEL[final]}")
+        if name in must_keep and name in hired and hired[name].get("origin") in (
+                "luật cỡ đơn", "luật đội"):
+            errors.append(f"không bỏ được {name}: bắt buộc với đơn này")
             continue
         if name in hired:
             hired.pop(name)
             considered[name] = {"role": name, "reason": "khách bỏ", "origin": "khách"}
 
-    for name in ORDER:
-        if name not in hired and name not in considered:
-            considered[name] = {"role": name, "reason": skip_reason(name, final), "origin": "code"}
+    if web:
+        for name in ORDER:
+            if name not in hired and name not in considered:
+                considered[name] = {"role": name, "reason": skip_reason(name, final),
+                                    "origin": "code"}
 
     rows = [hired[n] for n in ORDER if n in hired] + \
            [row for n, row in hired.items() if n not in POOL]
     backend_roles = [row["role"] for row in rows if POOL.get(row["role"]) and POOL[row["role"]].backend]
     said = proposal.get("backend") if isinstance(proposal.get("backend"), dict) else {}
-    if backend_roles:
+    if not web:
+        backend = {"needed": False, "roles": [],
+                   "reason": said.get("reason") if isinstance(said, dict) and said.get("reason")
+                   else "đơn không phải web sản phẩm số",
+                   "origin": "intake" if said else "code"}
+    elif backend_roles:
         reason = str(said.get("reason") or "").strip() if said.get("needed") else ""
         backend = {"needed": True, "roles": backend_roles,
                    "reason": reason or RULE_REASON[final],
@@ -415,12 +493,14 @@ def settle(order: str, proposal, *, hire=(), drop=()) -> dict:
         backend = {"needed": False, "roles": [],
                    "reason": str(said.get("reason") or "").strip() or DEFAULT_SKIP[final],
                    "origin": "intake" if said else "code"}
+
     def rank(row: dict) -> tuple:
         name = row["role"]
-        first = 0 if row.get("origin") in ("intake", "khách") else 1 if name in CONSIDER[final] else 2
+        first = 0 if row.get("origin") in ("intake", "khách", "phỏng vấn") else (
+            1 if web and name in CONSIDER[final] else 2)
         return first, ORDER.index(name) if name in ORDER else len(ORDER)
 
-    out = {"version": 1, "web": web, "fallback": False, "fallback_reason": "",
+    out = {"version": 1, "web": web, "domain": domain, "fallback": False, "fallback_reason": "",
            "size": {"intake": intake_size, "code": code_size, "final": final, "signals": found},
            "backend": backend, "hired": rows,
            "considered": sorted(considered.values(), key=rank),
@@ -429,7 +509,7 @@ def settle(order: str, proposal, *, hire=(), drop=()) -> dict:
     return out
 
 
-_SETTLED_KEYS = {"version", "web", "fallback", "fallback_reason", "size", "backend",
+_SETTLED_KEYS = {"version", "web", "domain", "fallback", "fallback_reason", "size", "backend",
                  "hired", "considered", "notes", "errors", "analysis"}
 
 
@@ -443,27 +523,32 @@ def validate_settled(st, *, strict: bool = True) -> list[str]:
     hired = st.get("hired")
     if not isinstance(hired, list) or not all(isinstance(r, dict) for r in hired):
         return bad + ["sơ đồ nhân sự thiếu danh sách vai đã tuyển"]
+    web = bool(st.get("web")) or st.get("domain") == "web"
     if st.get("fallback"):
         names = [r.get("role") for r in hired]
         if names != list(FALLBACK_ROLES):
             bad.append("fallback phải đúng 3 vai cũ")
-        if st.get("web"):
+        if web:
             bad.append(f"đơn web cần ít nhất {WEB_MIN_ROLES} vai, fallback chỉ có 3")
+        else:
+            bad.append(f"đơn cần sơ đồ sau phỏng vấn (tối thiểu {TEAM_MIN_ROLES} vai có kiểm)")
         return bad
     for row in hired:
         name = row.get("role")
         spec = POOL.get(name) or (_extra_spec(row) if row.get("origin_kind") == "extra" else None)
         if spec is None:
-            bad.append(f"vai {name} không có trong danh mục")
+            bad.append(f"vai {name} không hợp lệ (thiếu kind/task)")
             continue
         if row.get("kind") != spec.kind:
             bad.append(f"vai {name} sai loại")
         if any(tool not in READ_ONLY for tool in row.get("tools") or []):
             bad.append(f"vai {name} có quyền ghi; ghi chỉ qua Executor")
-    if st.get("web") and len(hired) < WEB_MIN_ROLES:
+    if not any(r.get("kind") == "review" for r in hired):
+        bad.append("đội phải có vai kiểm")
+    if web and len(hired) < WEB_MIN_ROLES:
         bad.append(f"đơn web cần ít nhất {WEB_MIN_ROLES} vai, sơ đồ có {len(hired)}")
-    if st.get("web") and not any(r.get("kind") == "review" for r in hired):
-        bad.append("đơn web phải có vai kiểm")
+    elif not web and len(hired) < TEAM_MIN_ROLES:
+        bad.append(f"đội cần ít nhất {TEAM_MIN_ROLES} vai, sơ đồ có {len(hired)}")
     return bad
 
 
@@ -474,32 +559,33 @@ def run_order(st: dict) -> list[str]:
 
 
 def staffing_prompt() -> str:
-    """Nhúng vào intake: bạn là người phân tích đơn rồi đề cử ứng viên để phỏng vấn."""
+    """Nhúng vào intake: công ty đa nghề — phân tích đơn rồi đề cử, không mặc định là web."""
     lines = [
-        "BẠN LÀ NGƯỜI PHÂN TÍCH ĐƠN VÀ ĐỀ CỬ ỨNG VIÊN (chưa phải đội cuối).",
-        "1) Đọc kỹ đơn: sản phẩm gì, ai dùng, ràng buộc, rủi ro, việc nào bắt buộc.",
-        "2) Từ đó liệt kê NHỮNG NGƯỜI CẦN CHO ĐÚNG DỰ ÁN NÀY — không theo khuôn cứng.",
-        "3) Mỗi ứng viên sẽ bị PHỎNG VẤN riêng; chỉ ai PASS mới vào đội. Cứ đề cử đủ người cần.",
-        "DANH MỤC THAM KHẢO (dùng khi khớp; không khớp thì tự đặt tên nghề mới):",
+        "BẠN LÀ NGƯỜI PHÂN TÍCH ĐƠN CỦA MỘT CÔNG TY ĐA NGHỀ (chưa phải đội cuối).",
+        "Đơn có thể là web, pháp lý, nghiên cứu, dữ liệu, nội dung, đào tạo, vận hành, hay việc khác.",
+        "1) Đọc kỹ đơn: việc gì, ngành nào, ai nhận kết quả, ràng buộc, rủi ro.",
+        "2) Ghi domain (web|research|legal|data|content|ops|education|general).",
+        "3) Đề cử đúng người cho ĐÚNG việc đó — không gắn frontend/HTML nếu đơn không phải làm web.",
+        "4) Mỗi ứng viên sẽ bị PHỎNG VẤN; chỉ PASS mới vào đội. Cứ đề cử đủ người cần.",
+        "DANH MỤC THAM KHẢO (nhiều mục nghiêng web — chỉ dùng khi khớp; không khớp thì tự đặt nghề):",
     ]
     for spec in POOL.values():
         lines.append(f"- {spec.name} ({spec.group}, {KIND_LABEL[spec.kind]}): {spec.duty}")
     lines += [
         "Ứng viên ngoài danh mục: role snake_case, kind (manage|make|review|handoff), "
-        "title (tên nghề), task (việc cụ thể trên đơn này), reason (vì sao đơn cần người này).",
-        "Ví dụ: seo_specialist, translator, legal_reviewer, video_script_writer, data_analyst…",
-        "Không bịa quyền tool. Vai kiểm (kind=review) sẽ trả JSON verdict khi làm việc.",
-        f"Đơn web: đội sau phỏng vấn vẫn cần ít nhất {WEB_MIN_ROLES} vai và phải có người kiểm; "
-        "thiếu thì code bổ sung vai bắt buộc.",
-        "Gợi ý cỡ đơn (tham khảo, không bắt chước máy móc): nho ≈ trang tĩnh; "
-        "vua ≈ form/lưu dữ liệu; lon ≈ đăng nhập/thanh toán/dữ liệu nhạy cảm.",
-        "Thêm khóa staffing: {\"size\": \"nho|vua|lon\", \"web\": true|false, "
+        "title, task, reason. Ví dụ: contract_lawyer, data_analyst, course_designer, "
+        "ops_process_writer, research_analyst, translator…",
+        "Không bịa quyền tool. Phải có ít nhất một kind=review.",
+        f"Đơn web: sau phỏng vấn cần ≥{WEB_MIN_ROLES} vai (thiết kế/làm/kiểm/giao); "
+        "đơn ngành khác: ≥{TEAM_MIN_ROLES} vai và có người kiểm.",
+        "Thêm khóa staffing: {\"domain\": \"general\", \"size\": \"nho|vua|lon\", "
+        "\"web\": true|false, "
         "\"backend\": {\"needed\": true|false, \"reason\": \"...\", \"roles\": [\"...\"]}, "
         "\"hired\": [{\"role\": \"...\", \"kind\": \"make\", \"title\": \"...\", "
         "\"task\": \"...\", \"reason\": \"...\"}], "
-        "\"considered\": [{\"role\": \"...\", \"reason\": \"cân nhắc nhưng không đề cử\"}], "
-        "\"analysis\": \"2-5 câu phân tích đơn bằng tiếng Việt\"}.",
+        "\"considered\": [{\"role\": \"...\", \"reason\": \"...\"}], "
+        "\"analysis\": \"2-5 câu: ngành gì, vì sao tuyển những người này\"}.",
         "Không ghi quyền tool, làn, cổng hay trần: code quyết những thứ đó.",
-        "Đơn thiếu đối tượng xem, ngôn ngữ, thiết bị hay nội dung chính thì hỏi trong questions.",
+        "Thiếu thông tin then chốt thì hỏi trong questions.",
     ]
     return "\n".join(lines)
