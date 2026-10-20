@@ -362,7 +362,16 @@ def write_checkpoint(root: Path, payload: dict) -> None:
         tmp = dest.with_suffix(".json.tmp")
         tmp.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
         _test_pause("checkpoint")
-        os.replace(tmp, dest)
+        last = None
+        for attempt in range(8):
+            try:
+                os.replace(tmp, dest)
+                return
+            except PermissionError as exc:
+                last = exc
+                time.sleep(0.05 * (attempt + 1))
+        if last is not None:
+            raise last
 
 
 def _ledger_ok(blob: dict) -> bool:
