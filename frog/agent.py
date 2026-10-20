@@ -110,6 +110,14 @@ def _priced_call(session, prov, model: str, system: str, user: str):
     ledger = getattr(session, "ledger", None)
     if ledger is None:
         return prov.call(system, user)
+    if getattr(prov, "billing", "") == "subscription":
+        from .providers import ProviderError
+        if ledger.subscription_calls() >= C.SUBSCRIPTION_CALL_CAP:
+            raise ProviderError(f"chạm trần {C.SUBSCRIPTION_CALL_CAP} lượt gọi gói thuê bao")
+        text, usage, _usd, _rid = ledger.tracked_call(
+            "worker", model, prov, system, user, None, source="subscription",
+            max_out=int(getattr(prov, "max_tokens", None) or 4096))
+        return text, usage or {"in": 0, "out": 0}
     from .prices import resolve_price
     rates, source = resolve_price(model, getattr(session, "declared_price", None))
     if rates is None:
@@ -236,10 +244,34 @@ def run_turn(*, task: str, session: Session, model: str,
     """
     session.declared_price = price_in
     from .prices import resolve_price
-    if resolve_price(model, price_in)[0] is None:
+    from .providers import billing_of
+    subscription = billing_of(model, provider_name) == "subscription"
+    if not subscription and resolve_price(model, price_in)[0] is None:
         return {"status": "blocked", "error": f"model {model} chưa có giá",
                 "final": "", "usage": {"in": 0, "out": 0}, "turns": 0,
                 "toolSummary": {"calls": 0, "tools": []}}
+    res = _run_turn_inner(task=task, session=session, model=model,
+                          provider_name=provider_name, base_url=base_url, api_key=api_key,
+                          max_tokens=max_tokens, history=history, on_text=on_text,
+                          on_tool=on_tool, on_note=on_note, no_stream=no_stream,
+                          protocol=protocol, max_turns=max_turns,
+                          max_budget_usd=max_budget_usd, provider=provider)
+    usage = res.get("usage") or {}
+    if subscription:
+        res["costUsd"] = None
+        res["billing"] = "subscription"
+    elif usage.get("unknown"):
+        res["costUsd"] = None
+        res["billing"] = "unknown_usage"
+    return res
+
+
+def _run_turn_inner(*, task: str, session: Session, model: str,
+                    provider_name: str | None, base_url: str | None,
+                    api_key: str | None, max_tokens: int,
+                    history: list[dict] | None, on_text, on_tool, on_note,
+                    no_stream: bool, protocol: str, max_turns: int | None,
+                    max_budget_usd: float | None, provider) -> dict:
     inherited = getattr(session, "gate_task", "") or ""
     if inherited:
         session.task_text = inherited
@@ -369,6 +401,8 @@ def _run_native_loop(*, task: str, session: Session, model: str,
         session.log_event("model_turn", turn=turns, protocol="native")
         usage_total["in"] += u.get("in", 0)
         usage_total["out"] += u.get("out", 0)
+        if u.get("unknown"):
+            usage_total["unknown"] = True
         if not blocks:
             blocks = [{"type": "text", "text": ""}]
         msgs.append({"role": "assistant", "content": blocks})
@@ -537,6 +571,8 @@ def _run_text_loop(*, task: str, session: Session, model: str,
         session.log_event("model_turn", turn=turns, protocol="text")
         usage_total["in"] += u.get("in", 0)
         usage_total["out"] += u.get("out", 0)
+        if u.get("unknown"):
+            usage_total["unknown"] = True
         convo.append({"role": "assistant", "content": text})
 
         # ---- van NGÂN SÁCH: đếm từ token đã tiêu, KHÔNG hỏi model (I8) ----
@@ -650,6 +686,7 @@ def envelope(task: str, res: dict, session: Session, session_id: str) -> dict:
             "usage": {"input": res["usage"]["in"], "output": res["usage"]["out"],
                       "total": res["usage"]["in"] + res["usage"]["out"]},
             "costUsd": res.get("costUsd"),
+            **({"billing": res["billing"]} if res.get("billing") else {}),
             "assistantTurns": res.get("turns", 0),
             "toolSummary": res.get("toolSummary", {}),
             "model": res.get("model"), "provider": res.get("provider"),
@@ -717,10 +754,21 @@ def cmd_agent(args) -> int:
         print(json.dumps(env, ensure_ascii=False, indent=2))
     else:
         print()
+        from .providers import SUBSCRIPTION_NOTE, flag_warning
+        from .team import UNKNOWN_USAGE_NOTE
         cost = env["costUsd"]
-        ui.note(f"{env['assistantTurns']} lượt · {_fmt_tokens(res['usage'])} · "
-                + (f"${cost:.6f}" if cost is not None else "chưa có giá cho model này"),
-                "info")
+        if cost is not None:
+            money = f"${cost:.6f}"
+        elif env.get("billing") == "subscription":
+            money = SUBSCRIPTION_NOTE
+        elif env.get("billing") == "unknown_usage":
+            money = UNKNOWN_USAGE_NOTE
+        else:
+            money = "chưa có giá cho model này"
+        ui.note(f"{env['assistantTurns']} lượt · {_fmt_tokens(res['usage'])} · " + money, "info")
+        warn = flag_warning(model)
+        if warn:
+            ui.note(warn, "warn")
         if env["status"] != "ok":
             err = env.get("error") or {}
             msg = err.get("message") if isinstance(err, dict) else str(err)

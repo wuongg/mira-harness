@@ -83,8 +83,14 @@ def _stream_openai(p, system, user, emit) -> tuple[str, dict]:
     }, {"authorization": f"Bearer {p.api_key or ''}"})
     parts: list[str] = []
     usage = {"in": 0, "out": 0}
+    seen_usage = False
+    error = ""
     with resp:
         for ev in _sse(resp):
+            if ev.get("error"):
+                body = ev["error"]
+                error = (body.get("message") if isinstance(body, dict) else str(body)) or "lỗi từ model"
+                continue
             for ch in (ev.get("choices") or []):
                 piece = (ch.get("delta") or {}).get("content")
                 if piece:
@@ -92,6 +98,11 @@ def _stream_openai(p, system, user, emit) -> tuple[str, dict]:
                     emit(piece)
             u = ev.get("usage") or {}
             if u:
+                seen_usage = True
                 usage["in"] = int(u.get("prompt_tokens", usage["in"]))
                 usage["out"] = int(u.get("completion_tokens", usage["out"]))
+    if error and not parts:
+        raise ProviderError(f"{p.name}: {error}")
+    if not seen_usage:
+        usage["unknown"] = True
     return "".join(parts), usage

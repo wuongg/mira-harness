@@ -49,6 +49,7 @@ def decode_completion(raw: str) -> dict:
         return data
     parts: list[str] = []
     err = ""
+    usage = None
     for line in text.splitlines():
         line = line.strip()
         if not line.startswith("data:"):
@@ -66,6 +67,8 @@ def decode_completion(raw: str) -> dict:
             body = event["error"]
             err = body.get("message") if isinstance(body, dict) else str(body)
             continue
+        if isinstance(event.get("usage"), dict):
+            usage = event["usage"]
         choice = (event.get("choices") or [{}])[0] if event.get("choices") else {}
         delta = choice.get("delta") or choice.get("message") or {}
         bit = delta.get("content") or ""
@@ -73,7 +76,15 @@ def decode_completion(raw: str) -> dict:
             parts.append(bit)
     if err and not parts:
         raise ProviderError(err)
-    return {"choices": [{"message": {"content": "".join(parts)}}], "usage": {}}
+    return {"choices": [{"message": {"content": "".join(parts)}}], "usage": usage}
+
+
+def openai_usage(data: dict) -> dict:
+    """SSE không kèm usage thì đánh dấu unknown. Không biết token không có nghĩa là 0 đồng."""
+    if "usage" in data and data["usage"] is None:
+        return {"in": 0, "out": 0, "unknown": True}
+    u = data.get("usage") or {}
+    return {"in": int(u.get("prompt_tokens", 0)), "out": int(u.get("completion_tokens", 0))}
 
 
 def retry_open(request, timeout, *, name: str, rng: random.Random, sleep=time.sleep):
@@ -185,8 +196,7 @@ class OpenAICompatProvider(BaseProvider):
         }, {"authorization": f"Bearer {self.api_key or ''}"})
         ch = (data.get("choices") or [{}])[0]
         text = (ch.get("message") or {}).get("content") or ""
-        u = data.get("usage", {}) or {}
-        return text, {"in": int(u.get("prompt_tokens", 0)), "out": int(u.get("completion_tokens", 0))}
+        return text, openai_usage(data)
 
 
 class XAIProvider(OpenAICompatProvider):
@@ -229,12 +239,84 @@ class OpenRouterProvider(OpenAICompatProvider):
             "X-Title": "frog"})
         ch = (data.get("choices") or [{}])[0]
         text = (ch.get("message") or {}).get("content") or ""
-        u = data.get("usage", {}) or {}
-        return text, {"in": int(u.get("prompt_tokens", 0)), "out": int(u.get("completion_tokens", 0))}
+        return text, openai_usage(data)
+
+
+SUBSCRIPTION_NOTE = "uncertain (subscription quota)"
+
+
+class NineRouterProvider(OpenAICompatProvider):
+    """9router cục bộ. Model id truyền nguyên, ví dụ cu/claude-opus-5-thinking-high.
+
+    Gói thuê bao: sổ ghi uncertain, không có $/token và không có $0.
+    """
+    name = "9router"
+    default_base = "http://localhost:20120"
+    env_key = "NINE_ROUTER_API_KEY"
+    base_env = "NINE_ROUTER_BASE_URL"
+    billing = "subscription"
+
+    def __init__(self, model: str, api_key: str | None = None,
+                 base_url: str | None = None, timeout: int = 180,
+                 max_tokens: int = 4096):
+        super().__init__(model, api_key=api_key,
+                         base_url=base_url or os.environ.get(self.base_env),
+                         timeout=timeout, max_tokens=max_tokens)
+
+    def call(self, system: str, user: str) -> tuple[str, dict]:
+        try:
+            return super().call(system, user)
+        except ProviderError as exc:
+            raise ProviderError(self.explain(str(exc)), exc.attempts) from None
+
+    def explain(self, detail: str) -> str:
+        """Lỗi kèm việc cần làm. Model không có thì liệt kê model khả dụng."""
+        if "không kết nối được" in detail:
+            return (f"{detail}. Kiểm tra 9router đang chạy, rồi chỉ địa chỉ bằng --base-url "
+                    f"hoặc {self.base_env} (mặc định {self.default_base}).")
+        if re.search(r"HTTP 40[13]\b", detail):
+            return (f"{detail}. 9router từ chối khóa: đặt {self.env_key} bằng khóa "
+                    "ở trang Endpoint & Key của 9router.")
+        if re.search(r"HTTP (400|404)\b", detail) or "model_not_found" in detail:
+            ids, _why = probe_models(self.base_url, self.api_key)
+            if ids and self.model not in ids:
+                return unknown_model_message(self.model, ids)
+        return detail
 
 
 REGISTRY = {"openrouter": OpenRouterProvider, "anthropic": AnthropicProvider,
-            "openai": OpenAICompatProvider, "xai": XAIProvider}
+            "openai": OpenAICompatProvider, "xai": XAIProvider,
+            "9router": NineRouterProvider}
+
+
+def missing_key_text(prov) -> str:
+    """Thiếu khóa thì nói đúng tên biến môi trường của nhà cung cấp đó."""
+    from .keys import ENV
+    env = ENV.get(getattr(prov, "name", ""), "")
+    text = f"thiếu key cho {prov.name} — đặt {env}" if env else f"thiếu key cho {prov.name}"
+    if prov.name == "9router":
+        text += " (khóa ở trang Endpoint & Key của 9router), hoặc frog keys set --provider 9router"
+    return text
+
+
+def model_flags(model: str) -> list[str]:
+    """Nhãn theo id model. Họ fable không có zero data retention."""
+    return ["no_zdr"] if "fable" in (model or "").lower() else []
+
+
+def flag_warning(model: str) -> str:
+    if "no_zdr" in model_flags(model):
+        return (f"{model} gắn nhãn no_zdr: phía cung cấp có thể giữ dữ liệu gửi đi. "
+                "Đừng gửi dữ liệu nhạy cảm.")
+    return ""
+
+
+def unknown_model_message(model: str, ids: list[str], limit: int = 12) -> str:
+    import difflib
+    close = difflib.get_close_matches(model, ids, n=limit, cutoff=0.0)
+    more = len(ids) - len(close)
+    tail = f" và {more} model khác (frog doctor --models để xem đủ)" if more > 0 else ""
+    return f"9router không có model {model}. Model khả dụng gần nhất: {', '.join(close)}{tail}."
 
 
 def afford_tokens(detail: str) -> int | None:
@@ -266,15 +348,19 @@ def choose_proxy_model(ids: list[str]) -> str:
     return ids[0] if ids else ""
 
 
-def list_proxy_models(base_url: str, api_key: str | None) -> list[str]:
-    """GET /v1/models. Danh sách rỗng nếu proxy không trả id."""
+def probe_models(base_url: str, api_key: str | None, timeout: int = 15) -> tuple[list[str], str]:
+    """GET /v1/models. Trả (id, lý do khi không có id)."""
     url = base_url.rstrip("/") + "/v1/models"
     req = urllib.request.Request(url, headers={"authorization": f"Bearer {api_key or ''}"})
     try:
-        with urllib.request.urlopen(req, timeout=15) as resp:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
             data = json.loads(resp.read().decode("utf-8"))
-    except (urllib.error.URLError, urllib.error.HTTPError, json.JSONDecodeError, TimeoutError, OSError):
-        return []
+    except urllib.error.HTTPError as e:
+        return [], f"HTTP {e.code} tại {url}"
+    except (urllib.error.URLError, TimeoutError, OSError) as e:
+        return [], f"không kết nối được {url} — {getattr(e, 'reason', e)}"
+    except json.JSONDecodeError:
+        return [], f"{url} không trả JSON"
     rows = data.get("data") if isinstance(data, dict) else None
     ids = []
     for row in rows or []:
@@ -282,7 +368,12 @@ def list_proxy_models(base_url: str, api_key: str | None) -> list[str]:
             ids.append(str(row["id"]))
         elif isinstance(row, str) and row:
             ids.append(row)
-    return ids
+    return ids, "" if ids else f"{url} không trả model nào"
+
+
+def list_proxy_models(base_url: str, api_key: str | None) -> list[str]:
+    """GET /v1/models. Danh sách rỗng nếu proxy không trả id."""
+    return probe_models(base_url, api_key)[0]
 
 
 def agent_binding(model: str, provider_name: str | None = None,
@@ -290,9 +381,12 @@ def agent_binding(model: str, provider_name: str | None = None,
     """Có khoá OpenRouter thì phiên agent đi OpenRouter. Khoá hãng khác không được gọi thay.
 
     Proxy tự đặt địa chỉ thì giữ model đã chọn. Không đổi thành slug Anthropic.
+    Model `cu/` là id của 9router, không gửi sang OpenRouter.
     """
     from . import config as C
     from .keys import resolve
+    if provider_name in (None, "9router") and (model or "").lower().startswith("cu/"):
+        return model, "9router"
     if provider_name and provider_name != "openrouter":
         return model, provider_name
     if resolve("openrouter")[0] and official_openrouter(base_url):
@@ -303,22 +397,33 @@ def agent_binding(model: str, provider_name: str | None = None,
     return model, provider_name
 
 
-def provider_for(model: str, name: str | None = None, **kw) -> BaseProvider:
+def _class_for(model: str, name: str | None = None):
     if name:
         if name not in REGISTRY:
             raise ProviderError(f"không biết provider {name!r}; có: {', '.join(REGISTRY)}")
-        cls = REGISTRY[name]
-    else:
-        low = model.lower()
-        if "/" in low:
-            cls = REGISTRY["openrouter"]
-        else:
-            cls = OpenAICompatProvider
-            for needle, prov in BY_MODEL:
-                if needle in low:
-                    cls = REGISTRY[prov]
-                    break
-    return cls(model=model, **kw)
+        return REGISTRY[name]
+    low = (model or "").lower()
+    if low.startswith("cu/"):
+        return REGISTRY["9router"]
+    if "/" in low:
+        return REGISTRY["openrouter"]
+    for needle, prov in BY_MODEL:
+        if needle in low:
+            return REGISTRY[prov]
+    return OpenAICompatProvider
+
+
+def provider_for(model: str, name: str | None = None, **kw) -> BaseProvider:
+    return _class_for(model, name)(model=model, **kw)
+
+
+def billing_of(model: str, name: str | None = None) -> str:
+    """'subscription' hoặc 'metered'. Không dựng provider, không đọc khóa."""
+    try:
+        cls = _class_for(model, name)
+    except ProviderError:
+        return "metered"
+    return getattr(cls, "billing", "metered")
 
 
 def detect_available() -> list[str]:

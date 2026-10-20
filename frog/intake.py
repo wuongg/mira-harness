@@ -594,11 +594,21 @@ def contain_brief(brief, task: str = "") -> str:
 
 def charged_call(ledger: Ledger, role: str, model: str, prov, system: str, user: str,
                  *, declared_price: tuple[float, float] | None = None):
-    """Cùng cửa giá với đội. Không có giá thì không gọi model."""
+    """Cùng cửa giá với đội. Không có giá thì không gọi model.
+
+    Gói thuê bao không có $/token: không cần giá, sổ ghi uncertain, có trần lượt gọi.
+    """
+    from . import config as C
     from .prices import resolve_price
-    rates, source = resolve_price(model, declared_price)
-    if rates is None:
-        return "", {"blocked": True, "error": f"model {model} chưa có giá"}
+    if getattr(prov, "billing", "") == "subscription":
+        if ledger.subscription_calls() >= C.SUBSCRIPTION_CALL_CAP:
+            return "", {"blocked": True,
+                        "error": f"chạm trần {C.SUBSCRIPTION_CALL_CAP} lượt gọi gói thuê bao"}
+        rates, source = None, "subscription"
+    else:
+        rates, source = resolve_price(model, declared_price)
+        if rates is None:
+            return "", {"blocked": True, "error": f"model {model} chưa có giá"}
     from .providers import ProviderError
     max_out = int(getattr(prov, "max_tokens", None) or 4096)
     try:

@@ -48,6 +48,8 @@ BUDGET = {
 }
 SESSION_CAP = 20.0
 DAY_CAP = 60.0
+# Gói thuê bao không có $/token nên trần USD không chặn được. Trần này đếm lượt gọi của cả cây.
+SUBSCRIPTION_CALL_CAP = 40
 
 # Model không có trong bảng vẫn bị chặn. Hằng số này không phải một bậc giá.
 UNKNOWN_PRICE = {"in": 5.00, "out": 15.00, "cache_write": 6.25, "cache_read": 0.50}

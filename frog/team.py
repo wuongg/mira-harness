@@ -34,7 +34,7 @@ from dataclasses import dataclass, field
 from typing import Any, Callable
 
 from . import config as C
-from .providers import ProviderError, provider_for
+from .providers import ProviderError, missing_key_text, provider_for
 from .tasks import Task
 
 # ---------------------------------------------------------------- phân vai
@@ -503,6 +503,26 @@ ESTIMATE_METHOD = (
     "heuristic: khoảng 4 ký tự một token cho đầu vào, max_tokens cho đầu ra; "
     "không phải tokenizer và không phải trần trên"
 )
+UNKNOWN_USAGE_NOTE = "uncertain (phản hồi không kèm usage)"
+
+
+def cost_text(led: dict) -> str:
+    """Một dòng chi phí. Gói thuê bao và usage không rõ không bao giờ in thành $0."""
+    from .providers import SUBSCRIPTION_NOTE
+    unsure = list(led.get("uncertain") or [])
+    sub = [item for item in unsure if item.get("billing") == "subscription"]
+    other = [item for item in unsure if item.get("billing") != "subscription"]
+    total = float(led.get("total_usd") or 0)
+    parts = []
+    if led.get("by_role") or led.get("rows") or total > 0 or not unsure:
+        tin = led.get("tokens_in", led.get("total_in", 0))
+        tout = led.get("tokens_out", led.get("total_out", 0))
+        parts.append(f"${total:.6f} · {tin}+{tout} tok")
+    if sub:
+        parts.append(f"{SUBSCRIPTION_NOTE} · {len(sub)} lượt")
+    if other:
+        parts.append(f"uncertain · {len(other)} lượt")
+    return " · ".join(parts)
 
 
 def estimate_hold(rates: dict, system: str, user: str, max_out: int) -> float:
@@ -547,16 +567,47 @@ class Ledger:
         if hook is not None:
             hook()
 
-    def begin_request(self, role: str, model: str, hold: float) -> str:
+    def begin_request(self, role: str, model: str, hold: float, *, billing: str = "") -> str:
         rid = uuid.uuid4().hex[:12]
         with self._lock:
-            self.requests.append({
+            row = {
                 "id": rid, "role": role, "model": model, "state": "reserved",
                 "hold": round(float(hold), 6), "usd": 0.0, "exceeded": False,
                 "estimate": ESTIMATE_METHOD,
-            })
+            }
+            if billing == "subscription":
+                row.update(billing="subscription", estimate="subscription", usd=None)
+            self.requests.append(row)
             self.reserved += float(hold)
         return rid
+
+    def subscription_calls(self) -> int:
+        """Lượt gói thuê bao đã mở trong cả cây, kể cả lượt đang chạy."""
+        with self._lock:
+            return sum(1 for req in self.requests if req.get("billing") == "subscription")
+
+    def settle_uncertain(self, rid: str, role: str, model: str, provider: str,
+                         usage: dict | None, reason: str, *, billing: str = "") -> None:
+        """Request đã trả lời nhưng không biết tiền. Không ghi $0, không ghi $/token."""
+        with self._lock:
+            hold = 0.0
+            for req in self.requests:
+                if req["id"] != rid or req["state"] not in ("reserved", "dispatched"):
+                    continue
+                hold = float(req["hold"])
+                self.reserved = max(0.0, self.reserved - hold)
+                req["state"] = "uncertain"
+                req["reason"] = reason
+                req["usd"] = None
+            self.uncertain_usd += hold
+            entry = {"id": rid, "role": role, "model": model, "provider": provider,
+                     "usd": None, "reason": reason}
+            if billing:
+                entry["billing"] = billing
+            if isinstance(usage, dict) and not usage.get("unknown"):
+                entry["in"] = int(usage.get("in", 0) or 0)
+                entry["out"] = int(usage.get("out", 0) or 0)
+            self.uncertain.append(entry)
 
     def mark_request(self, rid: str, state: str) -> None:
         with self._lock:
@@ -602,10 +653,17 @@ class Ledger:
     def tracked_call(self, role: str, model: str, prov, system: str, user: str,
                      rates: dict, *, source: str, max_out: int,
                      declared_by_user: bool = False, reserved_id: str | None = None):
-        """Ghi dispatched trước khi gửi. Usage vượt ước lượng vẫn bị tính."""
-        from .providers import ProviderError
+        """Ghi dispatched trước khi gửi. Usage vượt ước lượng vẫn bị tính.
+
+        Gói thuê bao và phản hồi không kèm usage trả usd None, sổ ghi uncertain.
+        """
+        from .providers import SUBSCRIPTION_NOTE, ProviderError
+        subscription = getattr(prov, "billing", "") == "subscription"
+        name = getattr(prov, "name", "") or ""
         if reserved_id:
             rid = reserved_id
+        elif subscription:
+            rid = self.begin_request(role, model, 0.0, billing="subscription")
         else:
             hold = estimate_hold(rates, system, user, max_out)
             rid = self.begin_request(role, model, hold)
@@ -615,11 +673,25 @@ class Ledger:
         try:
             text, usage = prov.call(system, user)
         except ProviderError as exc:
-            self.lose_request(rid, "request có thể đã được xử lý")
+            if subscription:
+                self.settle_uncertain(rid, role, model, name, None,
+                                      SUBSCRIPTION_NOTE + "; lượt lỗi vẫn có thể tốn quota",
+                                      billing="subscription")
+            else:
+                self.lose_request(rid, "request có thể đã được xử lý")
             self._note_attempts(rid, getattr(prov, "attempts", 1))
             self._flush()
             raise exc
-        usd = self.charge(role, model, usage or {}, getattr(prov, "name", "") or "",
+        if subscription:
+            self.settle_uncertain(rid, role, model, name, usage, SUBSCRIPTION_NOTE,
+                                  billing="subscription")
+            self._note_attempts(rid, getattr(prov, "attempts", 1))
+            return text, usage, None, rid
+        if isinstance(usage, dict) and usage.get("unknown"):
+            self.settle_uncertain(rid, role, model, name, usage, UNKNOWN_USAGE_NOTE)
+            self._note_attempts(rid, getattr(prov, "attempts", 1))
+            return text, usage, None, rid
+        usd = self.charge(role, model, usage or {}, name,
                           price=rates, declared_by_user=declared_by_user,
                           price_source=source)
         self.settle_request(rid, usd)
@@ -776,11 +848,12 @@ def assign_cursor_models(roles: list[str], ids: list[str]) -> tuple[dict[str, st
 
 
 def load_cursor_team(roles: list[str], base_url: str | None = None) -> tuple[str, dict, list[str]] | None:
-    """Đọc model `cu/` trên proxy. Không có thì đội không đổi sang Cursor."""
+    """Đọc model `cu/` trên 9router. Không có thì đội không đổi sang Cursor."""
     from .keys import resolve
-    from .providers import list_proxy_models
-    base = base_url or os.environ.get("FROG_BASE_URL") or "http://localhost:20128"
-    ids = list_proxy_models(base, resolve("openrouter")[0])
+    from .providers import NineRouterProvider, list_proxy_models
+    base = (base_url or os.environ.get(NineRouterProvider.base_env)
+            or NineRouterProvider.default_base)
+    ids = list_proxy_models(base, resolve("9router")[0])
     role_models, workers = assign_cursor_models(roles, ids)
     if not workers:
         return None
@@ -982,24 +1055,34 @@ def execute_plan(plan: TeamPlan, *, provider_name: str | None = None,
         """Một lần gọi model. An toàn khi chạy trong nhiều luồng."""
         _user, policy = _user_of(role, prior, shard)
         model = model or _model_of(role)
-        rates, source = _rates(model)
-        if rates is None:
-            return {"role": role, "model": model, "shard": shard, "blocked": True,
-                    "error": f"model {model} chưa có giá", "context_policy": policy}
         prov = provider_for(model, provider_name, base_url=base_url,
                             api_key=api_key, max_tokens=max_tokens)
-        if not prov.available():
-            key = "ANTHROPIC_API_KEY" if prov.name == "anthropic" else "OPENAI_API_KEY"
-            return {"role": role, "model": model, "shard": shard, "blocked": True,
-                    "error": f"thiếu key cho {prov.name} — đặt {key}",
-                    "context_policy": policy}
-        hold = estimate_hold(rates, ROLE_SYSTEM[role], _user, max_tokens)
-        with lock:
-            if plan.cap_usd and ledger.committed() + hold > plan.cap_usd + 1e-9:
+        subscription = getattr(prov, "billing", "") == "subscription"
+        if subscription:
+            rates, source = None, "subscription"
+        else:
+            rates, source = _rates(model)
+            if rates is None:
                 return {"role": role, "model": model, "shard": shard, "blocked": True,
-                        "budget": True, "error": "không đủ ngân sách để giữ chỗ",
-                        "context_policy": policy}
-            rid = ledger.begin_request(role, model, hold)
+                        "error": f"model {model} chưa có giá", "context_policy": policy}
+        if not prov.available():
+            return {"role": role, "model": model, "shard": shard, "blocked": True,
+                    "error": missing_key_text(prov), "context_policy": policy}
+        with lock:
+            if subscription:
+                hold = 0.0
+                if ledger.subscription_calls() >= C.SUBSCRIPTION_CALL_CAP:
+                    return {"role": role, "model": model, "shard": shard, "blocked": True,
+                            "budget": True, "context_policy": policy,
+                            "error": f"chạm trần {C.SUBSCRIPTION_CALL_CAP} lượt gọi gói thuê bao"}
+                rid = ledger.begin_request(role, model, 0.0, billing="subscription")
+            else:
+                hold = estimate_hold(rates, ROLE_SYSTEM[role], _user, max_tokens)
+                if plan.cap_usd and ledger.committed() + hold > plan.cap_usd + 1e-9:
+                    return {"role": role, "model": model, "shard": shard, "blocked": True,
+                            "budget": True, "error": "không đủ ngân sách để giữ chỗ",
+                            "context_policy": policy}
+                rid = ledger.begin_request(role, model, hold)
         t0 = time.time()
         try:
             text, usage, usd, rid = ledger.tracked_call(
@@ -1008,10 +1091,13 @@ def execute_plan(plan: TeamPlan, *, provider_name: str | None = None,
                 reserved_id=rid)
         except ProviderError as e:
             return {"role": role, "model": model, "shard": shard, "error": str(e),
-                    "request_id": rid, "uncertain": True, "usd": round(hold, 6),
+                    "request_id": rid, "uncertain": True,
+                    "usd": None if subscription else round(hold, 6),
                     "attempt": getattr(prov, "attempts", 1), "context_policy": policy}
         return {"role": role, "model": model, "shard": shard, "provider": prov.name,
-                "text": text, "usage": usage, "usd": round(usd, 6),
+                "text": text, "usage": usage,
+                "usd": None if usd is None else round(usd, 6),
+                "billing": "subscription" if subscription else "metered",
                 "hold": round(hold, 6), "request_id": rid,
                 "seconds": round(time.time() - t0, 2),
                 "attempt": getattr(prov, "attempts", 1),
@@ -1042,8 +1128,17 @@ def execute_plan(plan: TeamPlan, *, provider_name: str | None = None,
             rid = f"  {st['request_id']}" if st.get("request_id") else ""
             log(f"{tag:<12} LỖI — {st['error']}{rid}")
         else:
-            log(f"{tag:<12} {st['model']:<16} {st['usage']['in']:>6}+{st['usage']['out']:<5} tok"
-                f"  ${st['usd']:.5f}  {st['seconds']:5.1f}s"
+            from .providers import SUBSCRIPTION_NOTE
+            usage = st.get("usage") or {}
+            tok = ("?+? tok" if usage.get("unknown")
+                   else f"{usage.get('in', 0):>6}+{usage.get('out', 0):<5} tok")
+            if st.get("usd") is not None:
+                money = f"${st['usd']:.5f}"
+            elif st.get("billing") == "subscription":
+                money = SUBSCRIPTION_NOTE
+            else:
+                money = UNKNOWN_USAGE_NOTE
+            log(f"{tag:<12} {st['model']:<16} {tok}  {money}  {float(st.get('seconds') or 0):5.1f}s"
                 + (f"  {st['request_id']}" if st.get("request_id") else ""))
 
     def _emit_called(st: dict) -> None:
@@ -1117,9 +1212,11 @@ def execute_plan(plan: TeamPlan, *, provider_name: str | None = None,
     def _worker_edit(pv: str) -> dict:
         """Một worker sửa trong staging. Không mở worker thứ hai trên cùng một cây."""
         from .agent import run_turn
+        from .providers import billing_of
         from .tools import Session
         model = _model_of("worker")
-        rates, source = _rates(model)
+        subscription = billing_of(model, provider_name) == "subscription"
+        rates, source = (None, "subscription") if subscription else _rates(model)
         budget = budget_context(plan.task_text, _as_steps(pv))
         shown = budget["prev"] or plan.task_text
         if budget["policy"] != "full":
@@ -1128,7 +1225,7 @@ def execute_plan(plan: TeamPlan, *, provider_name: str | None = None,
         note = outcome_note(getattr(plan, "brief", None))
         if note:
             shown += "\n\n" + note
-        if rates is None:
+        if rates is None and not subscription:
             return {"role": "worker", "model": model, "blocked": True,
                     "error": f"model {model} chưa có giá", "edited": False,
                     "context_policy": budget["policy"]}
@@ -1143,9 +1240,10 @@ def execute_plan(plan: TeamPlan, *, provider_name: str | None = None,
                        max_tokens=max_tokens, protocol="text", no_stream=True,
                        price_in=plan.declared_price)
         usage = res.get("usage") or {"in": 0, "out": 0}
-        usd = round(ledger.total_usd - before_edit, 6)
+        usd = None if subscription else round(ledger.total_usd - before_edit, 6)
         return {"role": "worker", "model": _model_of("worker"), "provider": "run_turn",
                 "text": res.get("final") or "", "usage": usage,
+                "billing": "subscription" if subscription else "metered",
                 "usd": usd, "seconds": float(res.get("seconds") or 0),
                 "edited": True, "audit": list(child.audit), "error": res.get("error"),
                 "context_policy": budget["policy"]}
@@ -1178,7 +1276,10 @@ def execute_plan(plan: TeamPlan, *, provider_name: str | None = None,
     def _stop_budget() -> None:
         nonlocal status, fail_reason
         status = "stopped_budget"
-        fail_reason = f"vượt trần làn {plan.lane} (${plan.cap_usd})"
+        capped = next((s for s in reversed(steps) if isinstance(s, dict) and s.get("budget")
+                       and "gói thuê bao" in str(s.get("error") or "")), None)
+        fail_reason = (capped["error"] if capped
+                       else f"vượt trần làn {plan.lane} (${plan.cap_usd})")
         log(f"  → DỪNG: {fail_reason}")
 
     # --- pha 1: planner → coordinator (tuần tự, có phụ thuộc dữ liệu) ---
@@ -1628,7 +1729,7 @@ def _deliver(args, plan, res) -> int:
     if res["oracle_score"] is not None:
         ui.kv("Oracle", f"{res['oracle_score']:.2f}")
     led = res["ledger"]
-    ui.kv("Chi phí", f"${led['total_usd']:.6f} · {led['tokens_in']}+{led['tokens_out']} tok"
+    ui.kv("Chi phí", cost_text(led)
           + ("" if led["all_priced"] else "  (có model chưa có giá trong bảng)"))
     for k, v in led["by_role"].items():
         ui.kv("  " + k, f"${v:.6f}")
@@ -1795,10 +1896,16 @@ def cmd_team(args) -> int:
             ui.note("9router không trả model Cursor.", "bad")
             return 2
         args.base_url, _role_models, _worker_models = cursor
-        args.provider = args.provider or "openrouter"
-        ui.table(["vai", "model"], cursor_rows(display, _role_models, _worker_models), ["l", "l"])
+        args.provider = args.provider or "9router"
+        shown = cursor_rows(display, _role_models, _worker_models)
     else:
-        ui.table(["vai", "model"], [[r, C.ROLE_MODEL.get(r, "?")] for r in display], ["l", "l"])
+        shown = [[r, args.model or C.ROLE_MODEL.get(r, "?")] for r in display]
+    ui.table(["vai", "model"], shown, ["l", "l"])
+    from .providers import flag_warning
+    for used in sorted({row[1] for row in shown}):
+        warn = flag_warning(used)
+        if warn:
+            ui.note(warn, "warn")
 
     choice = getattr(args, "intake", "off")
     if choice is None:

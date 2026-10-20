@@ -1,5 +1,19 @@
 # Changelog
 
+## Chưa phát hành
+
+### Added
+
+- Provider `9router` (`--provider 9router`, model `cu/...` tự đi 9router). Khóa `NINE_ROUTER_API_KEY`, địa chỉ `NINE_ROUTER_BASE_URL` hoặc `--base-url`, mặc định `http://localhost:20120`.
+- Lượt gọi qua 9router ghi sổ `uncertain (subscription quota)`: không $/token, không $0. Trần riêng 40 lượt gói thuê bao mỗi cây run.
+- `frog doctor` liệt kê model 9router; `--models` in đủ, `--smoke MODEL` gọi thử một lượt.
+- Model id chứa `fable` gắn nhãn `no_zdr` và in cảnh báo khi chọn.
+
+### Changed
+
+- Phản hồi SSE không kèm usage ghi uncertain thay vì $0. Sự kiện lỗi trong SSE thành lỗi rõ.
+- Bỏ biến `FROG_PRICE` dùng chung cho mọi model. Giá vẫn theo `--price-in`, `prices.toml`, `FROG_PRICE_<MODEL>`.
+
 ## 0.9.0
 
 ### Changed

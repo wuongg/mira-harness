@@ -282,9 +282,10 @@ def _argv(args: list[str]) -> str:
 def _key_hint(model: str, provider: str | None = None) -> str:
     """Một dòng khi thiếu khóa — không đòi đọc code."""
     from . import config as C
-    name = provider or C.VENDOR.get(model, "anthropic" if "/" not in (model or "") else "openrouter")
-    env = {"anthropic": "ANTHROPIC_API_KEY", "openai": "OPENAI_API_KEY",
-           "openrouter": "OPENROUTER_API_KEY", "xai": "XAI_API_KEY"}.get(name, "")
+    from .keys import ENV
+    from .providers import provider_for
+    name = provider or C.VENDOR.get(model) or provider_for(model, api_key="").name
+    env = ENV.get(name, "")
     bits = [f"thiếu khóa cho intake (model {model}, nhà {name})."]
     bits.append("Gõ frog keys set --provider " + name + ".")
     if env:
@@ -802,8 +803,8 @@ def _phase_line(state: dict) -> str:
 
 
 def _cost_line(state: dict) -> str:
-    usd = float(state["ledger"].get("total_usd") or 0)
-    return f"chi phí tích lũy: ${usd:.6f}"
+    from .team import cost_text
+    return "chi phí tích lũy: " + cost_text(state["ledger"])
 
 
 def _make_plan(state: dict, price):
@@ -1505,7 +1506,8 @@ def cmd_giao(args) -> int:
             return 8
         files = workspace_files(root)
         intake_price = _price(getattr(args, "price_in", None))
-        if intake_model != model:
+        from .providers import billing_of
+        if intake_model != model and billing_of(intake_model, args.provider) != "subscription":
             from .prices import resolve_price
             rates, _source = resolve_price(intake_model, None)
             if rates is None:

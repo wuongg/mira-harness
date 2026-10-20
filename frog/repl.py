@@ -552,6 +552,7 @@ def repl(args) -> int:
         explicit or C.ROLE_MODEL["worker"], getattr(args, "provider", None), base)
     team_mode = bool(args.team)
     cost_total = 0.0
+    quota_turns = 0
     tok_total = {"in": 0, "out": 0}
     turns = 0
 
@@ -700,6 +701,8 @@ def repl(args) -> int:
             model, args.provider = agent_binding(model, getattr(args, "provider", None))
             r = _one_turn(line, session, model, args, history, events, team_mode)
             if r:
+                if r.get("billing") == "subscription":
+                    quota_turns += 1
                 cost_total += r.get("costUsd") or 0.0
                 tok_total["in"] += r["usage"]["in"]
                 tok_total["out"] += r["usage"]["out"]
@@ -708,7 +711,8 @@ def repl(args) -> int:
                     meta["first_task"] = line
                 _status_line(model, r.get("turns", 0), r.get("usage") or {"in": 0, "out": 0},
                              r.get("costUsd"), time.time() - t0, cost_total,
-                             (r.get("toolSummary") or {}).get("calls", 0))
+                             (r.get("toolSummary") or {}).get("calls", 0),
+                             quota_turns=quota_turns)
             else:
                 print(ui.c(f"  {time.time() - t0:.1f}s", "dim"))
 
@@ -775,7 +779,7 @@ def _team_turn(task: str, session: Session, args) -> None:
         ui.kv("làn", f"{plan.lane} · sàn {plan.floor} · cổng tầng {plan.gate_tier}")
         if plan.gate_tier >= 3:
             ui.note("Việc này cần hai người duyệt.", "warn")
-        res = execute_plan(plan, provider_name="openrouter", base_url=base,
+        res = execute_plan(plan, provider_name="9router", base_url=base,
                            role_models=role_models, worker_models=worker_models,
                            root=session.root,
                            on_step=lambda m: print("  " + m))
@@ -804,17 +808,26 @@ def _tok(n: int) -> str:
     return str(n)
 
 
-def _status_line(model, turns, tok, turn_cost, dt, session_cost, calls=0) -> None:
+def _status_line(model, turns, tok, turn_cost, dt, session_cost, calls=0,
+                 quota_turns: int = 0) -> None:
     """Dòng trạng thái in dưới mỗi lượt agent — kiểu Claude Code CLI."""
+    from .providers import SUBSCRIPTION_NOTE, billing_of
     w = min(ui.term_width(), 72)
     print(ui.c("  " + "─" * (w - 2), "faint"))
     seg = [ui.c(model, "accent", "bold"), f"{turns} lượt",
            f"{_tok(tok['in'])} vào  {_tok(tok['out'])} ra"]
     if calls:
         seg.append(f"{calls} công cụ")
-    seg.append(f"${turn_cost:.4f}" if turn_cost is not None else "chưa có giá")
+    quota = billing_of(model) == "subscription"
+    if turn_cost is not None:
+        seg.append(f"${turn_cost:.4f}")
+    else:
+        seg.append(SUBSCRIPTION_NOTE if quota else "chưa có giá")
     seg.append(f"{dt:.1f}s")
-    seg.append(ui.c(f"phiên ${session_cost:.4f}", "bright", "bold"))
+    if quota_turns and not session_cost:
+        seg.append(ui.c(f"phiên {SUBSCRIPTION_NOTE} · {quota_turns} lượt", "bright", "bold"))
+    else:
+        seg.append(ui.c(f"phiên ${session_cost:.4f}", "bright", "bold"))
     print("  " + ui.c(" · ", "faint").join(seg))
 
 

@@ -91,7 +91,7 @@ def resolve_price(model: str, declared: tuple[float, float] | None = None,
     row = table.get(model)
     if row:
         return dict(row), "file"
-    raw = env.get(env_name(model)) or env.get(legacy_env_name(model)) or env.get("FROG_PRICE")
+    raw = env.get(env_name(model)) or env.get(legacy_env_name(model))
     pair = _env_pair(raw)
     if pair is not None:
         return {"in": pair[0], "out": pair[1]}, "env"

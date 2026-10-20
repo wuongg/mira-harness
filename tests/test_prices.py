@@ -88,12 +88,11 @@ class PricesTest(unittest.TestCase):
         self.assertIsNone(rates)
         self.assertEqual(source, "")
 
-    def test_frog_price_cho_model_proxy(self):
+    def test_frog_price_chung_khong_dinh_gia_moi_model(self):
         from frog.prices import resolve_price
         rates, source = resolve_price("cu/default", None, {"FROG_PRICE": "3,15"}, {})
-        self.assertEqual(source, "env")
-        self.assertEqual(rates["in"], 3.0)
-        self.assertEqual(rates["out"], 15.0)
+        self.assertIsNone(rates)
+        self.assertEqual(source, "")
 
     def test_khong_co_nguon_nao_thi_chan(self):
         env = os.environ.copy()

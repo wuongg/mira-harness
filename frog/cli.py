@@ -19,6 +19,7 @@ import os
 import random
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 from . import config as C
@@ -404,9 +405,64 @@ def cmd_doctor(args) -> int:
         ui.note("unittest sẵn sàng (dùng cho `selftest`)", "ok")
     except Exception:
         ui.note("không chạy được unittest — `selftest` sẽ không hoạt động", "warn")
+    smoke_ok = _doctor_9router(getattr(args, "base_url", None),
+                               show_all=getattr(args, "models", False),
+                               smoke=getattr(args, "smoke", None))
     print()
     ui.note("môi trường OK" if ok else "có vấn đề ở trên", "ok" if ok else "bad")
+    if smoke_ok is False:
+        return 1
     return 0 if ok else 1
+
+
+def _doctor_9router(base_url: str | None, *, show_all: bool = False,
+                    smoke: str | None = None) -> bool | None:
+    """Kiểm 9router bằng cách liệt kê model. Không có 9router thì chỉ báo, không làm hỏng doctor."""
+    from .keys import resolve
+    from .providers import (SUBSCRIPTION_NOTE, NineRouterProvider, ProviderError,
+                            flag_warning, model_flags, probe_models)
+    base = (base_url or os.environ.get(NineRouterProvider.base_env)
+            or NineRouterProvider.default_base)
+    key, src = resolve("9router")
+    ui.note(f"NINE_ROUTER_API_KEY: {'có (' + src + ')' if key else 'chưa có'}",
+            "ok" if key else "info")
+    ids, why = probe_models(base, key)
+    if not ids:
+        ui.note(f"9router: {why}. Bỏ qua nếu không dùng 9router; địa chỉ khác thì đặt "
+                f"{NineRouterProvider.base_env} hoặc --base-url.", "info")
+        return False if smoke else None
+    flagged = [m for m in ids if model_flags(m)]
+    ui.note(f"9router: {len(ids)} model tại {base}"
+            + (f" · {len(flagged)} model no_zdr" if flagged else ""), "ok")
+    for model in (ids if show_all else ids[:5]):
+        mark = "  [no_zdr]" if model_flags(model) else ""
+        print(f"    {model}{mark}")
+    if not show_all and len(ids) > 5:
+        print(f"    … còn {len(ids) - 5} model (frog doctor --models)")
+    if not smoke:
+        return None
+    if smoke not in ids:
+        from .providers import unknown_model_message
+        ui.note(unknown_model_message(smoke, ids), "bad")
+        return False
+    warn = flag_warning(smoke)
+    if warn:
+        ui.note(warn, "warn")
+    prov = NineRouterProvider(smoke, base_url=base, max_tokens=64)
+    if not prov.available():
+        from .providers import missing_key_text
+        ui.note(missing_key_text(prov), "bad")
+        return False
+    t0 = time.time()
+    try:
+        text, _usage = prov.call("Trả lời đúng một chữ: OK", "ping")
+    except ProviderError as exc:
+        ui.note(f"smoke {smoke}: {exc}", "bad")
+        return False
+    reply = " ".join((text or "").split())[:80]
+    ui.note(f"smoke {smoke}: {time.time() - t0:.1f}s · trả '{reply}' · {SUBSCRIPTION_NOTE}",
+            "ok" if reply else "bad")
+    return bool(reply)
 
 
 def cmd_verify(args) -> int:
@@ -716,7 +772,7 @@ def build_parser() -> argparse.ArgumentParser:
     r.add_argument("--json", action="store_true", help="in số liệu thô thay vì bảng")
     r.add_argument("--classifier", default="keyword", choices=["keyword", "llm"],
                    help="bộ phân loại T1b: keyword (miễn phí) · llm (cần API key)")
-    r.add_argument("--provider", default=None, choices=["openrouter", "anthropic", "openai", "xai", "tavily", "brave", "serper"],
+    r.add_argument("--provider", default=None, choices=["openrouter", "anthropic", "openai", "xai", "9router", "tavily", "brave", "serper"],
                    help="chỉ dùng khi --classifier llm")
     r.add_argument("--model", default=None, help="model cho classifier (mặc định theo vai)")
     r.add_argument("--api-key", dest="api_key", default=None,
@@ -773,7 +829,7 @@ def build_parser() -> argparse.ArgumentParser:
     tm.add_argument("--reversibility", default="C1", choices=["C1", "C2", "C3"])
     tm.add_argument("--output-type", dest="output_type", default="free_string",
                     choices=["free_string", "enum", "number", "bool", "id"])
-    tm.add_argument("--provider", default=None, choices=["openrouter", "anthropic", "openai", "xai", "tavily", "brave", "serper"])
+    tm.add_argument("--provider", default=None, choices=["openrouter", "anthropic", "openai", "xai", "9router", "tavily", "brave", "serper"])
     tm.add_argument("--model", default=None, help="ép một model cho mọi vai")
     tm.add_argument("--cursor", action="store_true",
                     help="đội dùng mọi model cu/ trên 9router")
@@ -821,7 +877,7 @@ def build_parser() -> argparse.ArgumentParser:
     gx.add_argument("--previous", default=None, help="id run cũ khi tạo run mới")
     gx.add_argument("--cwd", default=".")
     gx.add_argument("--provider", default=None,
-                    choices=["openrouter", "anthropic", "openai", "xai", "tavily", "brave", "serper"])
+                    choices=["openrouter", "anthropic", "openai", "xai", "9router", "tavily", "brave", "serper"])
     gx.add_argument("--model", default=None)
     gx.add_argument("--base-url", dest="base_url", default=None)
     gx.add_argument("--max-tokens", dest="max_tokens", type=int, default=4096)
@@ -851,7 +907,7 @@ def build_parser() -> argparse.ArgumentParser:
         sp.add_argument("--cwd", default=".", help="thư mục gốc cho công cụ")
         sp.add_argument("--mode", default="default", choices=["plan", "default", "acceptEdits", "bypass"])
         sp.add_argument("--model", default=None)
-        sp.add_argument("--provider", default=None, choices=["openrouter", "anthropic", "openai", "xai", "tavily", "brave", "serper"])
+        sp.add_argument("--provider", default=None, choices=["openrouter", "anthropic", "openai", "xai", "9router", "tavily", "brave", "serper"])
         sp.add_argument("--base-url", dest="base_url", default=None)
         sp.add_argument("--max-tokens", dest="max_tokens", type=int, default=4096)
         sp.add_argument("--no-stream", dest="no_stream", action="store_true")
@@ -890,7 +946,7 @@ def build_parser() -> argparse.ArgumentParser:
     pn.add_argument("--file", default=None, help="tệp cần soi")
     pn.add_argument("--rounds", type=int, default=2)
     pn.add_argument("--offline", action="store_true", help="không gọi model, tính trực tiếp")
-    pn.add_argument("--provider", default=None, choices=["openrouter", "anthropic", "openai", "xai", "tavily", "brave", "serper"])
+    pn.add_argument("--provider", default=None, choices=["openrouter", "anthropic", "openai", "xai", "9router", "tavily", "brave", "serper"])
     pn.add_argument("--model", default=None)
     pn.add_argument("--base-url", dest="base_url", default=None)
     pn.add_argument("--out", default=None, help="ghi báo cáo markdown")
@@ -918,7 +974,7 @@ def build_parser() -> argparse.ArgumentParser:
                          help="so bộ dò từ khoá với model đọc nội dung (cần key)")
     dcp.add_argument("--n", type=int, default=40, help="số tác vụ, lấy mẫu PHÂN TẦNG (mặc định 40)")
     dcp.add_argument("--api-key", dest="api_key", default=None, help="khoá; mặc định đọc biến môi trường")
-    dcp.add_argument("--provider", default=None, choices=["openrouter", "anthropic", "openai", "xai", "tavily", "brave", "serper"])
+    dcp.add_argument("--provider", default=None, choices=["openrouter", "anthropic", "openai", "xai", "9router", "tavily", "brave", "serper"])
     dcp.add_argument("--model", default=None)
     dcp.add_argument("--base-url", dest="base_url", default=None)
     dcp.add_argument("--out", default=None, help="ghi báo cáo JSON")
@@ -926,6 +982,11 @@ def build_parser() -> argparse.ArgumentParser:
 
     dc = add_parser("doctor", help="kiểm tra môi trường")
     dc.add_argument("--out", default="out", help="thư mục thử ghi")
+    dc.add_argument("--base-url", dest="base_url", default=None,
+                    help="địa chỉ 9router (mặc định NINE_ROUTER_BASE_URL hoặc http://localhost:20120)")
+    dc.add_argument("--models", action="store_true", help="in đủ danh sách model của 9router")
+    dc.add_argument("--smoke", default=None, metavar="MODEL",
+                    help="gọi thử MỘT lượt model qua 9router (tốn quota)")
     dc.set_defaults(func=cmd_doctor)
 
     st = add_parser("selftest", help="kiểm tra bất biến")
@@ -952,10 +1013,10 @@ def build_parser() -> argparse.ArgumentParser:
     kys = ky.add_subparsers(dest="action")
     kys.add_parser("status", help="xem trạng thái khoá").set_defaults(func=_cmd_keys)
     kset = kys.add_parser("set", help="nhập khoá (hỏi từng nhà cung cấp)")
-    kset.add_argument("--provider", default=None, choices=["openrouter", "anthropic", "openai", "xai", "tavily", "brave", "serper"])
+    kset.add_argument("--provider", default=None, choices=["openrouter", "anthropic", "openai", "xai", "9router", "tavily", "brave", "serper"])
     kset.set_defaults(func=_cmd_keys)
     kcl = kys.add_parser("clear", help="xoá một khoá")
-    kcl.add_argument("--provider", required=True, choices=["openrouter", "anthropic", "openai", "xai", "tavily", "brave", "serper"])
+    kcl.add_argument("--provider", required=True, choices=["openrouter", "anthropic", "openai", "xai", "9router", "tavily", "brave", "serper"])
     kcl.set_defaults(func=_cmd_keys)
     kys.add_parser("path", help="in đường dẫn tệp khoá").set_defaults(func=_cmd_keys)
     ky.set_defaults(func=_cmd_keys)
