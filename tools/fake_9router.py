@@ -90,7 +90,9 @@ def _staffing(order: str) -> dict:
         })
     return {"size": "nho", "web": True,
             "backend": {"needed": False, "reason": "trang tĩnh, không lưu dữ liệu", "roles": []},
-            "hired": hired, "considered": considered}
+            "hired": hired, "considered": considered,
+            "analysis": "Đơn cần trang giới thiệu frog cho bạn bè xem: tĩnh, tiếng Việt, "
+                        "không lưu dữ liệu — tuyển người giữ phạm vi, làm giao diện và kiểm."}
 
 
 def _intake(system: str, user: str) -> str:
@@ -111,7 +113,7 @@ def _intake(system: str, user: str) -> str:
         "questions": questions,
         "per_role_hints": {"planner": "", "worker": "", "verifier": ""},
     }
-    if "DANH MỤC VAI" in (system or ""):
+    if "DANH MỤC" in (system or "") or "đề cử" in (system or "").lower():
         brief["staffing"] = _staffing(order)
     return json.dumps(brief, ensure_ascii=False)
 
@@ -125,7 +127,22 @@ def _verdict(role: str) -> str:
                        "evidence": ["site/index.html"], "confidence": 0.8}, ensure_ascii=False)
 
 
+def _interview(user: str) -> str:
+    """FAKE_INTERVIEW_FAIL=role1,role2 — các mã vai đó FAIL; còn lại PASS."""
+    failing = {x.strip() for x in os.environ.get("FAKE_INTERVIEW_FAIL", "").split(",") if x.strip()}
+    code = re.search(r"mã vai:\s*([a-z0-9_]+)", user or "", re.I)
+    name = code.group(1) if code else ""
+    if name in failing:
+        return json.dumps({"verdict": "FAIL", "reasons": [f"{name}: không khớp đơn trong phỏng vấn giả"],
+                           "confidence": 0.9}, ensure_ascii=False)
+    return json.dumps({"verdict": "PASS", "reasons": [f"{name or 'ứng viên'}: phù hợp đơn"],
+                       "confidence": 0.85}, ensure_ascii=False)
+
+
 def answer(system: str, user: str) -> tuple[str, str]:
+    # Đúng system phỏng vấn (không khớp chữ "phỏng vấn" trong prompt intake).
+    if (system or "").lstrip().startswith("Bạn là người PHỎNG VẤN"):
+        return "interviewer", _interview(user)
     role = _role_of(system)
     evil = {x.strip() for x in os.environ.get("FAKE_EVIL", "").split(",") if x.strip()}
     if role in evil:

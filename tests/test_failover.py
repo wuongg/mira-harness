@@ -12,7 +12,7 @@ sys.path.insert(0, str(ROOT))
 
 from frog import failover  # noqa: E402
 from frog.providers import ProviderError  # noqa: E402
-from frog.roles import EXTRA_CAP, settle, spec_of, validate_settled  # noqa: E402
+from frog.roles import settle, spec_of, validate_settled  # noqa: E402
 from frog.team import build_plan, execute_plan  # noqa: E402
 
 
@@ -62,26 +62,6 @@ class SpawnRoleTest(unittest.TestCase):
         self.assertIsNotNone(spec)
         self.assertIn("SEO", spec.system_prompt)
         self.assertEqual(validate_settled(st), [])
-
-    def test_cat_qua_tran_extra(self):
-        extras = [{"role": f"extra_role_{i}", "kind": "make", "title": f"E{i}",
-                   "task": f"việc {i}", "reason": "test"} for i in range(EXTRA_CAP + 2)]
-        proposal = {
-            "size": "nho", "web": True,
-            "backend": {"needed": False, "reason": "tĩnh", "roles": []},
-            "hired": [
-                {"role": "product_manager", "task": "p", "reason": "r"},
-                {"role": "frontend_engineer", "task": "f", "reason": "r"},
-                {"role": "qa_reviewer", "task": "q", "reason": "r"},
-                *extras,
-            ],
-            "considered": [],
-        }
-        st = settle(ORDER, proposal)
-        n_extra = sum(1 for r in st["hired"] if r.get("origin_kind") == "extra")
-        self.assertEqual(n_extra, EXTRA_CAP)
-        self.assertTrue(any("quá" in n for n in st["notes"]))
-
 
 class FailoverRunTest(unittest.TestCase):
     def test_doi_model_khi_lan_dau_chet(self):

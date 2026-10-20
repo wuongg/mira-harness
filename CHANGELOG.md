@@ -4,7 +4,7 @@
 
 ### Added
 
-- Intake `frog team` được phép **tự sinh tối đa 4 vai ngoài danh mục** (đủ `role`/`kind`/`task`); quyền vẫn chỉ đọc, vẫn bắt buộc có vai kiểm. Danh mục 19 vai vẫn là ưu tiên.
+- Tuyển đội theo đơn: intake **phân tích rồi đề cử** (trong/ngoài danh mục, không trần 4 nghề); mỗi ứng viên **phỏng vấn PASS/FAIL** mới vào sơ đồ. Trần 24 chỉ chống bùng nổ quota. Thiếu khung web thì code bổ sung vai bắt buộc.
 - **Failover** model/nhà cung cấp khi lỗi chết/hết hạn mức (429/5xx/402/empty turn/…): thử tối đa 3 chỗ đã có khóa. Tắt bằng `FROG_NO_FAILOVER=1`.
 - Provider `9router` (`--provider 9router`, model `cu/...` tự đi 9router). Khóa `NINE_ROUTER_API_KEY`, địa chỉ `NINE_ROUTER_BASE_URL` hoặc `--base-url`, mặc định `http://localhost:20120`.
 - Lượt gọi qua 9router ghi sổ `uncertain (subscription quota)`: không $/token, không $0. Trần riêng 40 lượt gói thuê bao mỗi cây run.

@@ -1,10 +1,11 @@
-"""Danh mục vai cho đơn làm web và luật tuyển theo cỡ đơn.
+"""Danh mục vai tham khảo + luật an toàn khi tuyển theo đơn.
 
-Intake đề xuất sơ đồ nhân sự. Code giữ phần còn lại:
-  - tên vai phải có trong danh mục, hoặc là vai ngoài danh mục có đủ loại và việc;
-  - quyền tool lấy từ danh mục, đề xuất quyền ghi của intake bị bỏ;
-  - cỡ đơn cuối là cỡ lớn hơn giữa intake và code đọc từ câu đơn, code không hạ cỡ;
-  - vai bắt buộc theo cỡ đơn được thêm, khách không bỏ được;
+Một agent phân tích đơn rồi đề cử ứng viên (trong hoặc ngoài danh mục).
+Mỗi ứng viên phải pass phỏng vấn mới vào đội (xem frog/recruit.py).
+Code giữ phần còn lại:
+  - quyền tool: chỉ đọc; đề xuất quyền ghi của intake bị bỏ;
+  - cỡ đơn cuối là cỡ lớn hơn giữa intake và code; code không hạ cỡ;
+  - vai bắt buộc theo cỡ đơn được thêm nếu đội thiếu (khách không bỏ được);
   - đơn web ít nhất 4 vai và phải có vai review.
 Làn, cổng người và trần vẫn do build_plan quyết (I5). Ghi vẫn chỉ qua Executor (I1).
 """
@@ -22,8 +23,8 @@ SLOT = {"manage": "planner", "make": "worker", "review": "verifier", "handoff": 
 READ_ONLY = ("read_file", "list_dir", "grep", "glob")
 WEB_MIN_ROLES = 4
 FALLBACK_ROLES = ("planner", "worker", "verifier")
-# Vai ngoài danh mục intake được phép sinh; code cắt bớt nếu vượt.
-EXTRA_CAP = 4
+# Trần chống bùng nổ quota khi intake đề cử hàng trăm vai — không phải "chỉ 4 nghề lạ".
+CANDIDATE_MAX = 24
 
 VERDICT_PROTOCOL = (
     "Trả đúng một object JSON, không chữ nào khác, với các khóa verdict, reasons, evidence, "
@@ -347,29 +348,28 @@ def settle(order: str, proposal, *, hire=(), drop=()) -> dict:
                 considered[name or "?"] = {"role": name or "?", "origin": "code",
                                            "reason": "không có trong danh mục và thiếu loại hoặc việc"}
                 continue
-            extras_so_far = sum(1 for r in hired.values() if r.get("origin_kind") == "extra")
-            if extras_so_far >= EXTRA_CAP:
-                considered[name] = {"role": name, "origin": "code",
-                                    "reason": f"đã đủ {EXTRA_CAP} vai ngoài danh mục — bỏ bớt"}
-                notes.append(f"cắt vai ngoài danh mục {name}: quá {EXTRA_CAP}")
-                continue
             row = _row(spec, task=str(item.get("task") or ""),
-                       reason=str(item.get("reason") or "").strip() or "intake tự sinh",
+                       reason=str(item.get("reason") or "").strip() or "pass phỏng vấn · tự sinh",
                        origin="intake")
             row["origin_kind"] = "extra"
             row["title"] = spec.title
+            if isinstance(item.get("interview"), dict):
+                row["interview"] = item["interview"]
             hired[name] = row
             continue
         hired[name] = _row(spec, task=str(item.get("task") or ""),
-                           reason=str(item.get("reason") or "").strip() or "intake chọn",
+                           reason=str(item.get("reason") or "").strip() or "pass phỏng vấn",
                            origin="intake")
+        if isinstance(item.get("interview"), dict):
+            hired[name]["interview"] = item["interview"]
     for item in proposal.get("considered") or []:
         if not isinstance(item, dict):
             continue
         name = str(item.get("role") or "").strip()
         reason = str(item.get("reason") or "").strip()
-        if name in POOL and name not in hired and reason:
-            considered[name] = {"role": name, "reason": reason, "origin": "intake"}
+        origin = str(item.get("origin") or "intake").strip() or "intake"
+        if name and name not in hired and reason:
+            considered[name] = {"role": name, "reason": reason, "origin": origin}
 
     for name in required_for(final, found):
         if name not in hired:
@@ -430,7 +430,7 @@ def settle(order: str, proposal, *, hire=(), drop=()) -> dict:
 
 
 _SETTLED_KEYS = {"version", "web", "fallback", "fallback_reason", "size", "backend",
-                 "hired", "considered", "notes", "errors"}
+                 "hired", "considered", "notes", "errors", "analysis"}
 
 
 def validate_settled(st, *, strict: bool = True) -> list[str]:
@@ -474,32 +474,31 @@ def run_order(st: dict) -> list[str]:
 
 
 def staffing_prompt() -> str:
-    """Phần nhúng vào intake của frog team: danh mục vai, luật cỡ đơn, khuôn trả về."""
-    lines = ["DANH MỤC VAI (ưu tiên tuyển từ đây):"]
+    """Nhúng vào intake: bạn là người phân tích đơn rồi đề cử ứng viên để phỏng vấn."""
+    lines = [
+        "BẠN LÀ NGƯỜI PHÂN TÍCH ĐƠN VÀ ĐỀ CỬ ỨNG VIÊN (chưa phải đội cuối).",
+        "1) Đọc kỹ đơn: sản phẩm gì, ai dùng, ràng buộc, rủi ro, việc nào bắt buộc.",
+        "2) Từ đó liệt kê NHỮNG NGƯỜI CẦN CHO ĐÚNG DỰ ÁN NÀY — không theo khuôn cứng.",
+        "3) Mỗi ứng viên sẽ bị PHỎNG VẤN riêng; chỉ ai PASS mới vào đội. Cứ đề cử đủ người cần.",
+        "DANH MỤC THAM KHẢO (dùng khi khớp; không khớp thì tự đặt tên nghề mới):",
+    ]
     for spec in POOL.values():
         lines.append(f"- {spec.name} ({spec.group}, {KIND_LABEL[spec.kind]}): {spec.duty}")
     lines += [
-        "TỰ SINH VAI (khi đơn cần chuyên môn không có trong danh mục):",
-        f"- Được thêm tối đa {EXTRA_CAP} vai ngoài danh mục. Mỗi vai phải có role (snake_case), "
-        "kind (manage|make|review|handoff), task (việc cụ thể), title (tên nghề ngắn), reason.",
-        "- Ví dụ đơn cần SEO / video / pháp lý / dịch thuật: sinh seo_specialist, "
-        "video_script_writer, legal_reviewer, translator — kind phù hợp (làm = make, kiểm = review).",
-        "- Không trùng tên danh mục. Không bịa quyền tool. Vai kiểm vẫn trả JSON verdict.",
-        "- Vẫn phải đủ khung web: thiết kế, làm, kiểm, bàn giao; tự sinh chỉ để bổ sung chuyên môn.",
-        "LUẬT TUYỂN THEO CỠ ĐƠN (tham khảo):",
-        "- nho: trang tĩnh ít trang, không lưu dữ liệu người dùng; khoảng 5-7 vai; cân nhắc "
-        "content_writer, security_reviewer (form gửi dữ liệu đi đâu?), devops_engineer.",
-        "- vua: nhiều trang, form lưu dữ liệu, CMS, tích hợp ngoài; thêm backend_api_engineer, "
-        "security_reviewer (bắt buộc), devops_engineer, content_writer, integration_engineer.",
-        "- lon: đăng nhập, thanh toán, dữ liệu nhạy cảm, lưu lượng cao; thêm auth_engineer, "
-        "backend_db_engineer, a11y_reviewer, perf_engineer, project_coordinator.",
-        f"- đơn web nào cũng ít nhất {WEB_MIN_ROLES} vai: có người thiết kế, người làm, người kiểm, "
-        "người giao.",
-        "Thêm khóa staffing vào object JSON: {\"size\": \"nho|vua|lon\", \"web\": true|false, "
+        "Ứng viên ngoài danh mục: role snake_case, kind (manage|make|review|handoff), "
+        "title (tên nghề), task (việc cụ thể trên đơn này), reason (vì sao đơn cần người này).",
+        "Ví dụ: seo_specialist, translator, legal_reviewer, video_script_writer, data_analyst…",
+        "Không bịa quyền tool. Vai kiểm (kind=review) sẽ trả JSON verdict khi làm việc.",
+        f"Đơn web: đội sau phỏng vấn vẫn cần ít nhất {WEB_MIN_ROLES} vai và phải có người kiểm; "
+        "thiếu thì code bổ sung vai bắt buộc.",
+        "Gợi ý cỡ đơn (tham khảo, không bắt chước máy móc): nho ≈ trang tĩnh; "
+        "vua ≈ form/lưu dữ liệu; lon ≈ đăng nhập/thanh toán/dữ liệu nhạy cảm.",
+        "Thêm khóa staffing: {\"size\": \"nho|vua|lon\", \"web\": true|false, "
         "\"backend\": {\"needed\": true|false, \"reason\": \"...\", \"roles\": [\"...\"]}, "
         "\"hired\": [{\"role\": \"...\", \"kind\": \"make\", \"title\": \"...\", "
-        "\"task\": \"việc cụ thể\", \"reason\": \"...\"}], "
-        "\"considered\": [{\"role\": \"...\", \"reason\": \"vì sao không tuyển\"}]}.",
+        "\"task\": \"...\", \"reason\": \"...\"}], "
+        "\"considered\": [{\"role\": \"...\", \"reason\": \"cân nhắc nhưng không đề cử\"}], "
+        "\"analysis\": \"2-5 câu phân tích đơn bằng tiếng Việt\"}.",
         "Không ghi quyền tool, làn, cổng hay trần: code quyết những thứ đó.",
         "Đơn thiếu đối tượng xem, ngôn ngữ, thiết bị hay nội dung chính thì hỏi trong questions.",
     ]

@@ -2197,8 +2197,37 @@ def cmd_team(args) -> int:
                 ui.note("đã điền thay: " + ", ".join(filled), "info")
             from_file = False
             if web:
-                obj["staffing"] = settle(args.task, got.get("staffing_proposal"),
-                                         hire=hire, drop=drop)
+                proposal = got.get("staffing_proposal")
+                analysis = ""
+                if isinstance(proposal, dict):
+                    analysis = str(proposal.get("analysis") or "").strip()
+                    if analysis:
+                        ui.note("Phân tích đơn: " + analysis, "info")
+                    from .recruit import interview_roster
+                    from .intake import charged_call as _charged
+
+                    def _ask_interview(system: str, user: str) -> str:
+                        text, meta = _charged(
+                            intake_ledger, "interviewer", model, prov, system, user,
+                            declared_price=plan.declared_price,
+                            provider_name=args.provider, base_url=args.base_url,
+                            api_key=getattr(args, "api_key", None),
+                            max_tokens=args.max_tokens)
+                        if meta.get("blocked") or meta.get("error"):
+                            raise RuntimeError(meta.get("error") or "phỏng vấn bị chặn")
+                        return text
+
+                    proposal, rejected, iv_notes = interview_roster(
+                        args.task, proposal, ask=_ask_interview)
+                    for note in iv_notes:
+                        ui.note(note, "warn")
+                    if rejected:
+                        ui.note(f"Phỏng vấn loại {len(rejected)} ứng viên:", "warn")
+                        for row in rejected:
+                            print(f"    - {row.get('role')}: {row.get('reason')}")
+                    passed_n = len((proposal or {}).get("hired") or [])
+                    ui.note(f"Phỏng vấn đạt {passed_n} ứng viên — đưa vào sơ đồ.", "ok")
+                obj["staffing"] = settle(args.task, proposal, hire=hire, drop=drop)
         if web and "staffing" not in obj:
             obj["staffing"] = settle(args.task, None, hire=hire, drop=drop)
         st = obj.get("staffing")
