@@ -77,13 +77,12 @@ class OpenTest(unittest.TestCase):
         self.assertEqual(model, "sonnet-5.5")
         from frog.providers import choose_proxy_model
         self.assertEqual(choose_proxy_model(["cu/claude-4.5-sonnet", "cu/default"]), "cu/default")
-        from frog.team import assign_cursor_models
-        roles, workers = assign_cursor_models(
-            ["worker", "verifier"],
-            ["cu/claude-4.5-sonnet", "cu/gpt-5.2", "cu/gemini-3-flash-preview"])
-        self.assertEqual(roles["worker"], "cu/claude-4.5-sonnet")
-        self.assertEqual(roles["verifier"], "cu/gpt-5.2")
-        self.assertEqual(workers, ["cu/claude-4.5-sonnet", "cu/gpt-5.2", "cu/gemini-3-flash-preview"])
+        from frog.team import model_for, slot_models
+        routed = slot_models("9router")
+        self.assertEqual(model_for("worker", None, role_models=routed), "cu/gpt-5.6-sol-high")
+        self.assertEqual(model_for("verifier", None, role_models=routed),
+                         "cu/claude-opus-5-thinking-high")
+        self.assertIsNone(slot_models("anthropic"))
         from frog.providers import ProviderError, decode_completion
         body = 'data: {"error":{"message":"Cursor AgentService returned an empty turn","type":"api_error"}}\n\ndata: [DONE]\n\n'
         with self.assertRaises(ProviderError) as caught:

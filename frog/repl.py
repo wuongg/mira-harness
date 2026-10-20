@@ -767,29 +767,39 @@ def _one_turn(task: str, session: Session, model: str, args, history, events, te
 
 
 def _team_turn(task: str, session: Session, args) -> None:
-    """Định tuyến theo làn của SPEC rồi chạy đội nhiều vai."""
-    from .team import build_plan, cursor_rows, execute_plan, load_cursor_team
+    """Định tuyến theo làn của SPEC rồi chạy đội nhiều vai.
+
+    Đơn web trong phiên dùng sơ đồ tối thiểu theo luật cỡ đơn; phiên không qua intake.
+    """
+    from .roles import REQUIRED, infer_size, is_web_order, run_order, settle
+    from .team import build_plan, execute_plan, model_for, print_staffing, slot_models
     hints = dict(surface="write_sandbox" if session.mode in ("default", "acceptEdits") else "read_only",
                  labels=["internal"], records=100, dollars=0.0)
     plan = build_plan(task, **hints)
-    loaded = load_cursor_team(plan.roles, getattr(args, "base_url", None))
-    if loaded:
-        base, role_models, worker_models = loaded
-        ui.table(["vai", "model"], cursor_rows(plan.roles, role_models, worker_models), ["l", "l"])
-        ui.kv("làn", f"{plan.lane} · sàn {plan.floor} · cổng tầng {plan.gate_tier}")
-        if plan.gate_tier >= 3:
-            ui.note("Việc này cần hai người duyệt.", "warn")
-        res = execute_plan(plan, provider_name="9router", base_url=base,
-                           role_models=role_models, worker_models=worker_models,
-                           root=session.root,
-                           on_step=lambda m: print("  " + m))
+    provider = getattr(args, "provider", None)
+    role_models = slot_models(provider)
+    if is_web_order(task):
+        st = settle(task, {"hired": [{"role": r} for r in REQUIRED[infer_size(task)[0]]]})
+        print_staffing(st, {r["role"]: model_for(r["role"], st, role_models=role_models)
+                            for r in st["hired"]})
+        try:
+            ans = input(ui.c("\n  Duyệt sơ đồ nhân sự này? [y/N] ", "bold")).strip().lower()
+        except (EOFError, KeyboardInterrupt):
+            ans = "n"
+        if ans not in ("y", "yes", "có", "co"):
+            ui.note("chưa duyệt sơ đồ — không chạy đội.", "warn")
+            return
+        plan.staffing = st
+        plan.roles = run_order(st)
     else:
-        ui.table(["vai", "model"], [[r, C.ROLE_MODEL.get(r, "?")] for r in plan.roles], ["l", "l"])
-        ui.kv("làn", f"{plan.lane} · sàn {plan.floor} · cổng tầng {plan.gate_tier}")
-        if plan.gate_tier >= 3:
-            ui.note("Việc này cần hai người duyệt.", "warn")
-        res = execute_plan(plan, provider_name=None, root=session.root,
-                           on_step=lambda m: print("  " + m))
+        ui.table(["vai", "model"], [[r, model_for(r, None, role_models=role_models)]
+                                    for r in plan.roles], ["l", "l"])
+    ui.kv("làn", f"{plan.lane} · sàn {plan.floor} · cổng tầng {plan.gate_tier}")
+    if plan.gate_tier >= 3:
+        ui.note("Việc này cần hai người duyệt.", "warn")
+    res = execute_plan(plan, provider_name=provider, base_url=getattr(args, "base_url", None),
+                       role_models=role_models, root=session.root,
+                       on_step=lambda m: print("  " + m))
     called = [s for s in (res.get("steps") or []) if s and not s.get("budget") and s.get("model")]
     if called:
         from .team import checkpoint_path

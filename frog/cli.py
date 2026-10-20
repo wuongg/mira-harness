@@ -831,8 +831,10 @@ def build_parser() -> argparse.ArgumentParser:
                     choices=["free_string", "enum", "number", "bool", "id"])
     tm.add_argument("--provider", default=None, choices=["openrouter", "anthropic", "openai", "xai", "9router", "tavily", "brave", "serper"])
     tm.add_argument("--model", default=None, help="ép một model cho mọi vai")
-    tm.add_argument("--cursor", action="store_true",
-                    help="đội dùng mọi model cu/ trên 9router")
+    tm.add_argument("--hire", default=None, metavar="VAI,VAI",
+                    help="thêm vai từ danh mục vào sơ đồ nhân sự")
+    tm.add_argument("--drop", default=None, metavar="VAI,VAI",
+                    help="bỏ vai khỏi sơ đồ (vai bắt buộc theo cỡ đơn không bỏ được)")
     tm.add_argument("--base-url", dest="base_url", default=None)
     tm.add_argument("--max-tokens", dest="max_tokens", type=int, default=4096)
     tm.add_argument("--dry-run", dest="dry_run", action="store_true",

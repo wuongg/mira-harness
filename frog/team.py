@@ -28,7 +28,7 @@ import subprocess
 import threading
 import time
 import uuid
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from dataclasses import dataclass, field
 from typing import Any, Callable
@@ -226,6 +226,7 @@ class TeamPlan:
     cap_usd: float = 0.0
     plan_hash: str = ""
     declared_price: tuple[float, float] | None = None
+    staffing: dict | None = None
 
     def as_dict(self) -> dict:
         d = {k: v for k, v in self.__dict__.items() if k != "task"}
@@ -815,59 +816,68 @@ def staging_evidence(root: Path, staging: Path, task: str, worker_text: str) -> 
             "exit": exit_code, "changed": changed}
 
 
-_CURSOR_NEEDLE = {
-    "planner": ("opus-high", "opus"),
-    "coordinator": ("opus-max", "opus"),
-    "worker": ("4.5-sonnet", "sonnet"),
-    "verifier": ("gpt-5.2", "gpt-"),
-    "oracle": ("gemini", "kimi"),
-    "critic": ("gpt-5.3", "codex"),
-    "classifier": ("haiku",),
-}
+def slot_models(provider_name: str | None) -> dict | None:
+    """Model theo nhóm vai. Đi 9router thì người làm và người kiểm khác họ model."""
+    if provider_name == "9router":
+        return dict(C.NINE_ROUTER_ROLE_MODEL)
+    return None
 
 
-def assign_cursor_models(roles: list[str], ids: list[str]) -> tuple[dict[str, str], list[str]]:
-    """Mỗi vai một model Cursor. Mọi id `cu/` đều là worker."""
-    pool = [item for item in ids if str(item).startswith("cu/")]
-    used: set[str] = set()
-
-    def take(role: str) -> str:
-        for needle in _CURSOR_NEEDLE.get(role, ()):
-            for item in pool:
-                if item not in used and needle in item and "thinking" not in item:
-                    used.add(item)
-                    return item
-        for item in pool:
-            if item not in used:
-                used.add(item)
-                return item
-        return pool[0] if pool else "cu/default"
-
-    role_models = {role: take(role) for role in roles}
-    return role_models, list(pool)
+def model_for(role: str, staffing: dict | None, *, model_override: str | None = None,
+              role_models: dict | None = None) -> str:
+    if model_override:
+        return model_override
+    if role_models and role in role_models:
+        return role_models[role]
+    from .roles import SLOT, spec_of
+    spec = spec_of(staffing, role) if staffing else None
+    slot = SLOT[spec.kind] if spec else role
+    if role_models and slot in role_models:
+        return role_models[slot]
+    return C.ROLE_MODEL.get(slot, "sonnet-5.5")
 
 
-def load_cursor_team(roles: list[str], base_url: str | None = None) -> tuple[str, dict, list[str]] | None:
-    """Đọc model `cu/` trên 9router. Không có thì đội không đổi sang Cursor."""
-    from .keys import resolve
-    from .providers import NineRouterProvider, list_proxy_models
-    base = (base_url or os.environ.get(NineRouterProvider.base_env)
-            or NineRouterProvider.default_base)
-    ids = list_proxy_models(base, resolve("9router")[0])
-    role_models, workers = assign_cursor_models(roles, ids)
-    if not workers:
-        return None
-    return base, role_models, workers
+def staffing_rows(st: dict, models: dict | None = None) -> tuple[list[list[str]], list[list[str]]]:
+    """Hai bảng của sơ đồ: đã tuyển, và đã cân nhắc không tuyển."""
+    from .roles import KIND_LABEL
+    hired = [[r["role"], r.get("group", ""), KIND_LABEL.get(r.get("kind"), r.get("kind", "")),
+              r.get("task", ""), r.get("reason", ""), r.get("origin", "")]
+             + ([models.get(r["role"], "")] if models else [])
+             for r in st.get("hired") or []]
+    skipped = [[r["role"], r.get("reason", ""), r.get("origin", "")]
+               for r in st.get("considered") or []]
+    return hired, skipped
 
 
-def cursor_rows(roles: list[str], role_models: dict, worker_models: list[str]) -> list[list[str]]:
-    rows = []
-    for role in roles:
-        if role == "worker" and worker_models:
-            rows.extend([["worker", item] for item in worker_models])
-        else:
-            rows.append([role, role_models.get(role, C.ROLE_MODEL.get(role, "?"))])
-    return rows
+def print_staffing(st: dict, models: dict | None = None) -> None:
+    from . import ui
+    from .roles import SIZE_LABEL
+    size = st.get("size") or {}
+    said = size.get("intake")
+    head = f"đơn {SIZE_LABEL.get(size.get('final'), '?')}"
+    head += f" · intake nói {SIZE_LABEL[said]}" if said else " · intake không nói cỡ"
+    head += f" · code đọc {SIZE_LABEL.get(size.get('code'), '?')}"
+    if size.get("signals"):
+        head += f" ({', '.join(size['signals'])})"
+    ui.title("SƠ ĐỒ NHÂN SỰ")
+    ui.kv("Cỡ đơn", head)
+    if st.get("fallback"):
+        ui.kv("Fallback", f"3 vai cũ planner, worker, verifier — {st.get('fallback_reason')}")
+    backend = st.get("backend") or {}
+    ui.kv("Backend", ("CÓ — " + ", ".join(backend.get("roles") or []) if backend.get("needed")
+                      else "KHÔNG") + f" · {backend.get('reason', '')} ({backend.get('origin', '')})")
+    hired, skipped = staffing_rows(st, models)
+    print()
+    ui.note(f"1) Đã tuyển {len(hired)} vai", "info")
+    head_cols = ["vai", "nhóm", "loại", "việc", "lý do", "nguồn"] + (["model"] if models else [])
+    ui.table(head_cols, hired, ["l"] * len(head_cols))
+    print()
+    ui.note(f"2) Đã cân nhắc, không tuyển {len(skipped)} vai", "info")
+    ui.table(["vai", "lý do", "nguồn"], skipped, ["l", "l", "l"])
+    for line in st.get("notes") or []:
+        ui.note(line, "info")
+    for line in st.get("errors") or []:
+        ui.note(line, "bad")
 
 
 def execute_plan(plan: TeamPlan, *, provider_name: str | None = None,
@@ -875,7 +885,6 @@ def execute_plan(plan: TeamPlan, *, provider_name: str | None = None,
                  api_key: str | None = None, max_tokens: int = 4096,
                  workers: int = 1,
                  role_models: dict | None = None,
-                 worker_models: list[str] | None = None,
                  depth: int = 0,
                  ledger: "Ledger | None" = None,
                  on_step: Callable[[str], None] | None = None,
@@ -898,6 +907,10 @@ def execute_plan(plan: TeamPlan, *, provider_name: str | None = None,
     """
     log = on_step or (lambda _m: None)
     ledger = ledger if ledger is not None else Ledger()
+    staffing = getattr(plan, "staffing", None)
+    staffed = isinstance(staffing, dict) and not staffing.get("fallback")
+    if staffed:
+        from .roles import run_order, spec_of
     skill_names: list[str] = []
     skill_at = [-1]
     skill_retried = [False]
@@ -989,11 +1002,36 @@ def execute_plan(plan: TeamPlan, *, provider_name: str | None = None,
     fanout = plan.lane == 2 and workers > 1
 
     def _model_of(role: str) -> str:
-        if model_override:
-            return model_override
-        if role_models and role in role_models:
-            return role_models[role]
-        return C.ROLE_MODEL.get(role, "sonnet-5.5")
+        return model_for(role, staffing if staffed else None,
+                         model_override=model_override, role_models=role_models)
+
+    def _staffed_user(role: str, spec) -> tuple[str, str]:
+        """Vai trong sơ đồ thấy đơn, tiêu chí brief, việc của mình, và sản phẩm các vai trước."""
+        job = next((r.get("task") for r in staffing.get("hired") or []
+                    if r.get("role") == role and r.get("task")), spec.duty)
+        parts = []
+        for st in steps:
+            if not isinstance(st, dict) or not st.get("text") or st.get("blocked"):
+                continue
+            env = st.get("verdict_parsed")
+            if env:
+                parts.append(f"[{st['role']}] {env['verdict']}: " + "; ".join(env["reasons"])[:600])
+            else:
+                parts.append(f"[{st['role']}]\n{st['text']}")
+        policy = "full"
+        if len("\n\n".join(parts)) > 16000 and len(parts) > 3:
+            middle = [p.splitlines()[0] + " … [đã tóm tắt]" for p in parts[1:-2]]
+            parts = parts[:1] + middle + parts[-2:]
+            policy = "summarized"
+        brief = getattr(plan, "brief", None) or {}
+        criteria = [str(c.get("text") if isinstance(c, dict) else c)
+                    for c in brief.get("acceptance_criteria") or []]
+        text = f"ĐƠN CỦA KHÁCH:\n{plan.task_text}\n\n"
+        if criteria:
+            text += "TIÊU CHÍ TRONG BRIEF:\n" + "\n".join(f"- {c}" for c in criteria) + "\n\n"
+        text += f"VIỆC CỦA BẠN TRONG ĐỘI ({spec.title}):\n{job}\n\n"
+        text += ("SẢN PHẨM CỦA CÁC VAI TRƯỚC:\n" + "\n\n".join(parts)) if parts else "Bạn là vai đầu tiên."
+        return text, policy
 
     def _prior() -> list[str]:
         return [s["text"] for s in steps if isinstance(s, dict) and s.get("text")]
@@ -1053,7 +1091,13 @@ def execute_plan(plan: TeamPlan, *, provider_name: str | None = None,
     def _call(role: str, prior=None, shard: tuple[int, int] | None = None,
               model: str | None = None) -> dict:
         """Một lần gọi model. An toàn khi chạy trong nhiều luồng."""
-        _user, policy = _user_of(role, prior, shard)
+        spec = spec_of(staffing, role) if staffed else None
+        if spec is not None:
+            _user, policy = _staffed_user(role, spec)
+            system = spec.system_prompt
+        else:
+            _user, policy = _user_of(role, prior, shard)
+            system = ROLE_SYSTEM[role]
         model = model or _model_of(role)
         prov = provider_for(model, provider_name, base_url=base_url,
                             api_key=api_key, max_tokens=max_tokens)
@@ -1077,7 +1121,11 @@ def execute_plan(plan: TeamPlan, *, provider_name: str | None = None,
                             "error": f"chạm trần {C.SUBSCRIPTION_CALL_CAP} lượt gọi gói thuê bao"}
                 rid = ledger.begin_request(role, model, 0.0, billing="subscription")
             else:
-                hold = estimate_hold(rates, ROLE_SYSTEM[role], _user, max_tokens)
+                hold = estimate_hold(rates, system, _user, max_tokens)
+                if spec is not None and hold > spec.cap_usd + 1e-9:
+                    return {"role": role, "model": model, "shard": shard, "blocked": True,
+                            "budget": True, "context_policy": policy,
+                            "error": f"vai {role} cần giữ ${hold:.4f}, vượt trần vai ${spec.cap_usd:.2f}"}
                 if plan.cap_usd and ledger.committed() + hold > plan.cap_usd + 1e-9:
                     return {"role": role, "model": model, "shard": shard, "blocked": True,
                             "budget": True, "error": "không đủ ngân sách để giữ chỗ",
@@ -1086,7 +1134,7 @@ def execute_plan(plan: TeamPlan, *, provider_name: str | None = None,
         t0 = time.time()
         try:
             text, usage, usd, rid = ledger.tracked_call(
-                role, model, prov, ROLE_SYSTEM[role], _user, rates,
+                role, model, prov, system, _user, rates,
                 source=source, max_out=max_tokens, declared_by_user=source == "cli",
                 reserved_id=rid)
         except ProviderError as e:
@@ -1260,9 +1308,12 @@ def execute_plan(plan: TeamPlan, *, provider_name: str | None = None,
 
     # ------------------------------------------------------------- dry-run
     if dry_run:
-        for role in expand_roles(plan.roles, plan.lane, workers):
+        names = run_order(staffing) if staffed else expand_roles(plan.roles, plan.lane, workers)
+        for role in names:
+            spec = spec_of(staffing, role) if staffed else None
             steps.append({"role": role, "model": _model_of(role), "skipped": "dry-run",
-                          "system": ROLE_SYSTEM[role], "user_len": None})
+                          "system": spec.system_prompt if spec else ROLE_SYSTEM[role],
+                          "user_len": None})
             log(f"{role:<12} {_model_of(role):<16} (dry-run, không gọi)")
         return {"status": "ok", "fail_reason": None, "verifier_verdict": None,
                 "oracle_score": None, "oracle_gate": oracle_gate, "steps": steps,
@@ -1272,15 +1323,69 @@ def execute_plan(plan: TeamPlan, *, provider_name: str | None = None,
     tail = [r for r in plan.roles if r in run_tail]
     has_worker = "worker" in plan.roles
     has_verifier = "verifier" in plan.roles
+    staffed_reviews = False
+    if staffed:
+        head, tail, has_worker, has_verifier = [], [], False, False
 
     def _stop_budget() -> None:
         nonlocal status, fail_reason
         status = "stopped_budget"
         capped = next((s for s in reversed(steps) if isinstance(s, dict) and s.get("budget")
-                       and "gói thuê bao" in str(s.get("error") or "")), None)
+                       and ("gói thuê bao" in str(s.get("error") or "")
+                            or "trần vai" in str(s.get("error") or ""))), None)
         fail_reason = (capped["error"] if capped
                        else f"vượt trần làn {plan.lane} (${plan.cap_usd})")
         log(f"  → DỪNG: {fail_reason}")
+
+    # --- sơ đồ nhân sự: quản lý → làm → kiểm → bàn giao, mỗi vai một lượt ---
+    if staffed:
+        review_steps: list[dict] = []
+        for role in run_order(staffing):
+            spec = spec_of(staffing, role)
+            if spec.kind == "handoff" and review_steps:
+                verdicts = [(s.get("verdict_parsed") or {}).get("verdict") for s in review_steps]
+                if not all(v == "PASS" for v in verdicts):
+                    log(f"{role:<12} BỎ QUA — vai kiểm chưa PASS hết, không bàn giao")
+                    break
+            st = _reuse(lambda role=role: _call(role, prior=_prior()))
+            st["kind"] = spec.kind
+            if spec.kind == "review":
+                env = _verdict_envelope(st.get("text", ""))
+                st["verdict_raw"] = st.get("text", "")
+                st["verdict_parsed"] = env
+                review_steps.append(st)
+            _note(st)
+            if not st.get("budget"):
+                _log_step(st)
+                if spec.kind == "review" and st.get("verdict_parsed"):
+                    env = st["verdict_parsed"]
+                    log(f"    {env['verdict']}: " + "; ".join(env["reasons"])[:300])
+                elif spec.kind != "review":
+                    _show_text(st)
+            if st.get("budget"):
+                _stop_budget()
+                break
+            if st.get("error") or st.get("blocked"):
+                status = "blocked" if st.get("blocked") else "error"
+                fail_reason = f"{role}: {st['error']}"
+                break
+            if _over_cap():
+                _stop_budget()
+                break
+        staffed_reviews = bool(review_steps)
+        if review_steps:
+            parsed = [s.get("verdict_parsed") for s in review_steps]
+            verifier_raw = review_steps[-1].get("text", "")
+            verifier_parsed = parsed[-1]
+            verdicts = [None if env is None else env["verdict"] for env in parsed]
+            if any(v is None for v in verdicts):
+                verifier_verdict = None
+            elif all(v == "PASS" for v in verdicts):
+                verifier_verdict = "PASS"
+            else:
+                failed = [s["role"] for s, v in zip(review_steps, verdicts) if v != "PASS"]
+                verifier_verdict = "FAIL"
+                log(f"  → vai kiểm trả FAIL: {', '.join(failed)}")
 
     # --- pha 1: planner → coordinator (tuần tự, có phụ thuộc dữ liệu) ---
     for role in head:
@@ -1364,11 +1469,7 @@ def execute_plan(plan: TeamPlan, *, provider_name: str | None = None,
                     _stop_budget()
                 prev = worker_steps[0].get("text") or ""
             else:
-                roster = list(worker_models or [])
-                if roster:
-                    items = [(_prior(), (i + 1, len(roster)) if len(roster) > 1 else None, roster[i])
-                             for i in range(len(roster))]
-                elif fanout:
+                if fanout:
                     items = [(_prior(), (i + 1, workers)) for i in range(workers)]
                 else:
                     items = [(_prior(), None)]
@@ -1376,41 +1477,21 @@ def execute_plan(plan: TeamPlan, *, provider_name: str | None = None,
                     worker_steps = [_reuse(lambda: _worker_step(*items[0]))]
                     for st in worker_steps:
                         _emit_called(st)
-                elif roster:
-                    worker_steps = [None] * len(items)
-                    with ThreadPoolExecutor(max_workers=len(items)) as ex:
-                        futs = {ex.submit(_worker_step, *items[i]): i for i in range(len(items))}
-                        for fut in as_completed(futs):
-                            i = futs[fut]
-                            st = fut.result()
-                            worker_steps[i] = st
-                            if st.get("budget"):
-                                _note(st)
-                            else:
-                                _emit_called(st)
-                    skipped = sum(1 for s in worker_steps if s and s.get("budget"))
-                    if skipped:
-                        log(f"bỏ qua {skipped} worker vì hết trần, không gọi")
                 else:
                     worker_steps = _parallel(_worker_step, items)
                     for st in worker_steps:
                         _log_step(st)
                         _note(st)
-                produced = [s for s in worker_steps if s and s.get("text")]
-                if roster and produced:
-                    prev = "\n\n".join(f"[worker {i + 1}] {s.get('text', '')}"
-                                       for i, s in enumerate(worker_steps) if s and s.get("text"))
-                else:
-                    bad = next((s for s in worker_steps if s and (s.get("error") or s.get("blocked"))), None)
-                    if bad and bad.get("budget"):
-                        _stop_budget()
-                    elif bad:
-                        status = "blocked" if bad.get("blocked") else "error"
-                        fail_reason = bad["error"]
-                    if status == "ok" and _over_cap():
-                        _stop_budget()
-                    prev = "\n\n".join(f"[worker {i + 1}] {s.get('text', '')}"
-                                       for i, s in enumerate(worker_steps) if s and s.get("text"))
+                bad = next((s for s in worker_steps if s.get("error") or s.get("blocked")), None)
+                if bad and bad.get("budget"):
+                    _stop_budget()
+                elif bad:
+                    status = "blocked" if bad.get("blocked") else "error"
+                    fail_reason = bad["error"]
+                if status == "ok" and _over_cap():
+                    _stop_budget()
+                prev = "\n\n".join(f"[worker {i + 1}] {s.get('text', '')}"
+                                   for i, s in enumerate(worker_steps) if s.get("text"))
 
         # --- pha 3: verifier (song song, mỗi worker một verifier) ---
         if status == "ok" and has_verifier:
@@ -1478,7 +1559,7 @@ def execute_plan(plan: TeamPlan, *, provider_name: str | None = None,
             status, fail_reason = "withheld", "diff trống dù worker nói đã sửa"
         elif evidence["exit"] not in (None, 0):
             status, fail_reason = "withheld", "lệnh trong câu việc không thoát 0"
-    if status == "ok" and plan.lane >= 1:
+    if status == "ok" and (plan.lane >= 1 or staffed_reviews):
         if verifier_verdict is None:
             status, fail_reason = "withheld", "verifier không theo giao thức, giữ lại"
         elif verifier_verdict != "PASS":
@@ -1599,7 +1680,23 @@ def _executor_write(out_dir: Path, plan: TeamPlan, result: dict) -> Path:
     d.mkdir(parents=True, exist_ok=True)
     worker = next((s for s in result["steps"]
                    if s["role"] == "worker" and (s.get("text") or s.get("edited"))), None)
-    if worker and worker.get("edited"):
+    staffing = getattr(plan, "staffing", None)
+    if staffing and not staffing.get("fallback"):
+        from .roles import spec_of
+        parts = []
+        for step in result["steps"]:
+            spec = spec_of(staffing, step.get("role"))
+            if spec is None or not step.get("text"):
+                continue
+            if spec.kind == "review":
+                env = step.get("verdict_parsed") or {}
+                parts.append(f"## {spec.title} ({spec.name}) — {env.get('verdict', '?')}\n\n"
+                             + "\n".join(f"- {r}" for r in env.get("reasons") or []))
+            else:
+                parts.append(f"## {spec.title} ({spec.name})\n\n"
+                             + _worker_for_disk(plan.task_text, step["text"]))
+        body = "\n\n".join(parts) or "(không có kết quả của vai nào)"
+    elif worker and worker.get("edited"):
         from .skills import fact_from_audit
         body = fact_from_audit(worker.get("audit") or []) or "đã sửa trên đĩa qua run_turn"
     else:
@@ -1682,6 +1779,11 @@ def resume_team(root: Path, run_id: str, **kw) -> tuple[int, dict]:
         plan.brief = stored
         plan.brief_hash = data.get("brief_hash")
         plan.criteria_origin = data.get("criteria_origin") or "model"
+    staffing = (getattr(plan, "brief", None) or {}).get("staffing")
+    if isinstance(staffing, dict) and not staffing.get("fallback"):
+        from .roles import run_order
+        plan.staffing = staffing
+        plan.roles = run_order(staffing)
     passed_flag = bool(kw.pop("require_evidence", False))
     plan.require_evidence = bool(data.get("require_evidence")) or passed_flag
     workers = int(data.get("workers") or 1)
@@ -1873,10 +1975,17 @@ def cmd_team(args) -> int:
     if oracle == "on" and plan.lane == 2 and "oracle" not in plan.roles:
         plan.roles = list(plan.roles) + ["oracle"]
     display = expand_roles(plan.roles, plan.lane, workers)
+    from .roles import REQUIRED, infer_size, is_web_order, run_order, settle
+    web = is_web_order(args.task)
+    role_models = None if args.model else slot_models(args.provider)
+    hire = [x for x in (getattr(args, "hire", None) or "").split(",") if x.strip()]
+    drop = [x for x in (getattr(args, "drop", None) or "").split(",") if x.strip()]
 
     ui.title("PHÂN VAI")
     ui.kv("Yêu cầu", args.task)
-    ui.kv("Làn", ui.c(str(plan.lane), "cyan", "bold") + f"  ({len(plan.roles)} vai)")
+    ui.kv("Làn", ui.c(str(plan.lane), "cyan", "bold")
+          + ("  (đơn web: vai theo sơ đồ nhân sự; kiểm, cổng và trần do code quyết)" if web
+             else f"  ({len(plan.roles)} vai)"))
     if plan.lane == 2 and workers > 1:
         ui.kv("Song song", ui.c(f"{workers} worker + {workers} verifier chạy đồng thời", "cyan"))
     if plan.lane == 2 and sub_depth > 0:
@@ -1888,33 +1997,38 @@ def cmd_team(args) -> int:
     ui.kv("Cổng người", f"tầng {plan.gate_tier} · {plan.gate_minutes:.0f} phút"
           + ("  · 2 NGƯỜI DUYỆT" if plan.dual_approval else ""))
     ui.kv("Trần làn", f"${plan.cap_usd:.2f}" if plan.cap_usd else "—")
-    ui.title("Đội sẽ chạy")
-    cursor = None
-    if getattr(args, "cursor", False):
-        cursor = load_cursor_team(plan.roles, args.base_url)
-        if cursor is None:
-            ui.note("9router không trả model Cursor.", "bad")
-            return 2
-        args.base_url, _role_models, _worker_models = cursor
-        args.provider = args.provider or "9router"
-        shown = cursor_rows(display, _role_models, _worker_models)
-    else:
-        shown = [[r, args.model or C.ROLE_MODEL.get(r, "?")] for r in display]
-    ui.table(["vai", "model"], shown, ["l", "l"])
     from .providers import flag_warning
-    for used in sorted({row[1] for row in shown}):
-        warn = flag_warning(used)
-        if warn:
-            ui.note(warn, "warn")
+
+    def _warn(models) -> None:
+        for used in sorted(set(models)):
+            warn = flag_warning(used)
+            if warn:
+                ui.note(warn, "warn")
+
+    def _models(st: dict) -> dict:
+        return {r["role"]: model_for(r["role"], st, model_override=args.model,
+                                     role_models=role_models) for r in st.get("hired") or []}
+
+    if not web:
+        ui.title("Đội sẽ chạy")
+        shown = [[r, model_for(r, None, model_override=args.model, role_models=role_models)]
+                 for r in display]
+        ui.table(["vai", "model"], shown, ["l", "l"])
+        _warn(row[1] for row in shown)
 
     choice = getattr(args, "intake", "off")
     if choice is None:
-        choice = "on" if plan.lane >= 1 else "off"
+        choice = "on" if plan.lane >= 1 or web else "off"
     intake_ledger = None
 
     if args.dry_run:
         print()
         ui.note("dry-run: chỉ in kế hoạch, KHÔNG gọi model, KHÔNG ghi gì", "info")
+        if web:
+            floor = settle(args.task, {"hired": [{"role": r} for r in REQUIRED[infer_size(args.task)[0]]]},
+                           hire=hire, drop=drop)
+            ui.note("sơ đồ dưới đây là mức tối thiểu theo luật cỡ đơn; intake chưa đề xuất", "info")
+            print_staffing(floor, _models(floor))
         if choice == "on":
             from .intake import canonical_brief
             echo = {
@@ -1929,7 +2043,7 @@ def cmd_team(args) -> int:
         return 0
     if choice == "on":
         from .intake import brief_hash, canonical_brief, load_brief_file, run_intake
-        model = (_role_models.get("planner") if cursor else None) or args.model or C.ROLE_MODEL["planner"]
+        model = args.model or (role_models or {}).get("intake") or C.ROLE_MODEL["planner"]
         prov = provider_for(model, args.provider, base_url=args.base_url,
                             api_key=getattr(args, "api_key", None),
                             max_tokens=args.max_tokens)
@@ -1953,7 +2067,7 @@ def cmd_team(args) -> int:
             got = run_intake(
                 args.task, prov, intake_ledger,
                 clarify_max=max(0, int(getattr(args, "clarify_max", 3) or 0)),
-                ask=_ask, model=model, declared_price=plan.declared_price)
+                ask=_ask, model=model, declared_price=plan.declared_price, staffing=web)
             if not got["ok"] or got["brief"] is None:
                 ui.note(got["reason"] or "brief hỏng", "bad")
                 return 8
@@ -1962,27 +2076,59 @@ def cmd_team(args) -> int:
             if filled:
                 ui.note("đã điền thay: " + ", ".join(filled), "info")
             from_file = False
+            if web:
+                obj["staffing"] = settle(args.task, got.get("staffing_proposal"),
+                                         hire=hire, drop=drop)
+        if web and "staffing" not in obj:
+            obj["staffing"] = settle(args.task, None, hire=hire, drop=drop)
+        st = obj.get("staffing")
+        if st is not None:
+            print_staffing(st, _models(st))
+            _warn(_models(st).values())
+            if st.get("errors"):
+                ui.note("sơ đồ chưa chạy được. Sửa bằng --hire hoặc --drop rồi chạy lại.", "bad")
+                return 8
         plan.brief = obj
         plan.brief_hash = brief_hash(obj)
         plan.criteria_origin = "user" if from_file else "model"
         plan.require_evidence = bool(getattr(args, "require_evidence", False))
         print(canonical_brief(obj))
         if not from_file:
+            what = "brief và sơ đồ nhân sự" if st is not None else "brief"
             try:
-                ans = input(ui.c("\n  Duyệt brief này? [y/N] ", "bold")).strip().lower()
+                ans = input(ui.c(f"\n  Duyệt {what} này? [y/N] ", "bold")).strip().lower()
             except (EOFError, KeyboardInterrupt):
                 ans = "n"
             if ans not in ("y", "yes", "có", "co"):
-                ui.note("chưa duyệt brief — không chạy planner.", "warn")
+                ui.note("chưa duyệt brief — không chạy đội.", "warn")
                 return 8
-        from .intake import write_role_prompts
-        prompts, why = write_role_prompts(
-            obj, list(plan.roles), prov, intake_ledger, model=model,
-            declared_price=plan.declared_price, task=args.task)
-        if prompts is None:
-            ui.note(why, "bad")
+        if st is not None and not st.get("fallback"):
+            plan.staffing = st
+            plan.roles = run_order(st)
+        else:
+            from .intake import write_role_prompts
+            prompts, why = write_role_prompts(
+                obj, list(plan.roles), prov, intake_ledger, model=model,
+                declared_price=plan.declared_price, task=args.task)
+            if prompts is None:
+                ui.note(why, "bad")
+                return 8
+            plan.role_prompts = prompts
+    elif web and not getattr(args, "brief", None):
+        st = settle(args.task, None, hire=hire, drop=drop)
+        print_staffing(st, _models(st))
+        if st.get("errors"):
+            ui.note("intake tắt nên không có đề xuất sơ đồ. Thêm vai bằng --hire.", "bad")
             return 8
-        plan.role_prompts = prompts
+        try:
+            ans = input(ui.c("\n  Duyệt sơ đồ nhân sự này? [y/N] ", "bold")).strip().lower()
+        except (EOFError, KeyboardInterrupt):
+            ans = "n"
+        if ans not in ("y", "yes", "có", "co"):
+            ui.note("chưa duyệt sơ đồ — không chạy đội.", "warn")
+            return 8
+        plan.staffing = st
+        plan.roles = run_order(st)
     if getattr(args, "brief", None) and not getattr(plan, "brief", None):
         from .intake import brief_hash, load_brief_file
         obj, why = load_brief_file(Path(args.brief))
@@ -1992,6 +2138,10 @@ def cmd_team(args) -> int:
         plan.brief = obj
         plan.brief_hash = brief_hash(obj)
         plan.criteria_origin = "user"
+        st = obj.get("staffing")
+        if st and not st.get("fallback"):
+            plan.staffing = st
+            plan.roles = run_order(st)
     if getattr(args, "require_evidence", False):
         plan.require_evidence = True
     if plan.dual_approval and args.approve:
@@ -2004,9 +2154,7 @@ def cmd_team(args) -> int:
                        base_url=args.base_url, api_key=getattr(args, "api_key", None),
                        max_tokens=args.max_tokens,
                        workers=workers, depth=sub_depth, root=Path.cwd(),
-                       oracle=oracle, ledger=intake_ledger,
-                       role_models=None if cursor is None else cursor[1],
-                       worker_models=None if cursor is None else cursor[2],
+                       oracle=oracle, ledger=intake_ledger, role_models=role_models,
                        on_step=lambda m: print("  " + m))
 
     return _deliver(args, plan, res)

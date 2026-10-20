@@ -86,6 +86,14 @@ ROLE_MODEL = {
 # Model phiên `frog` khi có khoá OpenRouter. Đổi trong phiên bằng /model.
 OPENROUTER_MODEL = "anthropic/claude-sonnet-4.5"
 
+# Đi 9router: người làm và người kiểm khác họ model.
+NINE_ROUTER_ROLE_MODEL = {
+    "planner": "cu/gpt-5.6-sol-high",
+    "worker": "cu/gpt-5.6-sol-high",
+    "verifier": "cu/claude-opus-5-thinking-high",
+    "intake": "cu/gpt-5.6-sol-high",
+}
+
 LANE_MAX = 2   # chỉ có 3 làn. Sàn = 3 KHÔNG tạo làn mới; nó đẩy cổng người
                # lên tầng cao nhất + bắt buộc 2 người duyệt (xem human_gate).
 
