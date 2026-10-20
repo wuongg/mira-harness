@@ -696,12 +696,17 @@ def build_parser() -> argparse.ArgumentParser:
         prog="frog",
         description="Frog — harness đội nhóm agent (nền R0 shadow): giao việc, xem log, đo lường.",
         epilog="Gõ frog không kèm gì để vào phiên. Lệnh frog install đặt nó vào PATH.",
-        formatter_class=argparse.RawDescriptionHelpFormatter)
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        allow_abbrev=False)
     p.add_argument("--version", action="version", version=f"frog {VERSION}")
     p.add_argument("--no-color", action="store_true", help="tắt màu")
     sub = p.add_subparsers(dest="cmd")
 
-    r = sub.add_parser("run", help="chạy shadow và xuất trace + số liệu")
+    def add_parser(*args, **kwargs):
+        kwargs.setdefault("allow_abbrev", False)
+        return sub.add_parser(*args, **kwargs)
+
+    r = add_parser("run", help="chạy shadow và xuất trace + số liệu")
     r.add_argument("--out", default=DEFAULT_RUN, help="thư mục kết quả (mặc định: out)")
     r.add_argument("--cache-hit", type=float, default=C.CACHE_HIT)
     r.add_argument("--seed", type=int, default=C.SEED)
@@ -724,13 +729,13 @@ def build_parser() -> argparse.ArgumentParser:
                    help="không dùng cache kết quả classifier")
     r.set_defaults(func=cmd_run)
 
-    rp = sub.add_parser("report", help="xem kết quả dạng bảng")
+    rp = add_parser("report", help="xem kết quả dạng bảng")
     rp.add_argument("--run", default=DEFAULT_RUN)
     rp.add_argument("--top", type=int, default=0, help="kèm n tác vụ tốn kém nhất")
     rp.add_argument("--json", action="store_true")
     rp.set_defaults(func=cmd_report)
 
-    lb = sub.add_parser("labels", help="phiếu gán nhãn")
+    lb = add_parser("labels", help="phiếu gán nhãn")
     lbs = lb.add_subparsers(dest="sub", required=True)
     le = lbs.add_parser("export", help="sinh phiếu (KHÔNG chứa đáp án)")
     le.add_argument("--out", default=f"{DEFAULT_RUN}/labels.csv")
@@ -746,17 +751,17 @@ def build_parser() -> argparse.ArgumentParser:
     lt.add_argument("--out", default=f"{DEFAULT_RUN}/labels-triage.csv")
     lt.set_defaults(func=cmd_labels_triage)
 
-    cp = sub.add_parser("compare", help="so hai lần chạy")
+    cp = add_parser("compare", help="so hai lần chạy")
     cp.add_argument("--a", required=True)
     cp.add_argument("--b", required=True)
     cp.set_defaults(func=cmd_compare)
 
-    tk = sub.add_parser("task", help="xem chi tiết một tác vụ trong trace")
+    tk = add_parser("task", help="xem chi tiết một tác vụ trong trace")
     tk.add_argument("id")
     tk.add_argument("--run", default=DEFAULT_RUN)
     tk.set_defaults(func=cmd_task)
 
-    tm = sub.add_parser("team", help="giao một task cho đội agent (GỌI MODEL THẬT)")
+    tm = add_parser("team", help="giao một task cho đội agent (GỌI MODEL THẬT)")
     tm.add_argument("task", nargs="?", default=None, help="yêu cầu, để trong dấu ngoặc kép")
     tm.add_argument("--resume", default=None, help="tiếp run từ checkpoint, không tính lại tiền đã chi")
     tm.add_argument("--surface", default="read_only",
@@ -770,6 +775,8 @@ def build_parser() -> argparse.ArgumentParser:
                     choices=["free_string", "enum", "number", "bool", "id"])
     tm.add_argument("--provider", default=None, choices=["openrouter", "anthropic", "openai", "xai", "tavily", "brave", "serper"])
     tm.add_argument("--model", default=None, help="ép một model cho mọi vai")
+    tm.add_argument("--cursor", action="store_true",
+                    help="đội dùng mọi model cu/ trên 9router")
     tm.add_argument("--base-url", dest="base_url", default=None)
     tm.add_argument("--max-tokens", dest="max_tokens", type=int, default=4096)
     tm.add_argument("--dry-run", dest="dry_run", action="store_true",
@@ -794,7 +801,7 @@ def build_parser() -> argparse.ArgumentParser:
     tm.set_defaults(func=cmd_team)
 
     from .handoff import cmd_giao
-    gx = sub.add_parser("giao", help="phiếu từ câu nói thường, rồi bảng bàn giao")
+    gx = add_parser("giao", help="phiếu từ câu nói thường, rồi bảng bàn giao")
     gx.add_argument("task", nargs="?", default=None, help="yêu cầu bằng lời")
     gx.add_argument("--run", default=None, help="chạy run đã lưu")
     gx.add_argument("--grant", action="append", default=[],
@@ -828,7 +835,7 @@ def build_parser() -> argparse.ArgumentParser:
     gx.set_defaults(func=cmd_giao)
 
     from .intake import cmd_brief
-    br = sub.add_parser("brief", help="kiểm tra hoặc chép brief JSON")
+    br = add_parser("brief", help="kiểm tra hoặc chép brief JSON")
     bsub = br.add_subparsers(dest="brief_cmd", required=True)
     bv = bsub.add_parser("validate", help="kiểm schema và in hash")
     bv.add_argument("path")
@@ -860,7 +867,7 @@ def build_parser() -> argparse.ArgumentParser:
             sp.add_argument("task", help="yêu cầu, trong dấu ngoặc kép")
         sp.set_defaults(**{})
 
-    ag = sub.add_parser("agent", help="một lượt headless, in envelope JSON (giống openclaw agent exec)")
+    ag = add_parser("agent", help="một lượt headless, in envelope JSON (giống openclaw agent exec)")
     _agent_args(ag, positional=True)
     ag.add_argument("--json", action="store_true", help="envelope JSON ra stdout")
     ag.add_argument("--yes", action="store_true", help="tự duyệt mọi cổng (CẨN THẬN)")
@@ -871,14 +878,14 @@ def build_parser() -> argparse.ArgumentParser:
     ag.add_argument("--session-id", dest="session_id", default=None)
     ag.set_defaults(func=cmd_agent)
 
-    ch = sub.add_parser("chat", help="mở phiên tương tác (REPL)")
+    ch = add_parser("chat", help="mở phiên tương tác (REPL)")
     _agent_args(ch, positional=False)
     ch.add_argument("task", nargs="?", default=None, help="nếu có: chạy một lượt rồi thoát")
     ch.add_argument("--team", action="store_true", help="định tuyến qua làn + đội nhiều vai")
     ch.add_argument("--resume", default=None, help="mở lại phiên đã lưu")
     ch.set_defaults(func=lambda a: __import__("frog.repl", fromlist=["repl"]).repl(a))
 
-    pn = sub.add_parser("panel", help="hội đồng phản biện đa agent soi một thiết kế đo")
+    pn = add_parser("panel", help="hội đồng phản biện đa agent soi một thiết kế đo")
     pn.add_argument("question", help="câu hỏi cho hội đồng")
     pn.add_argument("--file", default=None, help="tệp cần soi")
     pn.add_argument("--rounds", type=int, default=2)
@@ -889,25 +896,25 @@ def build_parser() -> argparse.ArgumentParser:
     pn.add_argument("--out", default=None, help="ghi báo cáo markdown")
     pn.set_defaults(func=lambda a: __import__("frog.panel", fromlist=["cmd_panel"]).cmd_panel(a))
 
-    sx = sub.add_parser("stats", help="bảng điều khiển số đo của một lần chạy")
+    sx = add_parser("stats", help="bảng điều khiển số đo của một lần chạy")
     sx.add_argument("--run", default=DEFAULT_RUN, help="thư mục lần chạy")
     sx.add_argument("--metric", default="cost",
                     choices=["cost", "tasks", "audit", "vc", "latency"],
                     help="chỉ số lớn hiển thị")
     sx.set_defaults(func=cmd_stats)
 
-    ig = sub.add_parser("ingest", help="nạp trace team vào 16 chỉ số, ghi nguồn real")
+    ig = add_parser("ingest", help="nạp trace team vào 16 chỉ số, ghi nguồn real")
     ig.add_argument("trace_dir", help="thư mục có trace.json của team hoặc xích hash")
     ig.set_defaults(func=_cmd_ingest)
 
-    tu = sub.add_parser("tui", help="TUI toàn màn hình (curses, không thêm phụ thuộc)")
+    tu = add_parser("tui", help="TUI toàn màn hình (curses, không thêm phụ thuộc)")
     tu.add_argument("--run", default=DEFAULT_RUN, help="thư mục lần chạy")
     tu.add_argument("--dump", nargs="?", const="tổng quan", default=None,
                     choices=["tổng quan", "tác vụ", "làn", "nhãn", "trợ giúp"],
                     help="in một khung ra văn bản thay vì mở TUI")
     tu.set_defaults(func=cmd_tui)
 
-    dcp = sub.add_parser("detect-compare",
+    dcp = add_parser("detect-compare",
                          help="so bộ dò từ khoá với model đọc nội dung (cần key)")
     dcp.add_argument("--n", type=int, default=40, help="số tác vụ, lấy mẫu PHÂN TẦNG (mặc định 40)")
     dcp.add_argument("--api-key", dest="api_key", default=None, help="khoá; mặc định đọc biến môi trường")
@@ -917,31 +924,31 @@ def build_parser() -> argparse.ArgumentParser:
     dcp.add_argument("--out", default=None, help="ghi báo cáo JSON")
     dcp.set_defaults(func=cmd_detect_compare)
 
-    dc = sub.add_parser("doctor", help="kiểm tra môi trường")
+    dc = add_parser("doctor", help="kiểm tra môi trường")
     dc.add_argument("--out", default="out", help="thư mục thử ghi")
     dc.set_defaults(func=cmd_doctor)
 
-    st = sub.add_parser("selftest", help="kiểm tra bất biến")
+    st = add_parser("selftest", help="kiểm tra bất biến")
     st.set_defaults(func=cmd_selftest)
 
-    vf = sub.add_parser("verify", help="kiểm xích hash của một thư mục đã ghi")
+    vf = add_parser("verify", help="kiểm xích hash của một thư mục đã ghi")
     vf.add_argument("dir", help="thư mục có trace.jsonl và manifest.json")
     vf.set_defaults(func=cmd_verify)
 
-    ev = sub.add_parser("eval", help="chấm vài việc local: qua/fail, vòng, tiền")
+    ev = add_parser("eval", help="chấm vài việc local: qua/fail, vòng, tiền")
     ev.add_argument("--suite", default=None, choices=["adversarial"],
                     help="adversarial: 50 case viết tay, in precision/recall theo nhóm")
     ev.set_defaults(func=_cmd_eval)
 
-    lg = sub.add_parser("logs", help="xem log các phiên agent")
+    lg = add_parser("logs", help="xem log các phiên agent")
     lg.add_argument("session", nargs="?", default=None, help="id phiên để xem chi tiết")
     lg.add_argument("--limit", type=int, default=0, help="chỉ hiện n phiên gần nhất")
     lg.set_defaults(func=_cmd_logs)
 
-    dsh = sub.add_parser("dash", help="bảng điều khiển agent (kiểu opencode)")
+    dsh = add_parser("dash", help="bảng điều khiển agent (kiểu opencode)")
     dsh.set_defaults(func=_cmd_dash)
 
-    ky = sub.add_parser("keys", help="cài khoá API cho từng nhà cung cấp")
+    ky = add_parser("keys", help="cài khoá API cho từng nhà cung cấp")
     kys = ky.add_subparsers(dest="action")
     kys.add_parser("status", help="xem trạng thái khoá").set_defaults(func=_cmd_keys)
     kset = kys.add_parser("set", help="nhập khoá (hỏi từng nhà cung cấp)")
@@ -953,21 +960,21 @@ def build_parser() -> argparse.ArgumentParser:
     kys.add_parser("path", help="in đường dẫn tệp khoá").set_defaults(func=_cmd_keys)
     ky.set_defaults(func=_cmd_keys)
 
-    ex = sub.add_parser("export", help="tải dữ liệu chi tiết ra file để mở xem")
+    ex = add_parser("export", help="tải dữ liệu chi tiết ra file để mở xem")
     ex.add_argument("--what", default="all", choices=["all", "sessions", "lab"])
     ex.add_argument("--format", default="md", choices=["md", "json", "csv"])
     ex.add_argument("--run", default=DEFAULT_RUN, help="thư mục lần chạy cho phần lab")
     ex.add_argument("--out", default=None, help="tên tệp (mặc định: r0-shadow-export-<ngày>.md)")
     ex.set_defaults(func=_cmd_export)
 
-    mn = sub.add_parser("menu", help="mở menu giao, team, agent, keys, doctor")
+    mn = add_parser("menu", help="mở menu giao, team, agent, keys, doctor")
     mn.set_defaults(func=_cmd_menu)
 
-    bn = sub.add_parser("bench", help="công cụ benchmark nội bộ")
+    bn = add_parser("bench", help="công cụ benchmark nội bộ")
     bn.add_argument("bench_args", nargs=argparse.REMAINDER)
     bn.set_defaults(func=_cmd_bench)
 
-    ins = sub.add_parser("install",
+    ins = add_parser("install",
                          help="đặt lệnh frog vào PATH — gõ frog ở terminal nào cũng vào phiên")
     ins.set_defaults(func=_cmd_install)
     return p
@@ -1039,7 +1046,17 @@ def main(argv=None) -> int:
             return _open()
         build_parser().print_help()
         return 0
-    args = build_parser().parse_args(argv)
+    try:
+        args = build_parser().parse_args(argv)
+    except SystemExit as exc:
+        code = int(exc.code) if isinstance(exc.code, int) else 2
+        if code and argv:
+            choices = ("giao", "team", "agent", "keys", "doctor", "menu", "chat", "bench")
+            guess = argv[0]
+            near = [c for c in choices if c.startswith(guess[:3]) or guess.startswith(c[:3])]
+            if near and guess not in choices:
+                print(f"frog: không có lệnh {guess!r}. Gần nhất: {', '.join(near)}.", file=sys.stderr)
+        raise
     note_argv_key(args)
     if not getattr(args, "cmd", None):
         build_parser().print_help()

@@ -9,8 +9,24 @@ Harness giao việc cho đội agent. Bản **0.9.0**.
 Cần Python 3.9 trở lên. Không thêm thư viện.
 
 ```bash
-pip install -e .
-frog doctor
+python -m pip install -e .
+python -m frog doctor
+```
+
+Trên Windows, nếu `pip.exe` bị chặn thì dùng đúng `python -m pip` như trên. Sau khi cài trong venv, kích hoạt venv rồi gõ `frog`, hoặc luôn dùng `python -m frog …` để không lẫn bản cũ trên PATH.
+
+Cần ít nhất một khóa: `ANTHROPIC_API_KEY` hoặc `OPENAI_API_KEY` (xem `frog keys`). Intake mặc định dùng model Anthropic; chỉ có OpenAI thì phải chỉ model:
+
+```bash
+frog keys
+frog giao --provider openai --model gpt-5.6-sol --intake-model gpt-5.6-sol "đọc note.txt và tóm tắt một câu"
+```
+
+`giao` lần đầu chỉ in phiếu. Chuỗi đã chạy thật:
+
+```bash
+frog giao --run <id> --approve-brief
+frog giao --run <id> --provider openai --model gpt-5.6-sol
 ```
 
 Năm lệnh làm việc:
@@ -23,7 +39,7 @@ frog keys
 frog doctor
 ```
 
-Gõ `frog` không kèm gì để vào phiên. Chưa có khóa thì `frog menu` hiện đúng năm lệnh trên.
+Gõ `frog` không kèm gì để vào phiên (cần terminal tương tác). Chưa có khóa thì `frog menu` hiện đúng năm lệnh trên.
 
 `frog bench` in dòng `công cụ benchmark nội bộ`. Đó là shadow 320 tác vụ, phiếu gán nhãn, chấm nhãn và thống kê. Không nằm trong menu mặc định.
 
