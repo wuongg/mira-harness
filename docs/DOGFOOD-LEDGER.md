@@ -58,4 +58,5 @@ Vòng 2 dogfood trên p2: **không phát hiện P0 mới**. Các P1 còn lại g
 ## CI
 
 - `bc3f204` — 11/11 xanh: https://github.com/wuongg/mira-harness/actions/runs/39357393019
-- `53ccf94` — 10/11 (windows 3.10 flaky `test_doi_artifact_sau_kill` / PermissionError replace checkpoint); retry replace trên Windows.
+- `53ccf94` — 10/11 (windows 3.10 flaky checkpoint replace)
+- `31b4081` — 11/11 xanh (retry replace): https://github.com/wuongg/mira-harness/actions/runs/39358309904
