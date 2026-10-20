@@ -598,31 +598,74 @@ def contain_brief(brief, task: str = "") -> str:
 
 
 def charged_call(ledger: Ledger, role: str, model: str, prov, system: str, user: str,
-                 *, declared_price: tuple[float, float] | None = None):
+                 *, declared_price: tuple[float, float] | None = None,
+                 provider_name: str | None = None, base_url: str | None = None,
+                 api_key: str | None = None, max_tokens: int | None = None):
     """Cùng cửa giá với đội. Không có giá thì không gọi model.
 
     Gói thuê bao không có $/token: không cần giá, sổ ghi uncertain, có trần lượt gọi.
+    Chết/hết hạn mức thì thử model hoặc nhà khác (failover).
     """
     from . import config as C
+    from .failover import enabled as failover_on, failover_chain, is_failoverable
     from .prices import resolve_price
-    if getattr(prov, "billing", "") == "subscription":
-        if ledger.subscription_calls() >= C.SUBSCRIPTION_CALL_CAP:
-            return "", {"blocked": True,
-                        "error": f"chạm trần {C.SUBSCRIPTION_CALL_CAP} lượt gọi gói thuê bao"}
-        rates, source = None, "subscription"
-    else:
-        rates, source = resolve_price(model, declared_price)
-        if rates is None:
-            return "", {"blocked": True, "error": f"model {model} chưa có giá"}
-    from .providers import ProviderError
-    max_out = int(getattr(prov, "max_tokens", None) or 4096)
-    try:
-        text, usage, _usd, rid = ledger.tracked_call(
-            role, model, prov, system, user, rates, source=source, max_out=max_out,
-            declared_by_user=source == "cli")
-    except ProviderError as exc:
-        return "", {"blocked": False, "error": str(exc), "uncertain": True}
-    return text, {"blocked": False, "usage": usage, "request_id": rid}
+    from .providers import ProviderError, provider_for
+
+    primary_p = provider_name or getattr(prov, "name", None)
+    chain = (failover_chain(model, primary_p, role=role) if failover_on()
+             else [(primary_p or "", model)])
+    trail: list[dict] = []
+    last_err = ""
+    max_out = int(max_tokens or getattr(prov, "max_tokens", None) or 4096)
+    for idx, (pname, mname) in enumerate(chain):
+        cur = prov if idx == 0 and mname == model and (not pname or pname == getattr(prov, "name", None)) \
+            else provider_for(mname, pname or None, base_url=base_url, api_key=api_key,
+                              max_tokens=max_out)
+        if getattr(cur, "billing", "") == "subscription":
+            if ledger.subscription_calls() >= C.SUBSCRIPTION_CALL_CAP:
+                last_err = f"chạm trần {C.SUBSCRIPTION_CALL_CAP} lượt gọi gói thuê bao"
+                trail.append({"provider": getattr(cur, "name", pname), "model": mname,
+                              "error": last_err})
+                if failover_on() and is_failoverable(last_err) and idx + 1 < len(chain):
+                    continue
+                return "", {"blocked": True, "error": last_err, "failover": trail}
+            rates, source = None, "subscription"
+        else:
+            rates, source = resolve_price(mname, declared_price)
+            if rates is None:
+                last_err = f"model {mname} chưa có giá"
+                trail.append({"provider": pname, "model": mname, "error": last_err})
+                if failover_on() and idx + 1 < len(chain):
+                    continue
+                return "", {"blocked": True, "error": last_err, "failover": trail}
+        if not cur.available():
+            last_err = f"thiếu key cho {getattr(cur, 'name', pname)}"
+            trail.append({"provider": getattr(cur, "name", pname), "model": mname,
+                          "error": last_err})
+            if failover_on() and idx + 1 < len(chain):
+                continue
+            return "", {"blocked": True, "error": last_err, "failover": trail}
+        try:
+            text, usage, _usd, rid = ledger.tracked_call(
+                role, mname, cur, system, user, rates, source=source, max_out=max_out,
+                declared_by_user=source == "cli")
+        except ProviderError as exc:
+            last_err = str(exc)
+            trail.append({"provider": getattr(cur, "name", pname), "model": mname,
+                          "error": last_err})
+            if failover_on() and is_failoverable(exc) and idx + 1 < len(chain):
+                continue
+            meta = {"blocked": False, "error": last_err, "uncertain": True}
+            if trail:
+                meta["failover"] = trail
+            return "", meta
+        meta = {"blocked": False, "usage": usage, "request_id": rid,
+                "model": mname, "provider": getattr(cur, "name", pname)}
+        if trail:
+            meta["failover"] = trail
+        return text, meta
+    return "", {"blocked": False, "error": last_err or "hết chuỗi failover",
+                "uncertain": True, "failover": trail}
 
 
 def _questions(obj: dict) -> list[str]:

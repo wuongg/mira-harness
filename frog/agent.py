@@ -106,27 +106,51 @@ def _shrink(convo: list[dict], audit: list[dict]) -> list[dict]:
 
 
 def _priced_call(session, prov, model: str, system: str, user: str):
-    """Có sổ cái thì ghi dispatched trước khi gửi. Không có thì gọi thẳng."""
+    """Có sổ cái thì ghi dispatched trước khi gửi. Không có thì gọi thẳng.
+
+    Chết hoặc hết hạn mức: thử model/nhà khác nếu có khóa.
+    """
+    from .failover import enabled as failover_on, failover_chain, is_failoverable
+    from .providers import ProviderError, provider_for
+
     ledger = getattr(session, "ledger", None)
-    if ledger is None:
-        return prov.call(system, user)
-    if getattr(prov, "billing", "") == "subscription":
-        from .providers import ProviderError
-        if ledger.subscription_calls() >= C.SUBSCRIPTION_CALL_CAP:
-            raise ProviderError(f"chạm trần {C.SUBSCRIPTION_CALL_CAP} lượt gọi gói thuê bao")
-        text, usage, _usd, _rid = ledger.tracked_call(
-            "worker", model, prov, system, user, None, source="subscription",
-            max_out=int(getattr(prov, "max_tokens", None) or 4096))
-        return text, usage or {"in": 0, "out": 0}
-    from .prices import resolve_price
-    rates, source = resolve_price(model, getattr(session, "declared_price", None))
-    if rates is None:
-        return prov.call(system, user)
-    text, usage, _usd, _rid = ledger.tracked_call(
-        "worker", model, prov, system, user, rates, source=source,
-        max_out=int(getattr(prov, "max_tokens", None) or 4096),
-        declared_by_user=source == "cli")
-    return text, usage or {"in": 0, "out": 0}
+    provider_name = getattr(session, "provider_name", None) or getattr(prov, "name", None)
+    base_url = getattr(session, "base_url", None)
+    api_key = getattr(session, "api_key", None)
+    max_out = int(getattr(prov, "max_tokens", None) or 4096)
+    chain = (failover_chain(model, provider_name, role="worker") if failover_on()
+             else [(provider_name or "", model)])
+    last_exc: Exception | None = None
+    for idx, (pname, mname) in enumerate(chain):
+        cur = prov if idx == 0 and mname == model else provider_for(
+            mname, pname or None, base_url=base_url, api_key=api_key, max_tokens=max_out)
+        try:
+            if ledger is None:
+                return cur.call(system, user)
+            if getattr(cur, "billing", "") == "subscription":
+                if ledger.subscription_calls() >= C.SUBSCRIPTION_CALL_CAP:
+                    raise ProviderError(
+                        f"chạm trần {C.SUBSCRIPTION_CALL_CAP} lượt gọi gói thuê bao")
+                text, usage, _usd, _rid = ledger.tracked_call(
+                    "worker", mname, cur, system, user, None, source="subscription",
+                    max_out=max_out)
+                return text, usage or {"in": 0, "out": 0}
+            from .prices import resolve_price
+            rates, source = resolve_price(mname, getattr(session, "declared_price", None))
+            if rates is None:
+                return cur.call(system, user)
+            text, usage, _usd, _rid = ledger.tracked_call(
+                "worker", mname, cur, system, user, rates, source=source,
+                max_out=max_out, declared_by_user=source == "cli")
+            return text, usage or {"in": 0, "out": 0}
+        except ProviderError as exc:
+            last_exc = exc
+            if failover_on() and is_failoverable(exc) and idx + 1 < len(chain):
+                continue
+            raise
+    if last_exc:
+        raise last_exc
+    raise ProviderError("hết chuỗi failover")
 
 
 def _recruit(session: Session, task: str, prov, model: str, provider_name, base_url, api_key,
