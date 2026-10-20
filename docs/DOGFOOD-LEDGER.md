@@ -54,3 +54,7 @@ venv mới mỗi vòng; `HOME`/`USERPROFILE` tách; repo `mira-install`.
 | Bare `frog giao` với chỉ OpenAI vẫn fail (có hint) | P0 đã thành hint | Không tự đổi model mặc định (tránh đổi hành vi vai) |
 
 Vòng 2 dogfood trên p2: **không phát hiện P0 mới**. Các P1 còn lại ghi ở mục 3. Dừng vòng theo P3 (không còn P0/P1 *mới* bắt buộc cho Quickstart 5 phút nếu làm theo README đã sửa).
+
+## CI
+
+SHA `bc3f2043e72312130193791c62e23356753a8e27` — 11/11 xanh: https://github.com/wuongg/mira-harness/actions/runs/39357393019
