@@ -849,6 +849,23 @@ def staffing_rows(st: dict, models: dict | None = None) -> tuple[list[list[str]]
     return hired, skipped
 
 
+def print_brief(obj: dict) -> None:
+    """Brief để khách đọc trước khi duyệt. Bản JSON đầy đủ nằm ở brief.json của run."""
+    from . import ui
+    ui.title("BRIEF")
+    ui.kv("Mục tiêu", obj.get("goal", ""))
+    for label, key in (("Bàn giao", "deliverables"), ("Ràng buộc", "constraints"),
+                       ("Giả định", "assumptions"), ("Câu hỏi còn mở", "questions")):
+        items = [str(x) for x in obj.get(key) or []]
+        ui.kv(label, "; ".join(items) if items else "(không có)")
+    print()
+    ui.note("Tiêu chí nghiệm thu:", "info")
+    for item in obj.get("acceptance_criteria") or []:
+        text = item.get("text") if isinstance(item, dict) else str(item)
+        kind = item.get("outcome") if isinstance(item, dict) else ""
+        print(f"    - {text}" + (f"  [{kind}]" if kind else ""))
+
+
 def print_staffing(st: dict, models: dict | None = None) -> None:
     from . import ui
     from .roles import SIZE_LABEL
@@ -1696,15 +1713,34 @@ def _executor_write(out_dir: Path, plan: TeamPlan, result: dict) -> Path:
                 parts.append(f"## {spec.title} ({spec.name})\n\n"
                              + _worker_for_disk(plan.task_text, step["text"]))
         body = "\n\n".join(parts) or "(không có kết quả của vai nào)"
+        sources = [s for s in result["steps"] if s.get("text") and spec_of(staffing, s.get("role"))
+                   and spec_of(staffing, s.get("role")).kind == "make"]
     elif worker and worker.get("edited"):
         from .skills import fact_from_audit
         body = fact_from_audit(worker.get("audit") or []) or "đã sửa trên đĩa qua run_turn"
+        sources = []
     else:
         body = _worker_for_disk(plan.task_text, worker["text"] if worker else "")
+        sources = [worker] if worker and worker.get("text") else []
+    files: dict[str, tuple[str, str]] = {}
+    for step in sources:
+        for rel, content in file_blocks(step["text"]):
+            files[rel] = (content, step["role"])
+    delivered = []
+    for rel, (content, role) in files.items():
+        target = d / "files" / rel
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(content, encoding="utf-8")
+        delivered.append({"path": rel, "from_role": role, "bytes": len(content.encode("utf-8")),
+                          "sha256": hashlib.sha256(content.encode("utf-8")).hexdigest()})
+    result["delivered_files"] = delivered
     (d / "result.md").write_text(
         f"# Kết quả\n\n**Yêu cầu:** {plan.task_text}\n\n"
         f"**Làn:** {plan.lane} · **sàn:** {plan.floor} · **cổng:** tầng {plan.gate_tier}\n\n"
-        f"---\n\n{body}\n"
+        + (("**File bàn giao** (thư mục `files/`):\n" + "\n".join(
+            f"- `{row['path']}` từ {row['from_role']}" for row in delivered) + "\n\n")
+           if delivered else "")
+        + f"---\n\n{body}\n"
         + ("" if not result.get("obligations") else
            "\n**Tiêu chí:**\n" + "\n".join(
                f"- {_obligation_note(row)}" for row in result["obligations"]) + "\n")
@@ -1715,6 +1751,26 @@ def _executor_write(out_dir: Path, plan: TeamPlan, result: dict) -> Path:
     from .pipeline import write_trace_chain
     write_trace_chain(d, plan.plan_hash, result.get("steps") or [], getattr(plan, "brief_hash", None))
     return d
+
+
+_FILE_BLOCK = re.compile(r"```[A-Za-z0-9_+.-]*[ \t]+([^\s`]+)[ \t]*\r?\n(.*?)```", re.S)
+_SAFE_EXT = {".html", ".htm", ".css", ".js", ".mjs", ".json", ".md", ".txt", ".svg", ".xml",
+             ".webmanifest", ".py", ".sql", ".yml", ".yaml", ".toml", ".env.example"}
+
+
+def file_blocks(text: str) -> list[tuple[str, str]]:
+    """Khối ```ngôn-ngữ đường/dẫn``` thành (đường dẫn, nội dung). Bỏ đường dẫn không an toàn."""
+    from pathlib import PurePosixPath
+    out = []
+    for match in _FILE_BLOCK.finditer(text or ""):
+        rel = match.group(1).strip().replace("\\", "/")
+        path = PurePosixPath(rel)
+        if (path.is_absolute() or ":" in rel or ".." in path.parts or len(path.parts) > 6
+                or not path.name or path.suffix.lower() not in _SAFE_EXT
+                or any(part.startswith(".") for part in path.parts)):
+            continue
+        out.append((str(path), match.group(2)))
+    return out
 
 
 _GRADER_IN_TEXT = re.compile(
@@ -1854,6 +1910,12 @@ def _deliver(args, plan, res) -> int:
             held = withhold_staging(Path(res["staging"]))
             res["staging"] = str(held)
 
+    if not getattr(args, "out", None) and not res.get("staging"):
+        print()
+        ui.note("Không có --out nên không ghi file nào, cổng ghi không cần hỏi. "
+                "Chạy lại với --out <thư mục> để nhận file.", "info")
+        return 0
+
     need = plan.gate_tier >= 2
     approved = True
     if need and plan.dual_approval:
@@ -1910,6 +1972,10 @@ def _deliver(args, plan, res) -> int:
     d = _executor_write(Path(args.out), plan, res)
     print()
     ui.note(f"Executor đã ghi: {d}/result.md · {d}/trace.json", "ok")
+    files = res.get("delivered_files") or []
+    if files:
+        main = next((f for f in files if f["path"].endswith("index.html")), files[0])
+        ui.note(f"{len(files)} file bàn giao. Mở: {(d / 'files' / main['path']).resolve()}", "ok")
     return 0
 
 
@@ -1935,6 +2001,8 @@ def cmd_team(args) -> int:
             Path.cwd(), args.resume,
             provider_name=getattr(args, "provider", None),
             model_override=getattr(args, "model", None),
+            role_models=None if getattr(args, "model", None)
+            else slot_models(getattr(args, "provider", None)),
             base_url=getattr(args, "base_url", None),
             api_key=getattr(args, "api_key", None),
             max_tokens=int(getattr(args, "max_tokens", 4096) or 4096),
@@ -1958,6 +2026,11 @@ def cmd_team(args) -> int:
         data = load_checkpoint(Path.cwd(), args.resume)
         hints = dict(data.get("hints") or {})
         plan = build_plan(data.get("task") or "", **hints)
+        stored = (data.get("brief") or {}).get("staffing")
+        if isinstance(stored, dict) and not stored.get("fallback"):
+            from .roles import run_order
+            plan.staffing = stored
+            plan.roles = run_order(stored)
         return _deliver(args, plan, res)
     if not getattr(args, "task", None):
         ui.note("thiếu yêu cầu", "bad")
@@ -1982,6 +2055,7 @@ def cmd_team(args) -> int:
     if oracle == "on" and plan.lane == 2 and "oracle" not in plan.roles:
         plan.roles = list(plan.roles) + ["oracle"]
     display = expand_roles(plan.roles, plan.lane, workers)
+    run_id = uuid.uuid4().hex[:12]
     from .roles import REQUIRED, infer_size, is_web_order, run_order, settle
     web = is_web_order(args.task)
     role_models = None if args.model else slot_models(args.provider)
@@ -2056,7 +2130,7 @@ def cmd_team(args) -> int:
                             max_tokens=args.max_tokens)
         if not prov.available():
             from .handoff import _key_hint
-            ui.note(_key_hint(model, args.provider), "bad")
+            ui.note(_key_hint(model, args.provider, command="team"), "bad")
             return 8
         intake_ledger = Ledger()
         brief_path = getattr(args, "brief", None)
@@ -2099,7 +2173,11 @@ def cmd_team(args) -> int:
         plan.brief_hash = brief_hash(obj)
         plan.criteria_origin = "user" if from_file else "model"
         plan.require_evidence = bool(getattr(args, "require_evidence", False))
-        print(canonical_brief(obj))
+        print_brief(obj)
+        saved = Path.cwd() / ".frog" / "runs" / run_id / "brief.json"
+        saved.parent.mkdir(parents=True, exist_ok=True)
+        saved.write_text(canonical_brief(obj) + "\n", encoding="utf-8")
+        ui.kv("Hash brief", f"{plan.brief_hash[:16]} · đủ JSON ở {saved}")
         if not from_file:
             what = "brief và sơ đồ nhân sự" if st is not None else "brief"
             try:
@@ -2157,11 +2235,22 @@ def cmd_team(args) -> int:
         return 6
     print()
     ui.title("THỰC THI")
-    res = execute_plan(plan, provider_name=args.provider, model_override=args.model,
-                       base_url=args.base_url, api_key=getattr(args, "api_key", None),
-                       max_tokens=args.max_tokens,
-                       workers=workers, depth=sub_depth, root=Path.cwd(),
-                       oracle=oracle, ledger=intake_ledger, role_models=role_models,
-                       on_step=lambda m: print("  " + m))
+    try:
+        res = execute_plan(plan, provider_name=args.provider, model_override=args.model,
+                           base_url=args.base_url, api_key=getattr(args, "api_key", None),
+                           max_tokens=args.max_tokens,
+                           workers=workers, depth=sub_depth, root=Path.cwd(),
+                           oracle=oracle, ledger=intake_ledger, role_models=role_models,
+                           run_id=run_id, on_step=lambda m: print("  " + m))
+    except KeyboardInterrupt:
+        print()
+        resume = ["frog", "team", "--resume", run_id]
+        if args.provider:
+            resume += ["--provider", args.provider]
+        if args.out:
+            resume += ["--out", args.out]
+        ui.note("Đã dừng theo Ctrl+C. Lượt đang chờ model có thể đã tính quota hoặc tiền.", "warn")
+        ui.note("Chạy tiếp, không gọi lại các bước đã xong: " + " ".join(resume), "info")
+        return 130
 
     return _deliver(args, plan, res)

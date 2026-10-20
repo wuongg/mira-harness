@@ -180,6 +180,37 @@ DEFAULT_SKIP = {
     "vua": "đơn vừa chưa cần vai này",
     "lon": "đơn lớn chưa cần vai này",
 }
+# Vai luật bảo phải cân nhắc: lý do riêng và khi nào nên thêm.
+CONSIDER = {
+    "nho": ("content_writer", "security_reviewer", "devops_engineer"),
+    "vua": ("backend_db_engineer", "a11y_reviewer", "perf_engineer", "content_reviewer"),
+    "lon": ("brand_designer", "content_reviewer", "tech_writer"),
+}
+SKIP_REASON = {
+    "project_coordinator": "ít vai, product manager tự giữ thứ tự việc",
+    "ui_designer": "ux_designer và frontend_engineer lo màu chữ cơ bản; cần nhận diện riêng thì thêm",
+    "content_writer": "nội dung ngắn, product manager và frontend_engineer viết được; "
+                      "cần giọng văn riêng thì --hire content_writer",
+    "brand_designer": "chưa cần bộ nhận diện riêng cho một trang",
+    "backend_api_engineer": "không có form hay dữ liệu gửi về server",
+    "backend_db_engineer": "không lưu dữ liệu người dùng",
+    "auth_engineer": "không có đăng nhập hay tài khoản",
+    "integration_engineer": "không gọi dịch vụ ngoài",
+    "devops_engineer": "trang tĩnh mở thẳng file hoặc đặt lên host tĩnh, không cần CI/CD; "
+                       "cần tên miền và triển khai thì --hire devops_engineer",
+    "perf_engineer": "một trang nhẹ, qa_reviewer kiểm tải được",
+    "security_reviewer": "không có form gửi dữ liệu đi; thêm form liên hệ hay đăng ký thì "
+                         "--hire security_reviewer",
+    "a11y_reviewer": "qa_reviewer kiểm cả hiển thị di động; cần chuẩn WCAG riêng thì thêm",
+    "content_reviewer": "văn bản ngắn, qa_reviewer đọc lại được",
+    "tech_writer": "handoff_editor viết hướng dẫn mở và sửa trang",
+}
+
+
+def skip_reason(name: str, size: str) -> str:
+    if size == "nho" and name in SKIP_REASON:
+        return SKIP_REASON[name]
+    return DEFAULT_SKIP[size]
 
 _SIGNALS = {
     "web": r"\bweb\b|website|trang web|trang chủ|trang giới thiệu|landing|homepage|\bhtml\b|\bsite\b",
@@ -349,7 +380,7 @@ def settle(order: str, proposal, *, hire=(), drop=()) -> dict:
 
     for name in ORDER:
         if name not in hired and name not in considered:
-            considered[name] = {"role": name, "reason": DEFAULT_SKIP[final], "origin": "code"}
+            considered[name] = {"role": name, "reason": skip_reason(name, final), "origin": "code"}
 
     rows = [hired[n] for n in ORDER if n in hired] + \
            [row for n, row in hired.items() if n not in POOL]
@@ -364,11 +395,15 @@ def settle(order: str, proposal, *, hire=(), drop=()) -> dict:
         backend = {"needed": False, "roles": [],
                    "reason": str(said.get("reason") or "").strip() or DEFAULT_SKIP[final],
                    "origin": "intake" if said else "code"}
+    def rank(row: dict) -> tuple:
+        name = row["role"]
+        first = 0 if row.get("origin") in ("intake", "khách") else 1 if name in CONSIDER[final] else 2
+        return first, ORDER.index(name) if name in ORDER else len(ORDER)
+
     out = {"version": 1, "web": web, "fallback": False, "fallback_reason": "",
            "size": {"intake": intake_size, "code": code_size, "final": final, "signals": found},
            "backend": backend, "hired": rows,
-           "considered": [considered[n] for n in ORDER if n in considered] +
-                         [row for n, row in considered.items() if n not in POOL],
+           "considered": sorted(considered.values(), key=rank),
            "notes": notes, "errors": errors}
     errors.extend(validate_settled(out, strict=False))
     return out

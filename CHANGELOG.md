@@ -20,6 +20,9 @@
 
 - Phản hồi SSE không kèm usage ghi uncertain thay vì $0. Sự kiện lỗi trong SSE thành lỗi rõ.
 - Bỏ biến `FROG_PRICE` dùng chung cho mọi model. Giá vẫn theo `--price-in`, `prices.toml`, `FROG_PRICE_<MODEL>`.
+- `frog team` không hỏi cổng ghi khi thiếu `--out`; tách khối ` ```ngôn đường/dẫn ` ra `files/` khi có `--out`; brief in dạng mục; Ctrl+C gợi ý `--resume`; gõ sai lệnh/cờ gợi ý gần nhất.
+- `frog doctor` liệt kê nhà cung cấp có khóa; nhắc cổng 20128 khi mặc định 20120 không trả lời.
+- Lý do không tuyển vai ngắn, cụ thể theo cỡ đơn; vai luật bảo cân nhắc xếp trước trong phần không tuyển.
 
 ## 0.9.0
 

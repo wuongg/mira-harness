@@ -408,8 +408,19 @@ def cmd_doctor(args) -> int:
     smoke_ok = _doctor_9router(getattr(args, "base_url", None),
                                show_all=getattr(args, "models", False),
                                smoke=getattr(args, "smoke", None))
+    from .keys import ENV, resolve
+    usable = [name for name in ("anthropic", "openai", "openrouter", "xai", "9router")
+              if name in ENV and resolve(name)[0]]
+    if usable:
+        ui.note("nhà cung cấp có khóa: " + ", ".join(usable), "ok")
+    else:
+        ui.note("chưa có khóa nhà cung cấp nào: gõ frog keys set, hoặc đặt NINE_ROUTER_API_KEY "
+                "nếu dùng 9router", "warn")
     print()
-    ui.note("môi trường OK" if ok else "có vấn đề ở trên", "ok" if ok else "bad")
+    if ok and not usable:
+        ui.note("môi trường OK, nhưng chưa gọi được model nào", "warn")
+    else:
+        ui.note("môi trường OK" if ok else "có vấn đề ở trên", "ok" if ok else "bad")
     if smoke_ok is False:
         return 1
     return 0 if ok else 1
@@ -428,8 +439,12 @@ def _doctor_9router(base_url: str | None, *, show_all: bool = False,
             "ok" if key else "info")
     ids, why = probe_models(base, key)
     if not ids:
+        hint = ""
+        if base == NineRouterProvider.default_base:
+            hint = (" 9router tự chạy ở cổng 20128 nếu chưa đổi: thử "
+                    "--base-url http://localhost:20128.")
         ui.note(f"9router: {why}. Bỏ qua nếu không dùng 9router; địa chỉ khác thì đặt "
-                f"{NineRouterProvider.base_env} hoặc --base-url.", "info")
+                f"{NineRouterProvider.base_env} hoặc --base-url.{hint}", "info")
         return False if smoke else None
     flagged = [m for m in ids if model_flags(m)]
     ui.note(f"9router: {len(ids)} model tại {base}"
@@ -1114,17 +1129,45 @@ def main(argv=None) -> int:
     except SystemExit as exc:
         code = int(exc.code) if isinstance(exc.code, int) else 2
         if code and argv:
-            choices = ("giao", "team", "agent", "keys", "doctor", "menu", "chat", "bench")
-            guess = argv[0]
-            near = [c for c in choices if c.startswith(guess[:3]) or guess.startswith(c[:3])]
-            if near and guess not in choices:
-                print(f"frog: không có lệnh {guess!r}. Gần nhất: {', '.join(near)}.", file=sys.stderr)
+            for line in suggest_fix(argv):
+                print(line, file=sys.stderr)
         raise
     note_argv_key(args)
     if not getattr(args, "cmd", None):
         build_parser().print_help()
         return 0
-    return args.func(args)
+    try:
+        return args.func(args)
+    except KeyboardInterrupt:
+        print("\nĐã dừng theo Ctrl+C.", file=sys.stderr)
+        return 130
+
+
+def suggest_fix(argv: list[str]) -> list[str]:
+    """Gõ sai lệnh hay cờ thì chỉ cái gần nhất. Không đoán khi không đủ gần."""
+    import difflib
+    parser = build_parser()
+    subs = {}
+    for action in parser._actions:
+        if isinstance(action, argparse._SubParsersAction):
+            subs = action.choices
+    out = []
+    head = argv[0]
+    if not head.startswith("-") and head not in subs:
+        near = difflib.get_close_matches(head, list(subs), n=2, cutoff=0.6)
+        if near:
+            out.append(f"frog: không có lệnh {head!r}. Ý bạn là: {', '.join(near)}?")
+        return out
+    sub = subs.get(head)
+    known = set(sub._option_string_actions) if sub is not None else set()
+    known |= set(parser._option_string_actions)
+    for token in argv[1:]:
+        flag = token.split("=", 1)[0]
+        if flag.startswith("--") and flag not in known:
+            near = difflib.get_close_matches(flag, sorted(known), n=1, cutoff=0.7)
+            out.append(f"frog: không có cờ {flag}." + (f" Ý bạn là {near[0]}?" if near else
+                                                        f" Xem frog {head} --help."))
+    return out
 
 
 if __name__ == "__main__":

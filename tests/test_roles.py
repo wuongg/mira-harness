@@ -28,6 +28,23 @@ ORDER_A = "Tôi cần một trang web giới thiệu frog để gửi cho bạn 
 ORDER_B = "làm cho tôi 1 trang web của frog"
 ORDER_C = "tôi muốn frog có trang chủ"
 ORDER_BIG = "trang giới thiệu kèm form đăng ký nhận tin, lưu danh sách email"
+
+
+class FileBlocksTest(unittest.TestCase):
+    def test_tach_khoi_an_toan(self):
+        got = team.file_blocks("```html site/index.html\n<body>hi</body>\n```")
+        self.assertEqual(got, [("site/index.html", "<body>hi</body>\n")])
+        self.assertEqual(team.file_blocks("```html /etc/passwd\nx\n```"), [])
+        self.assertEqual(team.file_blocks("```html ../x.html\nx\n```"), [])
+        self.assertEqual(team.file_blocks("```html site/evil.exe\nx\n```"), [])
+
+
+class SuggestFixTest(unittest.TestCase):
+    def test_goi_y_lenh_va_co(self):
+        from frog.cli import suggest_fix
+        self.assertTrue(any("team" in line for line in suggest_fix(["teem", "x"])))
+        self.assertTrue(any("--provider" in line
+                            for line in suggest_fix(["team", "--provder", "9router"])))
 LAZY = {"size": "nho", "web": True,
         "backend": {"needed": False, "reason": "trang tĩnh", "roles": []},
         "hired": [{"role": "product_manager", "task": "chốt phạm vi", "reason": "giữ phạm vi"},
@@ -292,7 +309,19 @@ class TeamCliTest(unittest.TestCase):
             self.assertNotIn("ANTHROPIC_API_KEY", text)
             self.assertIn("đội đi 9router", text)
             self.assertIn("SƠ ĐỒ NHÂN SỰ", text)
-            self.assertEqual(proc.returncode, 4, text)
+            # Không --out: không hỏi cổng ghi (T-10), thoát 0 sau khi đội xong.
+            self.assertEqual(proc.returncode, 0, text)
+            self.assertIn("Không có --out", text)
+
+    def test_khong_out_thi_tach_file_khi_co_out(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            proc = self._team(root, "y\ny\n", "--out", "out")
+            text = proc.stdout.decode("utf-8", "replace")
+            self.assertEqual(proc.returncode, 0, text + proc.stderr.decode("utf-8", "replace"))
+            pages = list((root / "out").rglob("index.html"))
+            self.assertTrue(pages, text)
+            self.assertIn("file bàn giao", text.lower())
 
     def test_so_do_doi_bo_cong_van_phai_qua_cong(self):
         with tempfile.TemporaryDirectory() as tmp:

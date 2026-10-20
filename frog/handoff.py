@@ -279,8 +279,8 @@ def _argv(args: list[str]) -> str:
     return shlex.join(argv)
 
 
-def _key_hint(model: str, provider: str | None = None) -> str:
-    """Một dòng khi thiếu khóa — không đòi đọc code."""
+def _key_hint(model: str, provider: str | None = None, command: str = "giao") -> str:
+    """Một dòng khi thiếu khóa — không đòi đọc code. Gợi ý đúng cờ của lệnh đang chạy."""
     from . import config as C
     from .keys import ENV
     from .providers import provider_for
@@ -291,7 +291,13 @@ def _key_hint(model: str, provider: str | None = None) -> str:
     if env:
         bits.append(f"Hoặc đặt {env}.")
     if name == "anthropic":
-        bits.append("Chỉ có OpenAI: thêm --provider openai --model gpt-5.6-sol --intake-model gpt-5.6-sol.")
+        if command == "team":
+            bits.append("Chỉ có OpenAI: thêm --provider openai --model gpt-5.6-sol.")
+        else:
+            bits.append("Chỉ có OpenAI: thêm --provider openai --model gpt-5.6-sol "
+                        "--intake-model gpt-5.6-sol.")
+    if name != "9router":
+        bits.append("Dùng 9router: đặt NINE_ROUTER_API_KEY rồi thêm --provider 9router.")
     return " ".join(bits)
 
 
