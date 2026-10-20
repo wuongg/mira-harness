@@ -876,13 +876,17 @@ def print_staffing(st: dict, models: dict | None = None) -> None:
     head += f" · code đọc {SIZE_LABEL.get(size.get('code'), '?')}"
     if size.get("signals"):
         head += f" ({', '.join(size['signals'])})"
+    from .roles import DOMAIN_LABEL
     ui.title("SƠ ĐỒ NHÂN SỰ")
+    domain = st.get("domain") or ("web" if st.get("web") else "general")
+    ui.kv("Ngành", DOMAIN_LABEL.get(domain, domain))
     ui.kv("Cỡ đơn", head)
     if st.get("fallback"):
         ui.kv("Fallback", f"3 vai cũ planner, worker, verifier — {st.get('fallback_reason')}")
     backend = st.get("backend") or {}
-    ui.kv("Backend", ("CÓ — " + ", ".join(backend.get("roles") or []) if backend.get("needed")
-                      else "KHÔNG") + f" · {backend.get('reason', '')} ({backend.get('origin', '')})")
+    if domain == "web" or backend.get("needed"):
+        ui.kv("Backend", ("CÓ — " + ", ".join(backend.get("roles") or []) if backend.get("needed")
+                          else "KHÔNG") + f" · {backend.get('reason', '')} ({backend.get('origin', '')})")
     hired, skipped = staffing_rows(st, models)
     print()
     ui.note(f"1) Đã tuyển {len(hired)} vai", "info")
@@ -1117,14 +1121,16 @@ def execute_plan(plan: TeamPlan, *, provider_name: str | None = None,
             _user, policy = _user_of(role, prior, shard)
             system = ROLE_SYSTEM[role]
         primary = model or _model_of(role)
+        allow_failover = failover_on() and model is None
         chain = (failover_chain(primary, provider_name, role=role)
-                 if failover_on() and model is None else [(provider_name or "", primary)])
+                 if allow_failover else [(provider_name or "", primary)])
         if not chain:
             chain = [(provider_name or "", primary)]
         trail: list[dict] = []
         last_err = None
         last_model = primary
         last_prov_name = provider_name or ""
+        last_attempt = 1
         for idx, (pname, mname) in enumerate(chain):
             last_model, last_prov_name = mname, pname
             prov = provider_for(mname, pname or None, base_url=base_url,
@@ -1137,24 +1143,25 @@ def execute_plan(plan: TeamPlan, *, provider_name: str | None = None,
                 if rates is None:
                     last_err = f"model {mname} chưa có giá"
                     trail.append({"provider": pname, "model": mname, "error": last_err})
-                    if failover_on() and idx + 1 < len(chain):
-                        continue
-                    return {"role": role, "model": mname, "shard": shard, "blocked": True,
-                            "error": last_err, "context_policy": policy, "failover": trail}
+                    # --model chưa có giá: chặn, không nhảy sang model khác có giá.
+                    if model_override or not (allow_failover and idx + 1 < len(chain)):
+                        return {"role": role, "model": mname, "shard": shard, "blocked": True,
+                                "error": last_err, "context_policy": policy, "failover": trail}
+                    continue
             if not prov.available():
                 last_err = missing_key_text(prov)
                 trail.append({"provider": pname or prov.name, "model": mname, "error": last_err})
-                if failover_on() and idx + 1 < len(chain):
-                    continue
-                return {"role": role, "model": mname, "shard": shard, "blocked": True,
-                        "error": last_err, "context_policy": policy, "failover": trail}
+                if model_override or not (allow_failover and idx + 1 < len(chain)):
+                    return {"role": role, "model": mname, "shard": shard, "blocked": True,
+                            "error": last_err, "context_policy": policy, "failover": trail}
+                continue
             with lock:
                 if subscription:
                     hold = 0.0
                     if ledger.subscription_calls() >= C.SUBSCRIPTION_CALL_CAP:
                         last_err = (f"chạm trần {C.SUBSCRIPTION_CALL_CAP} lượt gọi gói thuê bao")
                         trail.append({"provider": prov.name, "model": mname, "error": last_err})
-                        if failover_on() and is_failoverable(last_err) and idx + 1 < len(chain):
+                        if allow_failover and is_failoverable(last_err) and idx + 1 < len(chain):
                             continue
                         return {"role": role, "model": mname, "shard": shard, "blocked": True,
                                 "budget": True, "context_policy": policy, "error": last_err,
@@ -1179,14 +1186,15 @@ def execute_plan(plan: TeamPlan, *, provider_name: str | None = None,
                     reserved_id=rid)
             except ProviderError as e:
                 last_err = str(e)
+                last_attempt = getattr(prov, "attempts", 1)
                 trail.append({"provider": prov.name, "model": mname, "error": last_err,
-                              "attempt": getattr(prov, "attempts", 1)})
-                if failover_on() and is_failoverable(e) and idx + 1 < len(chain):
+                              "attempt": last_attempt})
+                if allow_failover and is_failoverable(e) and idx + 1 < len(chain):
                     continue
                 out = {"role": role, "model": mname, "shard": shard, "error": last_err,
                        "request_id": rid, "uncertain": True,
                        "usd": None if subscription else round(hold, 6),
-                       "attempt": getattr(prov, "attempts", 1), "context_policy": policy}
+                       "attempt": last_attempt, "context_policy": policy}
                 if trail:
                     out["failover"] = trail
                 return out
@@ -1204,7 +1212,7 @@ def execute_plan(plan: TeamPlan, *, provider_name: str | None = None,
             return out
         return {"role": role, "model": last_model, "shard": shard,
                 "error": last_err or "hết chuỗi failover", "uncertain": True,
-                "context_policy": policy, "failover": trail}
+                "attempt": last_attempt, "context_policy": policy, "failover": trail}
 
     def _fanout(items: list[tuple[str, str, tuple[int, int] | None]]) -> list[dict]:
         """Chạy nhiều lần gọi SONG SONG; trả về ĐÚNG THỨ TỰ chỉ số."""
@@ -2095,17 +2103,18 @@ def cmd_team(args) -> int:
         plan.roles = list(plan.roles) + ["oracle"]
     display = expand_roles(plan.roles, plan.lane, workers)
     run_id = uuid.uuid4().hex[:12]
-    from .roles import REQUIRED, infer_size, is_web_order, run_order, settle
-    web = is_web_order(args.task)
+    from .roles import REQUIRED, DOMAIN_LABEL, infer_domain, infer_size, run_order, settle
+    domain, _domain_hits = infer_domain(args.task)
+    web = domain == "web"
     role_models = None if args.model else slot_models(args.provider)
     hire = [x for x in (getattr(args, "hire", None) or "").split(",") if x.strip()]
     drop = [x for x in (getattr(args, "drop", None) or "").split(",") if x.strip()]
 
     ui.title("PHÂN VAI")
     ui.kv("Yêu cầu", args.task)
+    ui.kv("Ngành", DOMAIN_LABEL.get(domain, domain))
     ui.kv("Làn", ui.c(str(plan.lane), "cyan", "bold")
-          + ("  (đơn web: vai theo sơ đồ nhân sự; kiểm, cổng và trần do code quyết)" if web
-             else f"  ({len(plan.roles)} vai)"))
+          + "  (tuyển đội theo phân tích đơn → phỏng vấn; kiểm, cổng, trần do code)")
     if plan.lane == 2 and workers > 1:
         ui.kv("Song song", ui.c(f"{workers} worker + {workers} verifier chạy đồng thời", "cyan"))
     if plan.lane == 2 and sub_depth > 0:
@@ -2129,13 +2138,39 @@ def cmd_team(args) -> int:
         return {r["role"]: model_for(r["role"], st, model_override=args.model,
                                      role_models=role_models) for r in st.get("hired") or []}
 
-    if not web:
-        ui.title("Đội sẽ chạy")
-        shown = [[r, model_for(r, None, model_override=args.model, role_models=role_models)]
-                 for r in display]
-        ui.table(["vai", "model"], shown, ["l", "l"])
-        _warn(row[1] for row in shown)
+    def _staff_from_proposal(proposal, *, ledger, model, prov) -> dict:
+        analysis = ""
+        if isinstance(proposal, dict):
+            analysis = str(proposal.get("analysis") or "").strip()
+            if analysis:
+                ui.note("Phân tích đơn: " + analysis, "info")
+            from .recruit import interview_roster
+            from .intake import charged_call as _charged
 
+            def _ask_interview(system: str, user: str) -> str:
+                text, meta = _charged(
+                    ledger, "interviewer", model, prov, system, user,
+                    declared_price=plan.declared_price,
+                    provider_name=args.provider, base_url=args.base_url,
+                    api_key=getattr(args, "api_key", None),
+                    max_tokens=args.max_tokens)
+                if meta.get("blocked") or meta.get("error"):
+                    raise RuntimeError(meta.get("error") or "phỏng vấn bị chặn")
+                return text
+
+            proposal, rejected, iv_notes = interview_roster(
+                args.task, proposal, ask=_ask_interview)
+            for note in iv_notes:
+                ui.note(note, "warn")
+            if rejected:
+                ui.note(f"Phỏng vấn loại {len(rejected)} ứng viên:", "warn")
+                for row in rejected:
+                    print(f"    - {row.get('role')}: {row.get('reason')}")
+            passed_n = len((proposal or {}).get("hired") or [])
+            ui.note(f"Phỏng vấn đạt {passed_n} ứng viên — đưa vào sơ đồ.", "ok")
+        return settle(args.task, proposal, hire=hire, drop=drop)
+
+    # Namespace test thiếu field → "off". CLI argparse để None → mặc định theo làn/web.
     choice = getattr(args, "intake", "off")
     if choice is None:
         choice = "on" if plan.lane >= 1 or web else "off"
@@ -2147,8 +2182,19 @@ def cmd_team(args) -> int:
         if web:
             floor = settle(args.task, {"hired": [{"role": r} for r in REQUIRED[infer_size(args.task)[0]]]},
                            hire=hire, drop=drop)
-            ui.note("sơ đồ dưới đây là mức tối thiểu theo luật cỡ đơn; intake chưa đề xuất", "info")
-            print_staffing(floor, _models(floor))
+            ui.note("sơ đồ dưới đây là mức tối thiểu theo luật web; intake chưa đề xuất", "info")
+        else:
+            floor = settle(args.task, {
+                "domain": domain,
+                "hired": [
+                    {"role": "research_lead", "kind": "manage", "title": "điều phối",
+                     "task": "chốt phạm vi đơn", "reason": "dry-run"},
+                    {"role": "qa_reviewer", "kind": "review", "title": "kiểm",
+                     "task": "kiểm đầu ra", "reason": "dry-run"},
+                ],
+            }, hire=hire, drop=drop)
+            ui.note("dry-run ngành ngoài web: khung tối thiểu (có kiểm); intake sẽ đề cử thật", "info")
+        print_staffing(floor, _models(floor))
         if choice == "on":
             from .intake import canonical_brief
             echo = {
@@ -2187,7 +2233,7 @@ def cmd_team(args) -> int:
             got = run_intake(
                 args.task, prov, intake_ledger,
                 clarify_max=max(0, int(getattr(args, "clarify_max", 3) or 0)),
-                ask=_ask, model=model, declared_price=plan.declared_price, staffing=web)
+                ask=_ask, model=model, declared_price=plan.declared_price, staffing=True)
             if not got["ok"] or got["brief"] is None:
                 ui.note(got["reason"] or "brief hỏng", "bad")
                 return 8
@@ -2196,41 +2242,10 @@ def cmd_team(args) -> int:
             if filled:
                 ui.note("đã điền thay: " + ", ".join(filled), "info")
             from_file = False
-            if web:
-                proposal = got.get("staffing_proposal")
-                analysis = ""
-                if isinstance(proposal, dict):
-                    analysis = str(proposal.get("analysis") or "").strip()
-                    if analysis:
-                        ui.note("Phân tích đơn: " + analysis, "info")
-                    from .recruit import interview_roster
-                    from .intake import charged_call as _charged
-
-                    def _ask_interview(system: str, user: str) -> str:
-                        text, meta = _charged(
-                            intake_ledger, "interviewer", model, prov, system, user,
-                            declared_price=plan.declared_price,
-                            provider_name=args.provider, base_url=args.base_url,
-                            api_key=getattr(args, "api_key", None),
-                            max_tokens=args.max_tokens)
-                        if meta.get("blocked") or meta.get("error"):
-                            raise RuntimeError(meta.get("error") or "phỏng vấn bị chặn")
-                        return text
-
-                    proposal, rejected, iv_notes = interview_roster(
-                        args.task, proposal, ask=_ask_interview)
-                    for note in iv_notes:
-                        ui.note(note, "warn")
-                    if rejected:
-                        ui.note(f"Phỏng vấn loại {len(rejected)} ứng viên:", "warn")
-                        for row in rejected:
-                            print(f"    - {row.get('role')}: {row.get('reason')}")
-                    passed_n = len((proposal or {}).get("hired") or [])
-                    ui.note(f"Phỏng vấn đạt {passed_n} ứng viên — đưa vào sơ đồ.", "ok")
-                obj["staffing"] = settle(args.task, proposal, hire=hire, drop=drop)
-        if web and "staffing" not in obj:
-            obj["staffing"] = settle(args.task, None, hire=hire, drop=drop)
-        st = obj.get("staffing")
+            obj["staffing"] = _staff_from_proposal(
+                got.get("staffing_proposal"), ledger=intake_ledger, model=model, prov=prov)
+        # Brief có sẵn: không ép settle fallback (đơn code/sửa file thường không có sơ đồ).
+        st = obj.get("staffing") if isinstance(obj.get("staffing"), dict) else None
         if st is not None:
             print_staffing(st, _models(st))
             _warn(_models(st).values())
@@ -2268,10 +2283,11 @@ def cmd_team(args) -> int:
                 return 8
             plan.role_prompts = prompts
     elif web and not getattr(args, "brief", None):
+        # Intake tắt nhưng đơn web: vẫn cần sơ đồ tối thiểu / --hire.
         st = settle(args.task, None, hire=hire, drop=drop)
         print_staffing(st, _models(st))
         if st.get("errors"):
-            ui.note("intake tắt nên không có đề xuất sơ đồ. Thêm vai bằng --hire.", "bad")
+            ui.note("intake tắt nên không có đề xuất sơ đồ. Bật --intake on hoặc thêm --hire.", "bad")
             return 8
         try:
             ans = input(ui.c("\n  Duyệt sơ đồ nhân sự này? [y/N] ", "bold")).strip().lower()
@@ -2282,6 +2298,12 @@ def cmd_team(args) -> int:
             return 8
         plan.staffing = st
         plan.roles = run_order(st)
+    elif choice == "off" and not web:
+        ui.title("Đội sẽ chạy")
+        shown = [[r, model_for(r, None, model_override=args.model, role_models=role_models)]
+                 for r in display]
+        ui.table(["vai", "model"], shown, ["l", "l"])
+        _warn(row[1] for row in shown)
     if getattr(args, "brief", None) and not getattr(plan, "brief", None):
         from .intake import brief_hash, load_brief_file
         obj, why = load_brief_file(Path(args.brief))

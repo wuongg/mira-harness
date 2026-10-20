@@ -4,7 +4,7 @@
 
 ### Added
 
-- Tuyển đội theo đơn: intake **phân tích rồi đề cử** (trong/ngoài danh mục, không trần 4 nghề); mỗi ứng viên **phỏng vấn PASS/FAIL** mới vào sơ đồ. Trần 24 chỉ chống bùng nổ quota. Thiếu khung web thì code bổ sung vai bắt buộc.
+- Tuyển đội như **công ty đa nghề**: mọi đơn (web hay không) đều phân tích → đề cử → phỏng vấn. Luật vai bắt buộc kiểu frontend chỉ khi ngành là web; ngành khác chỉ giữ tối thiểu có người kiểm. Domain: web/research/legal/data/content/ops/education/general.
 - **Failover** model/nhà cung cấp khi lỗi chết/hết hạn mức (429/5xx/402/empty turn/…): thử tối đa 3 chỗ đã có khóa. Tắt bằng `FROG_NO_FAILOVER=1`.
 - Provider `9router` (`--provider 9router`, model `cu/...` tự đi 9router). Khóa `NINE_ROUTER_API_KEY`, địa chỉ `NINE_ROUTER_BASE_URL` hoặc `--base-url`, mặc định `http://localhost:20120`.
 - Lượt gọi qua 9router ghi sổ `uncertain (subscription quota)`: không $/token, không $0. Trần riêng 40 lượt gói thuê bao mỗi cây run.
@@ -20,6 +20,7 @@
 
 ### Changed
 
+- Mặc định `--intake`: CLI để trống thì bật khi làn ≥1 hoặc đơn web; test/Namespace thiếu cờ thì tắt. Đơn ngoài web thiếu đề xuất sơ đồ dùng fallback có kiểm (cảnh báo), không chặn duyệt brief. `--model` chưa có giá thì chặn, không failover sang model khác.
 - Phản hồi SSE không kèm usage ghi uncertain thay vì $0. Sự kiện lỗi trong SSE thành lỗi rõ.
 - Bỏ biến `FROG_PRICE` dùng chung cho mọi model. Giá vẫn theo `--price-in`, `prices.toml`, `FROG_PRICE_<MODEL>`.
 - `frog team` không hỏi cổng ghi khi thiếu `--out`; tách khối ` ```ngôn đường/dẫn ` ra `files/` khi có `--out`; brief in dạng mục; Ctrl+C gợi ý `--resume`; gõ sai lệnh/cờ gợi ý gần nhất.

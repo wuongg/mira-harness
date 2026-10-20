@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import io
 import json
+import os
 import random
 import unittest
 import urllib.error
@@ -104,7 +105,8 @@ class RetryTest(unittest.TestCase):
 
         charged = []
         seen["n"] = 0
-        with patch("frog.providers.urllib.request.urlopen", fake_open), \
+        with patch.dict(os.environ, {"FROG_NO_FAILOVER": "1"}), \
+                patch("frog.providers.urllib.request.urlopen", fake_open), \
                 patch("frog.providers.time.sleep", lambda _s: None), \
                 patch.object(Ledger, "charge", lambda *a, **k: charged.append(1)):
             res = team.execute_plan(
