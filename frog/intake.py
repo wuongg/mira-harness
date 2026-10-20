@@ -76,8 +76,13 @@ def validate_brief(obj) -> tuple[bool, str]:
         return False, "brief không phải object"
     if FORBIDDEN & set(obj):
         return False, "brief chứa khóa cổng"
-    if set(obj) != set(BRIEF_KEYS):
+    if set(obj) - {"staffing"} != set(BRIEF_KEYS):
         return False, "brief thiếu khóa hoặc có khóa lạ"
+    if "staffing" in obj:
+        from .roles import validate_settled
+        bad = validate_settled(obj["staffing"])
+        if bad:
+            return False, "sơ đồ nhân sự hỏng: " + bad[0]
     if not isinstance(obj["goal"], str) or not obj["goal"].strip():
         return False, "brief thiếu goal"
     if not _string_list(obj["deliverables"], allow_empty=True):
@@ -594,11 +599,21 @@ def contain_brief(brief, task: str = "") -> str:
 
 def charged_call(ledger: Ledger, role: str, model: str, prov, system: str, user: str,
                  *, declared_price: tuple[float, float] | None = None):
-    """Cùng cửa giá với đội. Không có giá thì không gọi model."""
+    """Cùng cửa giá với đội. Không có giá thì không gọi model.
+
+    Gói thuê bao không có $/token: không cần giá, sổ ghi uncertain, có trần lượt gọi.
+    """
+    from . import config as C
     from .prices import resolve_price
-    rates, source = resolve_price(model, declared_price)
-    if rates is None:
-        return "", {"blocked": True, "error": f"model {model} chưa có giá"}
+    if getattr(prov, "billing", "") == "subscription":
+        if ledger.subscription_calls() >= C.SUBSCRIPTION_CALL_CAP:
+            return "", {"blocked": True,
+                        "error": f"chạm trần {C.SUBSCRIPTION_CALL_CAP} lượt gọi gói thuê bao"}
+        rates, source = None, "subscription"
+    else:
+        rates, source = resolve_price(model, declared_price)
+        if rates is None:
+            return "", {"blocked": True, "error": f"model {model} chưa có giá"}
     from .providers import ProviderError
     max_out = int(getattr(prov, "max_tokens", None) or 4096)
     try:
@@ -627,15 +642,35 @@ def _intake_user(task: str, files: list[str] | None, extra: str = "") -> str:
 def run_intake(task: str, prov, ledger: Ledger, *, clarify_max: int, ask, model: str,
                declared_price: tuple[float, float] | None = None,
                files: list[str] | None = None,
-               originals: dict[str, str] | None = None) -> dict:
-    """Hỏi cho đến khi schema đủ hoặc hết trần. Hết trần mà schema hỏng thì dừng."""
+               originals: dict[str, str] | None = None,
+               staffing: bool = False) -> dict:
+    """Hỏi cho đến khi schema đủ hoặc hết trần. Hết trần mà schema hỏng thì dừng.
+
+    `staffing` nhúng danh mục vai vào prompt. Đề xuất sơ đồ được tách khỏi brief trước khi
+    kiểm schema và trả riêng ở `staffing_proposal`; code mới quyết sơ đồ cuối.
+    """
+    holder: dict = {}
+    system = INTAKE_SYSTEM
+    if staffing:
+        from .roles import staffing_prompt
+        system = INTAKE_SYSTEM + "\n\n" + staffing_prompt()
+    got = _run_intake(task, prov, ledger, clarify_max=clarify_max, ask=ask, model=model,
+                      declared_price=declared_price, files=files, originals=originals,
+                      system=system, holder=holder)
+    if staffing:
+        got["staffing_proposal"] = holder.get("staffing")
+    return got
+
+
+def _run_intake(task: str, prov, ledger: Ledger, *, clarify_max: int, ask, model: str,
+                declared_price, files, originals, system: str, holder: dict) -> dict:
     user = _intake_user(task, files)
     asked = 0
     schema_repairs = 0
     file_repairs = 0
     filled: list[str] = []
     while True:
-        text, meta = charged_call(ledger, "intake", model, prov, INTAKE_SYSTEM, user,
+        text, meta = charged_call(ledger, "intake", model, prov, system, user,
                                   declared_price=declared_price)
         if meta.get("blocked"):
             return {"ok": False, "reason": meta["error"], "brief": None, "asked": asked,
@@ -654,6 +689,8 @@ def run_intake(task: str, prov, ledger: Ledger, *, clarify_max: int, ask, model:
                 continue
             return {"ok": False, "reason": "intake không trả JSON", "brief": None,
                     "asked": asked, "normalization": filled}
+        if "staffing" in obj:
+            holder["staffing"] = obj.pop("staffing")
         filled.extend(role for role in normalize_role_hints(obj) if role not in filled)
         fault = _accept_outcomes(obj, force_manual=False)
         if fault:

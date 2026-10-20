@@ -9,6 +9,7 @@ Slash command: /help /mode /model /team /tools /cost /clear /save /sessions /res
 from __future__ import annotations
 
 import json
+import os
 import re
 import sys
 import time
@@ -533,10 +534,25 @@ def repl(args) -> int:
             mode = "default"
     session = Session(root=root, mode=mode, approve=_ask_approval)
     session.trace.extend(loaded)
-    from .providers import agent_binding
-    model, args.provider = agent_binding(args.model or C.ROLE_MODEL["worker"], getattr(args, "provider", None))
+    from .providers import agent_binding, choose_proxy_model, list_proxy_models, official_openrouter
+    base = getattr(args, "base_url", None) or os.environ.get("FROG_BASE_URL")
+    args.base_url = base
+    explicit = getattr(args, "model", None)
+    if base and not official_openrouter(base) and explicit in (None, "", C.OPENROUTER_MODEL):
+        from .keys import resolve
+        ids = list_proxy_models(base, resolve("openrouter")[0])
+        picked = choose_proxy_model(ids)
+        if picked:
+            explicit = picked
+            ui.note(f"Model: {picked}.", "ok")
+        else:
+            ui.note("Proxy không trả model nào. Không gửi slug Anthropic.", "bad")
+            return 2
+    model, args.provider = agent_binding(
+        explicit or C.ROLE_MODEL["worker"], getattr(args, "provider", None), base)
     team_mode = bool(args.team)
     cost_total = 0.0
+    quota_turns = 0
     tok_total = {"in": 0, "out": 0}
     turns = 0
 
@@ -678,13 +694,15 @@ def repl(args) -> int:
         # ------------------------------------------------------- một lượt
         t0 = time.time()
         if team_mode:
-            _team_turn(line, session)
+            _team_turn(line, session, args)
             print(ui.c(f"  {time.time() - t0:.1f}s", "dim"))
         else:
             from .providers import agent_binding
             model, args.provider = agent_binding(model, getattr(args, "provider", None))
             r = _one_turn(line, session, model, args, history, events, team_mode)
             if r:
+                if r.get("billing") == "subscription":
+                    quota_turns += 1
                 cost_total += r.get("costUsd") or 0.0
                 tok_total["in"] += r["usage"]["in"]
                 tok_total["out"] += r["usage"]["out"]
@@ -693,7 +711,8 @@ def repl(args) -> int:
                     meta["first_task"] = line
                 _status_line(model, r.get("turns", 0), r.get("usage") or {"in": 0, "out": 0},
                              r.get("costUsd"), time.time() - t0, cost_total,
-                             (r.get("toolSummary") or {}).get("calls", 0))
+                             (r.get("toolSummary") or {}).get("calls", 0),
+                             quota_turns=quota_turns)
             else:
                 print(ui.c(f"  {time.time() - t0:.1f}s", "dim"))
 
@@ -717,6 +736,7 @@ def _one_turn(task: str, session: Session, model: str, args, history, events, te
     res = run_turn(task=task, session=session, model=model,
                    provider_name=args.provider, base_url=args.base_url,
                    max_tokens=args.max_tokens, history=view,
+                   price_in=_declared_price(args),
                    protocol=getattr(args, "protocol", "auto"),
                    no_stream=getattr(args, "no_stream", False),
                    max_turns=getattr(args, "max_turns", 0) or None,
@@ -746,18 +766,44 @@ def _one_turn(task: str, session: Session, model: str, args, history, events, te
     return res
 
 
-def _team_turn(task: str, session: Session) -> None:
-    """Định tuyến theo làn của SPEC rồi chạy đội nhiều vai."""
-    from .team import build_plan, execute_plan
+def _team_turn(task: str, session: Session, args) -> None:
+    """Định tuyến theo làn của SPEC rồi chạy đội nhiều vai.
+
+    Đơn web trong phiên dùng sơ đồ tối thiểu theo luật cỡ đơn; phiên không qua intake.
+    """
+    from .roles import REQUIRED, infer_size, is_web_order, run_order, settle
+    from .team import build_plan, execute_plan, model_for, print_staffing, slot_models
     hints = dict(surface="write_sandbox" if session.mode in ("default", "acceptEdits") else "read_only",
                  labels=["internal"], records=100, dollars=0.0)
     plan = build_plan(task, **hints)
-    ui.table(["vai", "model"], [[r, C.ROLE_MODEL.get(r, "?")] for r in plan.roles], ["l", "l"])
+    provider = getattr(args, "provider", None)
+    role_models = slot_models(provider)
+    if is_web_order(task):
+        st = settle(task, {"hired": [{"role": r} for r in REQUIRED[infer_size(task)[0]]]})
+        print_staffing(st, {r["role"]: model_for(r["role"], st, role_models=role_models)
+                            for r in st["hired"]})
+        try:
+            ans = input(ui.c("\n  Duyệt sơ đồ nhân sự này? [y/N] ", "bold")).strip().lower()
+        except (EOFError, KeyboardInterrupt):
+            ans = "n"
+        if ans not in ("y", "yes", "có", "co"):
+            ui.note("chưa duyệt sơ đồ — không chạy đội.", "warn")
+            return
+        plan.staffing = st
+        plan.roles = run_order(st)
+    else:
+        ui.table(["vai", "model"], [[r, model_for(r, None, role_models=role_models)]
+                                    for r in plan.roles], ["l", "l"])
     ui.kv("làn", f"{plan.lane} · sàn {plan.floor} · cổng tầng {plan.gate_tier}")
     if plan.gate_tier >= 3:
         ui.note("Việc này cần hai người duyệt.", "warn")
-    res = execute_plan(plan, provider_name=None,
+    res = execute_plan(plan, provider_name=provider, base_url=getattr(args, "base_url", None),
+                       role_models=role_models, root=session.root,
                        on_step=lambda m: print("  " + m))
+    called = [s for s in (res.get("steps") or []) if s and not s.get("budget") and s.get("model")]
+    if called:
+        from .team import checkpoint_path
+        ui.note(f"Trace: {checkpoint_path(session.root, res['id'])}", "info")
     if res["status"] not in ("ok",):
         _err_note(res.get("fail_reason") or "")
     ui.note(f"Trạng thái: {res['status']}" + (f". {res['fail_reason']}" if res["fail_reason"] else ""),
@@ -772,18 +818,40 @@ def _tok(n: int) -> str:
     return str(n)
 
 
-def _status_line(model, turns, tok, turn_cost, dt, session_cost, calls=0) -> None:
+def _status_line(model, turns, tok, turn_cost, dt, session_cost, calls=0,
+                 quota_turns: int = 0) -> None:
     """Dòng trạng thái in dưới mỗi lượt agent — kiểu Claude Code CLI."""
+    from .providers import SUBSCRIPTION_NOTE, billing_of
     w = min(ui.term_width(), 72)
     print(ui.c("  " + "─" * (w - 2), "faint"))
     seg = [ui.c(model, "accent", "bold"), f"{turns} lượt",
            f"{_tok(tok['in'])} vào  {_tok(tok['out'])} ra"]
     if calls:
         seg.append(f"{calls} công cụ")
-    seg.append(f"${turn_cost:.4f}" if turn_cost is not None else "chưa có giá")
+    quota = billing_of(model) == "subscription"
+    if turn_cost is not None:
+        seg.append(f"${turn_cost:.4f}")
+    else:
+        seg.append(SUBSCRIPTION_NOTE if quota else "chưa có giá")
     seg.append(f"{dt:.1f}s")
-    seg.append(ui.c(f"phiên ${session_cost:.4f}", "bright", "bold"))
+    if quota_turns and not session_cost:
+        seg.append(ui.c(f"phiên {SUBSCRIPTION_NOTE} · {quota_turns} lượt", "bright", "bold"))
+    else:
+        seg.append(ui.c(f"phiên ${session_cost:.4f}", "bright", "bold"))
     print("  " + ui.c(" · ", "faint").join(seg))
+
+
+def _declared_price(args) -> tuple[float, float] | None:
+    raw = getattr(args, "price_in", None)
+    if not raw:
+        return None
+    left, sep, right = str(raw).partition(",")
+    if not sep:
+        return None
+    try:
+        return float(left), float(right)
+    except ValueError:
+        return None
 
 
 def _err_note(err: str) -> None:
@@ -798,7 +866,7 @@ def _err_note(err: str) -> None:
         ui.note("Số dư OpenRouter không đủ cho trần token của lượt này.", "bad")
         ui.note("Nạp thêm credit tại openrouter.ai, hoặc thoát rồi vào frog lại.", "info")
     else:
-        ui.note(f"Lỗi: {err}", "bad")
+        ui.note(err, "bad")
 
 
 def _print_cost(cost: float, tok: dict, turns: int, model: str) -> None:

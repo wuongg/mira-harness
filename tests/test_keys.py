@@ -51,7 +51,8 @@ class KeysTest(unittest.TestCase):
 
     def test_status_rows_shape(self):
         rows = keys.status_rows()
-        self.assertEqual(len(rows), 7)
+        self.assertEqual(len(rows), 8)
+        self.assertIn("9router", [r[0] for r in rows])
         self.assertTrue(all(len(r) == 5 for r in rows))
 
 

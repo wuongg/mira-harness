@@ -71,6 +71,25 @@ class OpenTest(unittest.TestCase):
         self.assertEqual(cli._pick_model(), "grok-4.7")
         self._set_keys({"anthropic"})
         self.assertEqual(cli._pick_model(), "sonnet-5.5")
+        self._set_keys({"openrouter"})
+        model, prov = agent_binding("sonnet-5.5", None, "http://localhost:20128")
+        self.assertEqual(prov, "openrouter")
+        self.assertEqual(model, "sonnet-5.5")
+        from frog.providers import choose_proxy_model
+        self.assertEqual(choose_proxy_model(["cu/claude-4.5-sonnet", "cu/default"]), "cu/default")
+        from frog.team import model_for, slot_models
+        routed = slot_models("9router")
+        self.assertEqual(model_for("worker", None, role_models=routed), "cu/gpt-5.6-sol-high")
+        self.assertEqual(model_for("verifier", None, role_models=routed),
+                         "cu/claude-opus-5-thinking-high")
+        self.assertIsNone(slot_models("anthropic"))
+        from frog.providers import ProviderError, decode_completion
+        body = 'data: {"error":{"message":"Cursor AgentService returned an empty turn","type":"api_error"}}\n\ndata: [DONE]\n\n'
+        with self.assertRaises(ProviderError) as caught:
+            decode_completion(body)
+        self.assertIn("empty turn", str(caught.exception))
+        done = decode_completion('data: {"choices":[{"delta":{"content":"chào"}}]}\n\ndata: [DONE]\n')
+        self.assertEqual(done["choices"][0]["message"]["content"], "chào")
 
     def test_menu_subcommand_exists(self):
         p = cli.build_parser()

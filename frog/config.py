@@ -48,6 +48,8 @@ BUDGET = {
 }
 SESSION_CAP = 20.0
 DAY_CAP = 60.0
+# Gói thuê bao không có $/token nên trần USD không chặn được. Trần này đếm lượt gọi của cả cây.
+SUBSCRIPTION_CALL_CAP = 40
 
 # Model không có trong bảng vẫn bị chặn. Hằng số này không phải một bậc giá.
 UNKNOWN_PRICE = {"in": 5.00, "out": 15.00, "cache_write": 6.25, "cache_read": 0.50}
@@ -83,6 +85,14 @@ ROLE_MODEL = {
 
 # Model phiên `frog` khi có khoá OpenRouter. Đổi trong phiên bằng /model.
 OPENROUTER_MODEL = "anthropic/claude-sonnet-4.5"
+
+# Đi 9router: người làm và người kiểm khác họ model.
+NINE_ROUTER_ROLE_MODEL = {
+    "planner": "cu/gpt-5.6-sol-high",
+    "worker": "cu/gpt-5.6-sol-high",
+    "verifier": "cu/claude-opus-5-thinking-high",
+    "intake": "cu/gpt-5.6-sol-high",
+}
 
 LANE_MAX = 2   # chỉ có 3 làn. Sàn = 3 KHÔNG tạo làn mới; nó đẩy cổng người
                # lên tầng cao nhất + bắt buộc 2 người duyệt (xem human_gate).

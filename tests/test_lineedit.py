@@ -63,6 +63,15 @@ class GhostTest(unittest.TestCase):
         finally:
             sys.stdin = old
 
+    def test_rewind_len_qua_be_ngang(self):
+        self.assertEqual(L.rewind_prefix(0, 40), "\r")
+        self.assertEqual(L.rewind_prefix(25, 10), "\x1b[2A\r")
+        self.assertEqual(L.rewind_prefix(10, 10), "\x1b[1A\r")
+
+    def test_place_sau_ghost_xuong_hang(self):
+        self.assertEqual(L.place_after_typed(25, 28, 10), "\r\x1b[5C")
+        self.assertEqual(L.place_after_typed(8, 13, 10), "\x1b[1A\r\x1b[8C")
+
 
 if __name__ == "__main__":
     unittest.main()

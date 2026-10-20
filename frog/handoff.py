@@ -279,6 +279,37 @@ def _argv(args: list[str]) -> str:
     return shlex.join(argv)
 
 
+def _key_hint(model: str, provider: str | None = None, command: str = "giao") -> str:
+    """Một dòng khi thiếu khóa — không đòi đọc code. Gợi ý đúng cờ của lệnh đang chạy."""
+    from . import config as C
+    from .keys import ENV
+    from .providers import provider_for
+    name = provider or C.VENDOR.get(model) or provider_for(model, api_key="").name
+    env = ENV.get(name, "")
+    bits = [f"thiếu khóa cho intake (model {model}, nhà {name})."]
+    bits.append("Gõ frog keys set --provider " + name + ".")
+    if env:
+        bits.append(f"Hoặc đặt {env}.")
+    if name == "anthropic":
+        if command == "team":
+            bits.append("Chỉ có OpenAI: thêm --provider openai --model gpt-5.6-sol.")
+        else:
+            bits.append("Chỉ có OpenAI: thêm --provider openai --model gpt-5.6-sol "
+                        "--intake-model gpt-5.6-sol.")
+    if name != "9router":
+        bits.append("Dùng 9router: đặt NINE_ROUTER_API_KEY rồi thêm --provider 9router.")
+    return " ".join(bits)
+
+
+def _friendly_fail(reason: str, model: str = "") -> str:
+    low = (reason or "").lower()
+    if any(s in low for s in ("401", "403", "invalid x-api-key", "authentication", "invalid_api_key")):
+        return (f"Khóa API không dùng được cho {model or 'model này'}. "
+                "Gõ frog keys set, hoặc bỏ biến môi trường khóa cũ, rồi chạy lại. "
+                f"Chi tiết: {reason[:160]}")
+    return reason
+
+
 def classify(raw) -> str:
     parsed, _why = validate_criteria([raw])
     if not parsed:
@@ -333,13 +364,11 @@ def preview(brief: dict, run_id: str, filled: list[str] | None = None) -> str:
     if filled:
         lines.append("đã điền thay: " + ", ".join(filled))
     lines.append("Hash phát hiện phiếu đổi, không chống người sửa trực tiếp file.")
-    if commands:
-        grant_bits = ["--run", run_id]
-        for cmd in commands:
-            grant_bits.extend(["--grant", cmd])
-        lines.append("Bước tiếp: " + _argv(grant_bits))
-    else:
-        lines.append("Bước tiếp: " + _argv(["--run", run_id]))
+    next_bits = ["--run", run_id, "--approve-brief"]
+    for cmd in commands:
+        next_bits.extend(["--grant", cmd])
+    lines.append("Bước tiếp: " + _argv(next_bits))
+    lines.append("Sau duyệt, chạy tiếp: " + _argv(["--run", run_id]))
     for item in brief.get("acceptance_criteria") or []:
         if classify(item) != "human":
             continue
@@ -613,8 +642,11 @@ def _active_grants(state: dict) -> set[str]:
 def _blocked(state: dict) -> tuple[list[dict], str, int] | None:
     if _approval_current(state):
         return None
-    text = ("duyệt cũ hết hiệu lực vì phiếu đã đổi" if state.get("approved")
-            else "chưa duyệt phiếu — không chạy")
+    if state.get("approved"):
+        text = "duyệt cũ hết hiệu lực vì phiếu đã đổi"
+    else:
+        text = ("chưa duyệt phiếu — không chạy\n"
+                + "Duyệt: " + _argv(["--run", state["id"], "--approve-brief"]))
     return [], text, 8
 
 
@@ -777,8 +809,8 @@ def _phase_line(state: dict) -> str:
 
 
 def _cost_line(state: dict) -> str:
-    usd = float(state["ledger"].get("total_usd") or 0)
-    return f"chi phí tích lũy: ${usd:.6f}"
+    from .team import cost_text
+    return "chi phí tích lũy: " + cost_text(state["ledger"])
 
 
 def _make_plan(state: dict, price):
@@ -1415,8 +1447,11 @@ def cmd_giao(args) -> int:
                 else:
                     state = _load(root, run_id)
                     if not _approval_current(state):
-                        print("chưa duyệt phiếu — không chạy" if not state.get("approved")
-                              else "duyệt cũ hết hiệu lực vì phiếu đã đổi")
+                        if state.get("approved"):
+                            print("duyệt cũ hết hiệu lực vì phiếu đã đổi")
+                        else:
+                            print("chưa duyệt phiếu — không chạy")
+                            print("Duyệt: " + _argv(["--run", run_id, "--approve-brief"]))
                         return 8
                 if getattr(args, "autonomy", None):
                     _chosen, note = apply_autonomy(root, run_id, args.autonomy)
@@ -1473,11 +1508,12 @@ def cmd_giao(args) -> int:
         prov = provider_for(intake_model, args.provider, base_url=args.base_url,
                             max_tokens=args.max_tokens)
         if not prov.available():
-            print("thiếu key cho intake")
+            print(_key_hint(intake_model, getattr(args, "provider", None)))
             return 8
         files = workspace_files(root)
         intake_price = _price(getattr(args, "price_in", None))
-        if intake_model != model:
+        from .providers import billing_of
+        if intake_model != model and billing_of(intake_model, args.provider) != "subscription":
             from .prices import resolve_price
             rates, _source = resolve_price(intake_model, None)
             if rates is None:
@@ -1497,7 +1533,7 @@ def cmd_giao(args) -> int:
             "ledger": _ledger_blob(led),
             "steps": [],
         }, ensure_ascii=False), encoding="utf-8")
-        print(got["reason"] or "brief hỏng")
+        print(_friendly_fail(got["reason"] or "brief hỏng", intake_model))
         return 8
     state = open_run(root, task, got["brief"], previous=getattr(args, "previous", None),
                      ledger=_ledger_blob(led))

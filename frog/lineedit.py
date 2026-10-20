@@ -130,15 +130,45 @@ def _visible_len(prompt: str, buf: str, gh: str) -> int:
     return len(strip(prompt)) + len(buf) + len(gh)
 
 
+def rewind_prefix(typed: int, width: int) -> str:
+    """Từ chỗ con trỏ, ngay sau phần đã gõ, về đầu dòng prompt."""
+    width = width if width > 0 else 1
+    row = typed // width
+    if row <= 0:
+        return "\r"
+    return f"\x1b[{row}A\r"
+
+
+def place_after_typed(typed: int, total: int, width: int) -> str:
+    """Sau khi in hết `total` cột, đặt con trỏ ngay sau `typed` cột."""
+    width = width if width > 0 else 1
+    end_row, _end_col = divmod(total, width)
+    row, col = divmod(typed, width)
+    out = f"\x1b[{end_row - row}A" if end_row > row else ""
+    out += "\r"
+    if col:
+        out += f"\x1b[{col}C"
+    return out
+
+
 def _draw(prompt: str, buf: str, gh: str, drawn: list, dim: str, reset: str) -> None:
-    """Vẽ lại dòng: prompt + phần gõ + ghost mờ; con trỏ đặt ngay sau phần gõ."""
-    vis = _visible_len(prompt, buf, gh)
-    pad = " " * max(0, drawn[0] - vis)
+    """Vẽ lại cả đoạn đã xuống hàng. Con trỏ đặt ngay sau phần gõ."""
+    from . import ui
+    width = max(1, ui.term_width())
+    typed = _visible_len(prompt, buf, "")
+    sys.stdout.write(rewind_prefix(drawn[0], width))
+    sys.stdout.write("\x1b[J")
     tail = (dim + gh + reset) if gh else ""
-    sys.stdout.write("\r" + prompt + buf + tail + pad)
-    sys.stdout.write("\r" + prompt + buf)      # con trỏ về ngay sau phần gõ
+    sys.stdout.write(prompt + buf + tail)
+    if gh:
+        sys.stdout.write(place_after_typed(typed, typed + len(gh), width))
     sys.stdout.flush()
-    drawn[0] = vis
+    drawn[0] = typed
+
+
+def _finish_line() -> None:
+    sys.stdout.write("\x1b[J\n")
+    sys.stdout.flush()
 
 
 def _console_keys():
@@ -218,10 +248,10 @@ def _read_windows(prompt: str, history: list[str]) -> str:
             if _console_pending():
                 buf += "\n"
             else:
-                sys.stdout.write("\n")
+                _finish_line()
                 return buf
         elif action == "interrupt":
-            sys.stdout.write("\n")
+            _finish_line()
             raise KeyboardInterrupt
         if action == "eof":
             if not buf:
@@ -247,10 +277,10 @@ def _read_posix(prompt: str, history: list[str]) -> str:
         while True:
             c = sys.stdin.read(1)
             if c in ("\r", "\n"):
-                sys.stdout.write("\n")
+                _finish_line()
                 return buf
             if c == "\x03":
-                sys.stdout.write("\n")
+                _finish_line()
                 raise KeyboardInterrupt
             if c == "\x04":
                 if not buf:

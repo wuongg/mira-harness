@@ -92,8 +92,20 @@ def resolve_price(model: str, declared: tuple[float, float] | None = None,
     if row:
         return dict(row), "file"
     raw = env.get(env_name(model)) or env.get(legacy_env_name(model))
-    if raw:
-        left, _sep, right = str(raw).partition(",")
-        if left and right:
-            return {"in": float(left), "out": float(right)}, "env"
+    pair = _env_pair(raw)
+    if pair is not None:
+        return {"in": pair[0], "out": pair[1]}, "env"
     return None, ""
+
+
+def _env_pair(raw: str | None) -> tuple[float, float] | None:
+    """`vào,ra` là số. Chữ không phải số thì không có giá, không làm vỡ phiên."""
+    if not raw:
+        return None
+    left, sep, right = str(raw).partition(",")
+    if not sep or not left.strip() or not right.strip():
+        return None
+    try:
+        return float(left), float(right)
+    except ValueError:
+        return None

@@ -19,6 +19,7 @@ import os
 import random
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 from . import config as C
@@ -404,9 +405,79 @@ def cmd_doctor(args) -> int:
         ui.note("unittest sẵn sàng (dùng cho `selftest`)", "ok")
     except Exception:
         ui.note("không chạy được unittest — `selftest` sẽ không hoạt động", "warn")
+    smoke_ok = _doctor_9router(getattr(args, "base_url", None),
+                               show_all=getattr(args, "models", False),
+                               smoke=getattr(args, "smoke", None))
+    from .keys import ENV, resolve
+    usable = [name for name in ("anthropic", "openai", "openrouter", "xai", "9router")
+              if name in ENV and resolve(name)[0]]
+    if usable:
+        ui.note("nhà cung cấp có khóa: " + ", ".join(usable), "ok")
+    else:
+        ui.note("chưa có khóa nhà cung cấp nào: gõ frog keys set, hoặc đặt NINE_ROUTER_API_KEY "
+                "nếu dùng 9router", "warn")
     print()
-    ui.note("môi trường OK" if ok else "có vấn đề ở trên", "ok" if ok else "bad")
+    if ok and not usable:
+        ui.note("môi trường OK, nhưng chưa gọi được model nào", "warn")
+    else:
+        ui.note("môi trường OK" if ok else "có vấn đề ở trên", "ok" if ok else "bad")
+    if smoke_ok is False:
+        return 1
     return 0 if ok else 1
+
+
+def _doctor_9router(base_url: str | None, *, show_all: bool = False,
+                    smoke: str | None = None) -> bool | None:
+    """Kiểm 9router bằng cách liệt kê model. Không có 9router thì chỉ báo, không làm hỏng doctor."""
+    from .keys import resolve
+    from .providers import (SUBSCRIPTION_NOTE, NineRouterProvider, ProviderError,
+                            flag_warning, model_flags, probe_models)
+    base = (base_url or os.environ.get(NineRouterProvider.base_env)
+            or NineRouterProvider.default_base)
+    key, src = resolve("9router")
+    ui.note(f"NINE_ROUTER_API_KEY: {'có (' + src + ')' if key else 'chưa có'}",
+            "ok" if key else "info")
+    ids, why = probe_models(base, key)
+    if not ids:
+        hint = ""
+        if base == NineRouterProvider.default_base:
+            hint = (" 9router tự chạy ở cổng 20128 nếu chưa đổi: thử "
+                    "--base-url http://localhost:20128.")
+        ui.note(f"9router: {why}. Bỏ qua nếu không dùng 9router; địa chỉ khác thì đặt "
+                f"{NineRouterProvider.base_env} hoặc --base-url.{hint}", "info")
+        return False if smoke else None
+    flagged = [m for m in ids if model_flags(m)]
+    ui.note(f"9router: {len(ids)} model tại {base}"
+            + (f" · {len(flagged)} model no_zdr" if flagged else ""), "ok")
+    for model in (ids if show_all else ids[:5]):
+        mark = "  [no_zdr]" if model_flags(model) else ""
+        print(f"    {model}{mark}")
+    if not show_all and len(ids) > 5:
+        print(f"    … còn {len(ids) - 5} model (frog doctor --models)")
+    if not smoke:
+        return None
+    if smoke not in ids:
+        from .providers import unknown_model_message
+        ui.note(unknown_model_message(smoke, ids), "bad")
+        return False
+    warn = flag_warning(smoke)
+    if warn:
+        ui.note(warn, "warn")
+    prov = NineRouterProvider(smoke, base_url=base, max_tokens=64)
+    if not prov.available():
+        from .providers import missing_key_text
+        ui.note(missing_key_text(prov), "bad")
+        return False
+    t0 = time.time()
+    try:
+        text, _usage = prov.call("Trả lời đúng một chữ: OK", "ping")
+    except ProviderError as exc:
+        ui.note(f"smoke {smoke}: {exc}", "bad")
+        return False
+    reply = " ".join((text or "").split())[:80]
+    ui.note(f"smoke {smoke}: {time.time() - t0:.1f}s · trả '{reply}' · {SUBSCRIPTION_NOTE}",
+            "ok" if reply else "bad")
+    return bool(reply)
 
 
 def cmd_verify(args) -> int:
@@ -696,12 +767,17 @@ def build_parser() -> argparse.ArgumentParser:
         prog="frog",
         description="Frog — harness đội nhóm agent (nền R0 shadow): giao việc, xem log, đo lường.",
         epilog="Gõ frog không kèm gì để vào phiên. Lệnh frog install đặt nó vào PATH.",
-        formatter_class=argparse.RawDescriptionHelpFormatter)
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        allow_abbrev=False)
     p.add_argument("--version", action="version", version=f"frog {VERSION}")
     p.add_argument("--no-color", action="store_true", help="tắt màu")
     sub = p.add_subparsers(dest="cmd")
 
-    r = sub.add_parser("run", help="chạy shadow và xuất trace + số liệu")
+    def add_parser(*args, **kwargs):
+        kwargs.setdefault("allow_abbrev", False)
+        return sub.add_parser(*args, **kwargs)
+
+    r = add_parser("run", help="chạy shadow và xuất trace + số liệu")
     r.add_argument("--out", default=DEFAULT_RUN, help="thư mục kết quả (mặc định: out)")
     r.add_argument("--cache-hit", type=float, default=C.CACHE_HIT)
     r.add_argument("--seed", type=int, default=C.SEED)
@@ -711,7 +787,7 @@ def build_parser() -> argparse.ArgumentParser:
     r.add_argument("--json", action="store_true", help="in số liệu thô thay vì bảng")
     r.add_argument("--classifier", default="keyword", choices=["keyword", "llm"],
                    help="bộ phân loại T1b: keyword (miễn phí) · llm (cần API key)")
-    r.add_argument("--provider", default=None, choices=["openrouter", "anthropic", "openai", "xai", "tavily", "brave", "serper"],
+    r.add_argument("--provider", default=None, choices=["openrouter", "anthropic", "openai", "xai", "9router", "tavily", "brave", "serper"],
                    help="chỉ dùng khi --classifier llm")
     r.add_argument("--model", default=None, help="model cho classifier (mặc định theo vai)")
     r.add_argument("--api-key", dest="api_key", default=None,
@@ -724,13 +800,13 @@ def build_parser() -> argparse.ArgumentParser:
                    help="không dùng cache kết quả classifier")
     r.set_defaults(func=cmd_run)
 
-    rp = sub.add_parser("report", help="xem kết quả dạng bảng")
+    rp = add_parser("report", help="xem kết quả dạng bảng")
     rp.add_argument("--run", default=DEFAULT_RUN)
     rp.add_argument("--top", type=int, default=0, help="kèm n tác vụ tốn kém nhất")
     rp.add_argument("--json", action="store_true")
     rp.set_defaults(func=cmd_report)
 
-    lb = sub.add_parser("labels", help="phiếu gán nhãn")
+    lb = add_parser("labels", help="phiếu gán nhãn")
     lbs = lb.add_subparsers(dest="sub", required=True)
     le = lbs.add_parser("export", help="sinh phiếu (KHÔNG chứa đáp án)")
     le.add_argument("--out", default=f"{DEFAULT_RUN}/labels.csv")
@@ -746,17 +822,17 @@ def build_parser() -> argparse.ArgumentParser:
     lt.add_argument("--out", default=f"{DEFAULT_RUN}/labels-triage.csv")
     lt.set_defaults(func=cmd_labels_triage)
 
-    cp = sub.add_parser("compare", help="so hai lần chạy")
+    cp = add_parser("compare", help="so hai lần chạy")
     cp.add_argument("--a", required=True)
     cp.add_argument("--b", required=True)
     cp.set_defaults(func=cmd_compare)
 
-    tk = sub.add_parser("task", help="xem chi tiết một tác vụ trong trace")
+    tk = add_parser("task", help="xem chi tiết một tác vụ trong trace")
     tk.add_argument("id")
     tk.add_argument("--run", default=DEFAULT_RUN)
     tk.set_defaults(func=cmd_task)
 
-    tm = sub.add_parser("team", help="giao một task cho đội agent (GỌI MODEL THẬT)")
+    tm = add_parser("team", help="giao một task cho đội agent (GỌI MODEL THẬT)")
     tm.add_argument("task", nargs="?", default=None, help="yêu cầu, để trong dấu ngoặc kép")
     tm.add_argument("--resume", default=None, help="tiếp run từ checkpoint, không tính lại tiền đã chi")
     tm.add_argument("--surface", default="read_only",
@@ -768,8 +844,12 @@ def build_parser() -> argparse.ArgumentParser:
     tm.add_argument("--reversibility", default="C1", choices=["C1", "C2", "C3"])
     tm.add_argument("--output-type", dest="output_type", default="free_string",
                     choices=["free_string", "enum", "number", "bool", "id"])
-    tm.add_argument("--provider", default=None, choices=["openrouter", "anthropic", "openai", "xai", "tavily", "brave", "serper"])
+    tm.add_argument("--provider", default=None, choices=["openrouter", "anthropic", "openai", "xai", "9router", "tavily", "brave", "serper"])
     tm.add_argument("--model", default=None, help="ép một model cho mọi vai")
+    tm.add_argument("--hire", default=None, metavar="VAI,VAI",
+                    help="thêm vai từ danh mục vào sơ đồ nhân sự")
+    tm.add_argument("--drop", default=None, metavar="VAI,VAI",
+                    help="bỏ vai khỏi sơ đồ (vai bắt buộc theo cỡ đơn không bỏ được)")
     tm.add_argument("--base-url", dest="base_url", default=None)
     tm.add_argument("--max-tokens", dest="max_tokens", type=int, default=4096)
     tm.add_argument("--dry-run", dest="dry_run", action="store_true",
@@ -794,7 +874,7 @@ def build_parser() -> argparse.ArgumentParser:
     tm.set_defaults(func=cmd_team)
 
     from .handoff import cmd_giao
-    gx = sub.add_parser("giao", help="phiếu từ câu nói thường, rồi bảng bàn giao")
+    gx = add_parser("giao", help="phiếu từ câu nói thường, rồi bảng bàn giao")
     gx.add_argument("task", nargs="?", default=None, help="yêu cầu bằng lời")
     gx.add_argument("--run", default=None, help="chạy run đã lưu")
     gx.add_argument("--grant", action="append", default=[],
@@ -814,7 +894,7 @@ def build_parser() -> argparse.ArgumentParser:
     gx.add_argument("--previous", default=None, help="id run cũ khi tạo run mới")
     gx.add_argument("--cwd", default=".")
     gx.add_argument("--provider", default=None,
-                    choices=["openrouter", "anthropic", "openai", "xai", "tavily", "brave", "serper"])
+                    choices=["openrouter", "anthropic", "openai", "xai", "9router", "tavily", "brave", "serper"])
     gx.add_argument("--model", default=None)
     gx.add_argument("--base-url", dest="base_url", default=None)
     gx.add_argument("--max-tokens", dest="max_tokens", type=int, default=4096)
@@ -828,7 +908,7 @@ def build_parser() -> argparse.ArgumentParser:
     gx.set_defaults(func=cmd_giao)
 
     from .intake import cmd_brief
-    br = sub.add_parser("brief", help="kiểm tra hoặc chép brief JSON")
+    br = add_parser("brief", help="kiểm tra hoặc chép brief JSON")
     bsub = br.add_subparsers(dest="brief_cmd", required=True)
     bv = bsub.add_parser("validate", help="kiểm schema và in hash")
     bv.add_argument("path")
@@ -844,7 +924,7 @@ def build_parser() -> argparse.ArgumentParser:
         sp.add_argument("--cwd", default=".", help="thư mục gốc cho công cụ")
         sp.add_argument("--mode", default="default", choices=["plan", "default", "acceptEdits", "bypass"])
         sp.add_argument("--model", default=None)
-        sp.add_argument("--provider", default=None, choices=["openrouter", "anthropic", "openai", "xai", "tavily", "brave", "serper"])
+        sp.add_argument("--provider", default=None, choices=["openrouter", "anthropic", "openai", "xai", "9router", "tavily", "brave", "serper"])
         sp.add_argument("--base-url", dest="base_url", default=None)
         sp.add_argument("--max-tokens", dest="max_tokens", type=int, default=4096)
         sp.add_argument("--no-stream", dest="no_stream", action="store_true")
@@ -860,7 +940,7 @@ def build_parser() -> argparse.ArgumentParser:
             sp.add_argument("task", help="yêu cầu, trong dấu ngoặc kép")
         sp.set_defaults(**{})
 
-    ag = sub.add_parser("agent", help="một lượt headless, in envelope JSON (giống openclaw agent exec)")
+    ag = add_parser("agent", help="một lượt headless, in envelope JSON (giống openclaw agent exec)")
     _agent_args(ag, positional=True)
     ag.add_argument("--json", action="store_true", help="envelope JSON ra stdout")
     ag.add_argument("--yes", action="store_true", help="tự duyệt mọi cổng (CẨN THẬN)")
@@ -871,103 +951,108 @@ def build_parser() -> argparse.ArgumentParser:
     ag.add_argument("--session-id", dest="session_id", default=None)
     ag.set_defaults(func=cmd_agent)
 
-    ch = sub.add_parser("chat", help="mở phiên tương tác (REPL)")
+    ch = add_parser("chat", help="mở phiên tương tác (REPL)")
     _agent_args(ch, positional=False)
     ch.add_argument("task", nargs="?", default=None, help="nếu có: chạy một lượt rồi thoát")
     ch.add_argument("--team", action="store_true", help="định tuyến qua làn + đội nhiều vai")
     ch.add_argument("--resume", default=None, help="mở lại phiên đã lưu")
     ch.set_defaults(func=lambda a: __import__("frog.repl", fromlist=["repl"]).repl(a))
 
-    pn = sub.add_parser("panel", help="hội đồng phản biện đa agent soi một thiết kế đo")
+    pn = add_parser("panel", help="hội đồng phản biện đa agent soi một thiết kế đo")
     pn.add_argument("question", help="câu hỏi cho hội đồng")
     pn.add_argument("--file", default=None, help="tệp cần soi")
     pn.add_argument("--rounds", type=int, default=2)
     pn.add_argument("--offline", action="store_true", help="không gọi model, tính trực tiếp")
-    pn.add_argument("--provider", default=None, choices=["openrouter", "anthropic", "openai", "xai", "tavily", "brave", "serper"])
+    pn.add_argument("--provider", default=None, choices=["openrouter", "anthropic", "openai", "xai", "9router", "tavily", "brave", "serper"])
     pn.add_argument("--model", default=None)
     pn.add_argument("--base-url", dest="base_url", default=None)
     pn.add_argument("--out", default=None, help="ghi báo cáo markdown")
     pn.set_defaults(func=lambda a: __import__("frog.panel", fromlist=["cmd_panel"]).cmd_panel(a))
 
-    sx = sub.add_parser("stats", help="bảng điều khiển số đo của một lần chạy")
+    sx = add_parser("stats", help="bảng điều khiển số đo của một lần chạy")
     sx.add_argument("--run", default=DEFAULT_RUN, help="thư mục lần chạy")
     sx.add_argument("--metric", default="cost",
                     choices=["cost", "tasks", "audit", "vc", "latency"],
                     help="chỉ số lớn hiển thị")
     sx.set_defaults(func=cmd_stats)
 
-    ig = sub.add_parser("ingest", help="nạp trace team vào 16 chỉ số, ghi nguồn real")
+    ig = add_parser("ingest", help="nạp trace team vào 16 chỉ số, ghi nguồn real")
     ig.add_argument("trace_dir", help="thư mục có trace.json của team hoặc xích hash")
     ig.set_defaults(func=_cmd_ingest)
 
-    tu = sub.add_parser("tui", help="TUI toàn màn hình (curses, không thêm phụ thuộc)")
+    tu = add_parser("tui", help="TUI toàn màn hình (curses, không thêm phụ thuộc)")
     tu.add_argument("--run", default=DEFAULT_RUN, help="thư mục lần chạy")
     tu.add_argument("--dump", nargs="?", const="tổng quan", default=None,
                     choices=["tổng quan", "tác vụ", "làn", "nhãn", "trợ giúp"],
                     help="in một khung ra văn bản thay vì mở TUI")
     tu.set_defaults(func=cmd_tui)
 
-    dcp = sub.add_parser("detect-compare",
+    dcp = add_parser("detect-compare",
                          help="so bộ dò từ khoá với model đọc nội dung (cần key)")
     dcp.add_argument("--n", type=int, default=40, help="số tác vụ, lấy mẫu PHÂN TẦNG (mặc định 40)")
     dcp.add_argument("--api-key", dest="api_key", default=None, help="khoá; mặc định đọc biến môi trường")
-    dcp.add_argument("--provider", default=None, choices=["openrouter", "anthropic", "openai", "xai", "tavily", "brave", "serper"])
+    dcp.add_argument("--provider", default=None, choices=["openrouter", "anthropic", "openai", "xai", "9router", "tavily", "brave", "serper"])
     dcp.add_argument("--model", default=None)
     dcp.add_argument("--base-url", dest="base_url", default=None)
     dcp.add_argument("--out", default=None, help="ghi báo cáo JSON")
     dcp.set_defaults(func=cmd_detect_compare)
 
-    dc = sub.add_parser("doctor", help="kiểm tra môi trường")
+    dc = add_parser("doctor", help="kiểm tra môi trường")
     dc.add_argument("--out", default="out", help="thư mục thử ghi")
+    dc.add_argument("--base-url", dest="base_url", default=None,
+                    help="địa chỉ 9router (mặc định NINE_ROUTER_BASE_URL hoặc http://localhost:20120)")
+    dc.add_argument("--models", action="store_true", help="in đủ danh sách model của 9router")
+    dc.add_argument("--smoke", default=None, metavar="MODEL",
+                    help="gọi thử MỘT lượt model qua 9router (tốn quota)")
     dc.set_defaults(func=cmd_doctor)
 
-    st = sub.add_parser("selftest", help="kiểm tra bất biến")
+    st = add_parser("selftest", help="kiểm tra bất biến")
     st.set_defaults(func=cmd_selftest)
 
-    vf = sub.add_parser("verify", help="kiểm xích hash của một thư mục đã ghi")
+    vf = add_parser("verify", help="kiểm xích hash của một thư mục đã ghi")
     vf.add_argument("dir", help="thư mục có trace.jsonl và manifest.json")
     vf.set_defaults(func=cmd_verify)
 
-    ev = sub.add_parser("eval", help="chấm vài việc local: qua/fail, vòng, tiền")
+    ev = add_parser("eval", help="chấm vài việc local: qua/fail, vòng, tiền")
     ev.add_argument("--suite", default=None, choices=["adversarial"],
                     help="adversarial: 50 case viết tay, in precision/recall theo nhóm")
     ev.set_defaults(func=_cmd_eval)
 
-    lg = sub.add_parser("logs", help="xem log các phiên agent")
+    lg = add_parser("logs", help="xem log các phiên agent")
     lg.add_argument("session", nargs="?", default=None, help="id phiên để xem chi tiết")
     lg.add_argument("--limit", type=int, default=0, help="chỉ hiện n phiên gần nhất")
     lg.set_defaults(func=_cmd_logs)
 
-    dsh = sub.add_parser("dash", help="bảng điều khiển agent (kiểu opencode)")
+    dsh = add_parser("dash", help="bảng điều khiển agent (kiểu opencode)")
     dsh.set_defaults(func=_cmd_dash)
 
-    ky = sub.add_parser("keys", help="cài khoá API cho từng nhà cung cấp")
+    ky = add_parser("keys", help="cài khoá API cho từng nhà cung cấp")
     kys = ky.add_subparsers(dest="action")
     kys.add_parser("status", help="xem trạng thái khoá").set_defaults(func=_cmd_keys)
     kset = kys.add_parser("set", help="nhập khoá (hỏi từng nhà cung cấp)")
-    kset.add_argument("--provider", default=None, choices=["openrouter", "anthropic", "openai", "xai", "tavily", "brave", "serper"])
+    kset.add_argument("--provider", default=None, choices=["openrouter", "anthropic", "openai", "xai", "9router", "tavily", "brave", "serper"])
     kset.set_defaults(func=_cmd_keys)
     kcl = kys.add_parser("clear", help="xoá một khoá")
-    kcl.add_argument("--provider", required=True, choices=["openrouter", "anthropic", "openai", "xai", "tavily", "brave", "serper"])
+    kcl.add_argument("--provider", required=True, choices=["openrouter", "anthropic", "openai", "xai", "9router", "tavily", "brave", "serper"])
     kcl.set_defaults(func=_cmd_keys)
     kys.add_parser("path", help="in đường dẫn tệp khoá").set_defaults(func=_cmd_keys)
     ky.set_defaults(func=_cmd_keys)
 
-    ex = sub.add_parser("export", help="tải dữ liệu chi tiết ra file để mở xem")
+    ex = add_parser("export", help="tải dữ liệu chi tiết ra file để mở xem")
     ex.add_argument("--what", default="all", choices=["all", "sessions", "lab"])
     ex.add_argument("--format", default="md", choices=["md", "json", "csv"])
     ex.add_argument("--run", default=DEFAULT_RUN, help="thư mục lần chạy cho phần lab")
     ex.add_argument("--out", default=None, help="tên tệp (mặc định: r0-shadow-export-<ngày>.md)")
     ex.set_defaults(func=_cmd_export)
 
-    mn = sub.add_parser("menu", help="mở menu giao, team, agent, keys, doctor")
+    mn = add_parser("menu", help="mở menu giao, team, agent, keys, doctor")
     mn.set_defaults(func=_cmd_menu)
 
-    bn = sub.add_parser("bench", help="công cụ benchmark nội bộ")
+    bn = add_parser("bench", help="công cụ benchmark nội bộ")
     bn.add_argument("bench_args", nargs=argparse.REMAINDER)
     bn.set_defaults(func=_cmd_bench)
 
-    ins = sub.add_parser("install",
+    ins = add_parser("install",
                          help="đặt lệnh frog vào PATH — gõ frog ở terminal nào cũng vào phiên")
     ins.set_defaults(func=_cmd_install)
     return p
@@ -1039,12 +1124,50 @@ def main(argv=None) -> int:
             return _open()
         build_parser().print_help()
         return 0
-    args = build_parser().parse_args(argv)
+    try:
+        args = build_parser().parse_args(argv)
+    except SystemExit as exc:
+        code = int(exc.code) if isinstance(exc.code, int) else 2
+        if code and argv:
+            for line in suggest_fix(argv):
+                print(line, file=sys.stderr)
+        raise
     note_argv_key(args)
     if not getattr(args, "cmd", None):
         build_parser().print_help()
         return 0
-    return args.func(args)
+    try:
+        return args.func(args)
+    except KeyboardInterrupt:
+        print("\nĐã dừng theo Ctrl+C.", file=sys.stderr)
+        return 130
+
+
+def suggest_fix(argv: list[str]) -> list[str]:
+    """Gõ sai lệnh hay cờ thì chỉ cái gần nhất. Không đoán khi không đủ gần."""
+    import difflib
+    parser = build_parser()
+    subs = {}
+    for action in parser._actions:
+        if isinstance(action, argparse._SubParsersAction):
+            subs = action.choices
+    out = []
+    head = argv[0]
+    if not head.startswith("-") and head not in subs:
+        near = difflib.get_close_matches(head, list(subs), n=2, cutoff=0.6)
+        if near:
+            out.append(f"frog: không có lệnh {head!r}. Ý bạn là: {', '.join(near)}?")
+        return out
+    sub = subs.get(head)
+    known = set(sub._option_string_actions) if sub is not None else set()
+    known |= set(parser._option_string_actions)
+    for token in argv[1:]:
+        flag = token.split("=", 1)[0]
+        if flag.startswith("--") and flag not in known:
+            near = difflib.get_close_matches(flag, sorted(known), n=1, cutoff=0.7)
+            out.append(f"frog: không có cờ {flag}." + (f" Ý bạn là {near[0]}?" if near else
+                                                        f" Xem frog {head} --help."))
+    return out
 
 
 if __name__ == "__main__":
