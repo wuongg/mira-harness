@@ -117,7 +117,8 @@ class NineRouterTest(unittest.TestCase):
         home.start()
         self.addCleanup(home.stop)
         env = {k: v for k, v in os.environ.items()
-               if k not in ("NINE_ROUTER_API_KEY", "NINE_ROUTER_BASE_URL", "OPENROUTER_API_KEY")}
+               if k not in ("NINE_ROUTER_API_KEY", "NINE_ROUTER_BASE_URL", "OPENROUTER_API_KEY",
+                            "ANTHROPIC_API_KEY", "OPENAI_API_KEY", "XAI_API_KEY")}
         env["NINE_ROUTER_API_KEY"] = KEY
         clean = patch.dict(os.environ, env, clear=True)
         clean.start()
@@ -142,6 +143,15 @@ class NineRouterTest(unittest.TestCase):
         self.assertEqual(billing_of("cu/x"), "subscription")
         self.assertEqual(billing_of("x", "9router"), "subscription")
         self.assertEqual(billing_of("gpt-5.6-sol"), "metered")
+
+    def test_chi_co_khoa_9router_thi_tu_chon_9router(self):
+        from frog.providers import auto_provider
+        self.assertEqual(auto_provider(), "9router")
+        os.environ["OPENAI_API_KEY"] = "sk-x"
+        self.assertIsNone(auto_provider())
+        del os.environ["OPENAI_API_KEY"]
+        del os.environ["NINE_ROUTER_API_KEY"]
+        self.assertIsNone(auto_provider())
 
     def test_goi_nguyen_id_va_bearer(self):
         prov = NineRouterProvider("cu/claude-opus-5-thinking-high", base_url=self.base)

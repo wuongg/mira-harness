@@ -1915,6 +1915,13 @@ def _deliver(args, plan, res) -> int:
 
 def cmd_team(args) -> int:
     from . import ui
+    from .providers import auto_provider
+
+    if getattr(args, "provider", None) is None and not getattr(args, "model", None):
+        picked = auto_provider()
+        if picked:
+            args.provider = picked
+            ui.note("chỉ có khóa NINE_ROUTER_API_KEY nên đội đi 9router", "info")
 
     if getattr(args, "resume", None):
         brief = None

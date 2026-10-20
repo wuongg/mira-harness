@@ -253,7 +253,8 @@ class TeamCliTest(unittest.TestCase):
         cls.srv.shutdown()
         cls.srv.server_close()
 
-    def _team(self, root: Path, answers: str, *extra: str, staff: str = "lazy"):
+    def _team(self, root: Path, answers: str, *extra: str, staff: str = "lazy",
+              provider: bool = True):
         env = {k: v for k, v in os.environ.items()
                if not k.startswith(("FAKE_", "NINE_ROUTER_"))
                and k not in ("ANTHROPIC_API_KEY", "OPENAI_API_KEY", "OPENROUTER_API_KEY")}
@@ -261,9 +262,10 @@ class TeamCliTest(unittest.TestCase):
                    USERPROFILE=str(root), NINE_ROUTER_API_KEY="fake",
                    NINE_ROUTER_BASE_URL=self.base)
         os.environ["FAKE_STAFF"] = staff
+        flags = ["--provider", "9router"] if provider else []
         try:
             return subprocess.run(
-                [sys.executable, "-m", "frog", "team", "--provider", "9router", *extra, ORDER_A],
+                [sys.executable, "-m", "frog", "team", *flags, *extra, ORDER_A],
                 cwd=root, env=env, input=answers.encode("utf-8"), stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE, timeout=120)
         finally:
@@ -282,6 +284,15 @@ class TeamCliTest(unittest.TestCase):
             body = result.read_text(encoding="utf-8")
             for role in ("product_manager", "frontend_engineer", "qa_reviewer", "handoff_editor"):
                 self.assertIn(role, body)
+
+    def test_chi_co_khoa_9router_thi_khong_doi_khoa_hang(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            proc = self._team(Path(tmp), "y\nn\n", provider=False)
+            text = proc.stdout.decode("utf-8", "replace")
+            self.assertNotIn("ANTHROPIC_API_KEY", text)
+            self.assertIn("đội đi 9router", text)
+            self.assertIn("SƠ ĐỒ NHÂN SỰ", text)
+            self.assertEqual(proc.returncode, 4, text)
 
     def test_so_do_doi_bo_cong_van_phai_qua_cong(self):
         with tempfile.TemporaryDirectory() as tmp:

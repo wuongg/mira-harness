@@ -417,6 +417,16 @@ def provider_for(model: str, name: str | None = None, **kw) -> BaseProvider:
     return _class_for(model, name)(model=model, **kw)
 
 
+def auto_provider() -> str | None:
+    """Chỉ có khóa 9router, không có khóa hãng nào cho model mặc định, thì đi 9router."""
+    from .keys import resolve
+    if not resolve("9router")[0]:
+        return None
+    if any(resolve(name)[0] for name in ("anthropic", "openai", "openrouter", "xai")):
+        return None
+    return "9router"
+
+
 def billing_of(model: str, name: str | None = None) -> str:
     """'subscription' hoặc 'metered'. Không dựng provider, không đọc khóa."""
     try:
