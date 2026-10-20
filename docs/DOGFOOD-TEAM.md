@@ -106,12 +106,99 @@ Trạng thái vết vòng 1 sau vòng 2 (chạy lại trên `dogfood-team-r2`):
 | T-05 | đã sửa | đơn lớn: code nâng cỡ "vừa", thêm `backend_api_engineer` và `security_reviewer`, 0.5 giây |
 | T-09 | đã sửa | "đã làm" chỉ in sau "qa_reviewer PASS"; bài `test_vai_kiem_fail_thi_khong_ban_giao` |
 | T-27 | đã sửa | thông báo đổi thành "chưa duyệt brief — không chạy đội" |
-| T-06, T-07 | còn tồn | không cờ vẫn đòi khóa Anthropic |
+| T-06, T-07 | còn tồn | không cờ vẫn đòi khóa Anthropic (sửa ở vòng 3/4) |
 | T-08 | sửa một phần | đi 9router thì vai làm và vai kiểm khác họ; `--model` vẫn ép mọi vai, theo thiết kế |
 | T-13 | chưa kiểm | đơn web đã luôn qua intake; câu hỏi làm rõ chưa thử trên giả |
 | còn lại | còn tồn | chưa sửa ở vòng này |
+
+## Vòng 3 — sau [UX-6] `b195bcb`
+
+Môi trường: `dogfood-team-r3`, chỉ `NINE_ROUTER_API_KEY`, giả ở `18990`.
+
+| bước | lệnh | kết quả | giây |
+| --- | --- | --- | --- |
+| đơn, không cờ | `frog team "<đơn>"` + `y` | "chỉ có khóa NINE_ROUTER_API_KEY nên đội đi 9router"; 5 vai; đã làm | ~0.5 |
+| FAKE_ASK | cùng + `FAKE_ASK=1` | intake hỏi tiếng Việt/thiết bị trước khi tuyển | ~0.5 |
+
+## Vòng 4 — sau [UX-7] `09bcc6f`
+
+Môi trường: venv mới `dogfood-team-r4`, HOME `dogfood-team-r4-home`, chỉ khóa 9router giả (đã gỡ `ANTHROPIC_*` / `OPENAI_*` khỏi tiến trình). Giả `127.0.0.1:18990`.
+
+| bước | lệnh | kết quả | giây |
+| --- | --- | --- | --- |
+| bare | `frog team "<đơn>"` + `y` | đội đi 9router; brief dạng mục; 5 vai; "Không có --out nên không ghi…"; exit 0 | 0.5 |
+| no-out | `--provider 9router` + `y` | như trên, không hỏi cổng ghi | 0.5 |
+| with-out | `… --out site` + `y`,`y` | ghi `files/site/index.html`; in đường dẫn đầy đủ; 1 file bàn giao | 0.5 |
+| big | form lưu email + `--out big` | 9 vai, backend CÓ, nâng cỡ vừa; `index.html` | 0.6 |
+| hire | `--hire security_reviewer,content_writer` | 7 vai; `index.html` | 0.5 |
+| ask | `FAKE_ASK=1` | có câu hỏi làm rõ | 0.5 |
+| typo | `frog teem`, `--provder` | gợi ý `team` / `--provider` | 0.3 |
+| doctor | `frog doctor --base-url …18990` | "nhà cung cấp có khóa: 9router"; môi trường OK | 0.5 |
+
+Trạng thái vết sau vòng 4:
+
+| id | trạng thái | bằng chứng |
+| --- | --- | --- |
+| T-06, T-07 | đã sửa | bare chỉ khóa 9router → đội đi 9router, không đòi Anthropic |
+| T-08 | sửa một phần | như vòng 2; `--model` vẫn ép mọi vai |
+| T-10 | đã sửa | bare/no-out: "Không có --out…" exit 0 |
+| T-11, T-28 | đã sửa | `files/site/index.html` + đường dẫn đầy đủ |
+| T-12 | đã sửa | BRIEF in Mục tiêu / Bàn giao / … |
+| T-13 | đã sửa | `FAKE_ASK=1` hỏi tiếng Việt/thiết bị |
+| T-14 | đã sửa | doctor liệt kê nhà cung cấp có khóa |
+| T-15 | sửa một phần | doctor nhắc thử 20128 khi mặc định 20120 chết; mặc định code vẫn 20120 |
+| T-16 | đã sửa | README Quickstart có mục 9router |
+| T-17, T-18 | đã sửa | gợi ý lệnh/cờ gần nhất |
+| T-19 | đã sửa (code) | `KeyboardInterrupt` → exit 130 + `--resume`; chưa dogfood Ctrl+C lại trên r4 |
+| T-29 | đã sửa | `_key_hint(..., command="team")` không nhắc `--intake-model` |
+| T-30, T-34 | đã sửa | lý do riêng + vai cân nhắc xếp trước |
+| T-31 | đã sửa (code) | resume truyền `role_models` / staffing checkpoint |
+| T-20…T-26, T-32, T-33 | còn tồn | chưa đụng vòng này |
+
+## [S-TEAM] A/B giả + bảng cỡ đơn
+
+Provider giả, cùng `FAKE_STAFF=lazy`. Ba diễn đạt đơn nhỏ:
+
+| lần | diễn đạt | exit | giây | chuỗi vai (bước thực thi) |
+| --- | --- | --- | --- | --- |
+| A | trang giới thiệu frog gửi bạn bè | 0 | 0.5 | product_manager → ux_designer → frontend_engineer → qa_reviewer → handoff_editor |
+| B | làm cho tôi 1 trang web của frog | 0 | 0.4 | cùng chuỗi |
+| C | tôi muốn frog có trang chủ | 0 | 0.4 | cùng chuỗi |
+
+Ổn định: **CÓ** — cùng 5 vai, cùng thứ tự.
+
+Bảng cỡ đơn (settle + luật `REQUIRED`, proposal intake kiểu lazy 3 vai rồi code bổ sung):
+
+| cỡ | tín hiệu đơn | số vai | vai chính |
+| --- | --- | --- | --- |
+| nhỏ | trang web giới thiệu | 5 | product_manager, ux_designer, frontend_engineer, qa_reviewer, handoff_editor |
+| vừa | form đăng ký + lưu email | 9–10 | + content_writer, backend_api_engineer, integration_engineer, security_reviewer (± devops) |
+| lớn | đăng nhập + thanh toán | 14 | + project_coordinator, backend_db_engineer, devops, perf, a11y, … |
+
+Sơ đồ nhân sự cuối (đơn nhỏ mặc định, giả r4):
+
+```
+Đã tuyển 5: product_manager, ux_designer, frontend_engineer, qa_reviewer, handoff_editor
+Backend: KHÔNG · trang tĩnh
+Đã cân nhắc, không tuyển 14: content_writer / security_reviewer / devops… (lý do riêng; cân nhắc lên đầu)
+```
+
+## Chạy thật 9router (`127.0.0.1:20128`)
+
+Khóa lấy từ `apiKeys` active trong DB cục bộ của 9router (không ghi vào sổ). Mặc định sản phẩm vẫn `http://localhost:20120`; máy này lắng nghe **20128**.
+
+| # | lệnh | kết quả | giây |
+| --- | --- | --- | --- |
+| S1 | `frog doctor --base-url http://127.0.0.1:20128` | 270 model, khóa có | 0.6 |
+| S2 | `… --smoke cu/default` | trả `pong`, uncertain (subscription quota) | 3.7 |
+| R1–R3 | `frog team --provider 9router …` model mặc định nhóm vai | intake lỗi `Cursor AgentService returned an empty turn` | 1.1–1.6 |
+| R4 | `--model cu/default` | intake không trả JSON | 10.4 |
+| S3 | `--smoke cu/claude-4.5-sonnet` | empty turn | 1.3 |
+
+Hết ngân sách thử thật trong hạn mức (2 smoke + ≤6 chạy). Kết nối và sổ uncertain ổn trên `cu/default`. Đội web mặc định (`cu/gpt-5.6-sol-high` / `cu/claude-opus-5-thinking-high`) chưa hoàn thành một đơn thật vì AgentService phía sau 9router trả lượt rỗng / không JSON. Chất lượng nội dung trang **chưa** có bằng chứng model thật.
 
 ## Ghi chú trung thực
 
 - Provider giả trả kịch bản cố định. Verifier giả luôn PASS. Kết luận về chất lượng model chỉ lấy từ chạy thật.
 - PROV-9R `85c40c0`: CI 10/11, ô Windows 3.12 đỏ ở `T-INTERRUPT` (bài kill đọc checkpoint khi Windows đang thay file). Đã yêu cầu chạy lại riêng ô đỏ.
+- UX-7 `09bcc6f`: unittest local 670 OK (skipped=3). CI GitHub chưa xác nhận ở bước ghi sổ này.
