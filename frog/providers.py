@@ -11,6 +11,7 @@ import random
 import re
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 
 
@@ -27,6 +28,52 @@ class ProviderError(RuntimeError):
     def __init__(self, message: str, attempts: int = 0):
         super().__init__(message)
         self.attempts = attempts
+
+
+def decode_completion(raw: str) -> dict:
+    """JSON một cục, hoặc SSE `data:`. Lỗi trong SSE thành ProviderError, không vỡ json.loads."""
+    text = (raw or "").strip()
+    if not text:
+        raise ProviderError("phản hồi rỗng")
+    if not text.startswith("data:"):
+        try:
+            data = json.loads(text)
+        except json.JSONDecodeError as exc:
+            raise ProviderError(f"phản hồi không phải JSON: {exc}") from exc
+        if isinstance(data, dict) and data.get("error"):
+            err = data["error"]
+            msg = err.get("message") if isinstance(err, dict) else str(err)
+            raise ProviderError(msg or "lỗi từ model")
+        if not isinstance(data, dict):
+            raise ProviderError("phản hồi không phải JSON")
+        return data
+    parts: list[str] = []
+    err = ""
+    for line in text.splitlines():
+        line = line.strip()
+        if not line.startswith("data:"):
+            continue
+        payload = line[5:].strip()
+        if not payload or payload == "[DONE]":
+            continue
+        try:
+            event = json.loads(payload)
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(event, dict):
+            continue
+        if event.get("error"):
+            body = event["error"]
+            err = body.get("message") if isinstance(body, dict) else str(body)
+            continue
+        choice = (event.get("choices") or [{}])[0] if event.get("choices") else {}
+        delta = choice.get("delta") or choice.get("message") or {}
+        bit = delta.get("content") or ""
+        if bit:
+            parts.append(bit)
+    if err and not parts:
+        raise ProviderError(err)
+    return {"choices": [{"message": {"content": "".join(parts)}}], "usage": {}}
 
 
 def retry_open(request, timeout, *, name: str, rng: random.Random, sleep=time.sleep):
@@ -98,7 +145,7 @@ class BaseProvider:
             self.attempts = e.attempts
             raise
         with resp:
-            return json.loads(resp.read().decode("utf-8"))
+            return decode_completion(resp.read().decode("utf-8"))
 
 
 class AnthropicProvider(BaseProvider):
@@ -203,15 +250,56 @@ BY_MODEL = (("claude", "anthropic"), ("opus", "anthropic"), ("sonnet", "anthropi
             ("haiku", "anthropic"), ("grok", "xai"))
 
 
-def agent_binding(model: str, provider_name: str | None = None) -> tuple[str, str | None]:
-    """Có khoá OpenRouter thì phiên agent đi OpenRouter. Khoá hãng khác không được gọi thay."""
+def official_openrouter(base_url: str | None) -> bool:
+    """Không có địa chỉ, hoặc đúng host OpenRouter. Proxy cục bộ không đi nhánh này."""
+    if not base_url:
+        return True
+    host = urllib.parse.urlparse(base_url).netloc.lower()
+    return host.endswith("openrouter.ai")
+
+
+def choose_proxy_model(ids: list[str]) -> str:
+    """Model auto của proxy, ví dụ cu/default. Không có thì lấy id đầu."""
+    for item in ids:
+        if item.endswith("/default"):
+            return item
+    return ids[0] if ids else ""
+
+
+def list_proxy_models(base_url: str, api_key: str | None) -> list[str]:
+    """GET /v1/models. Danh sách rỗng nếu proxy không trả id."""
+    url = base_url.rstrip("/") + "/v1/models"
+    req = urllib.request.Request(url, headers={"authorization": f"Bearer {api_key or ''}"})
+    try:
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+    except (urllib.error.URLError, urllib.error.HTTPError, json.JSONDecodeError, TimeoutError, OSError):
+        return []
+    rows = data.get("data") if isinstance(data, dict) else None
+    ids = []
+    for row in rows or []:
+        if isinstance(row, dict) and row.get("id"):
+            ids.append(str(row["id"]))
+        elif isinstance(row, str) and row:
+            ids.append(row)
+    return ids
+
+
+def agent_binding(model: str, provider_name: str | None = None,
+                  base_url: str | None = None) -> tuple[str, str | None]:
+    """Có khoá OpenRouter thì phiên agent đi OpenRouter. Khoá hãng khác không được gọi thay.
+
+    Proxy tự đặt địa chỉ thì giữ model đã chọn. Không đổi thành slug Anthropic.
+    """
     from . import config as C
     from .keys import resolve
     if provider_name and provider_name != "openrouter":
         return model, provider_name
-    if resolve("openrouter")[0]:
+    if resolve("openrouter")[0] and official_openrouter(base_url):
         chosen = model if model and "/" in model else C.OPENROUTER_MODEL
         return chosen, "openrouter"
+    if resolve("openrouter")[0] and base_url:
+        return model, "openrouter"
     return model, provider_name
 
 

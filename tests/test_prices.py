@@ -80,6 +80,21 @@ class PricesTest(unittest.TestCase):
         self.assertEqual(res["ledger"]["total_usd"], 4.0)
         self.assertIn("env", res["ledger"]["price_sources"])
 
+    def test_env_chu_khong_phai_so(self):
+        from frog.prices import resolve_price
+        rates, source = resolve_price(
+            "anthropic/claude-sonnet-4.5", None,
+            {"FROG_PRICE_ANTHROPIC_CLAUDE_SONNET_4_5": "vào,ra"}, {})
+        self.assertIsNone(rates)
+        self.assertEqual(source, "")
+
+    def test_frog_price_cho_model_proxy(self):
+        from frog.prices import resolve_price
+        rates, source = resolve_price("cu/default", None, {"FROG_PRICE": "3,15"}, {})
+        self.assertEqual(source, "env")
+        self.assertEqual(rates["in"], 3.0)
+        self.assertEqual(rates["out"], 15.0)
+
     def test_khong_co_nguon_nao_thi_chan(self):
         env = os.environ.copy()
         env.pop("FROG_PRICE_KHONG_CO", None)

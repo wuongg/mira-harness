@@ -722,7 +722,13 @@ def cmd_agent(args) -> int:
                 + (f"${cost:.6f}" if cost is not None else "chưa có giá cho model này"),
                 "info")
         if env["status"] != "ok":
-            ui.note(f"trạng thái {env['status']}: {env.get('error')}", "bad")
+            err = env.get("error") or {}
+            msg = err.get("message") if isinstance(err, dict) else str(err)
+            low = (msg or "").lower()
+            if "reasoning_effort" in low or "function tools" in low:
+                ui.note("Model này từ chối công cụ trên chat completions. "
+                        "Thử --protocol text hoặc model khác (ví dụ gpt-5.6-luna).", "bad")
+            ui.note(f"trạng thái {env['status']}: {msg}", "bad")
     return {"ok": 0, "blocked": 1, "error": 1, "timeout": 2,
             "stopped_budget": 1, "stopped_turns": 1}.get(env["status"], 1)
 
