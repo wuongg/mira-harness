@@ -638,7 +638,8 @@ def charged_call(ledger: Ledger, role: str, model: str, prov, system: str, user:
                 if failover_on() and idx + 1 < len(chain):
                     continue
                 return "", {"blocked": True, "error": last_err, "failover": trail}
-        if not cur.available():
+        available = getattr(cur, "available", None)
+        if callable(available) and not available():
             last_err = f"thiếu key cho {getattr(cur, 'name', pname)}"
             trail.append({"provider": getattr(cur, "name", pname), "model": mname,
                           "error": last_err})
