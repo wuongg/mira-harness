@@ -20,6 +20,7 @@
 
 ### Changed
 
+- Mặc định `--intake`: CLI để trống thì bật khi làn ≥1 hoặc đơn web; test/Namespace thiếu cờ thì tắt. Đơn ngoài web thiếu đề xuất sơ đồ dùng fallback có kiểm (cảnh báo), không chặn duyệt brief. `--model` chưa có giá thì chặn, không failover sang model khác.
 - Phản hồi SSE không kèm usage ghi uncertain thay vì $0. Sự kiện lỗi trong SSE thành lỗi rõ.
 - Bỏ biến `FROG_PRICE` dùng chung cho mọi model. Giá vẫn theo `--price-in`, `prices.toml`, `FROG_PRICE_<MODEL>`.
 - `frog team` không hỏi cổng ghi khi thiếu `--out`; tách khối ` ```ngôn đường/dẫn ` ra `files/` khi có `--out`; brief in dạng mục; Ctrl+C gợi ý `--resume`; gõ sai lệnh/cờ gợi ý gần nhất.

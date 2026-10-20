@@ -375,9 +375,10 @@ def settle(order: str, proposal, *, hire=(), drop=()) -> dict:
                 f"đơn web cần ít nhất {WEB_MIN_ROLES} vai, sơ đồ đang là fallback 3 vai. "
                 f"Thêm vai bằng --hire {need}")
         else:
-            out["errors"].append(
-                f"đơn {DOMAIN_LABEL.get(domain, domain)} cần sơ đồ sau phỏng vấn "
-                f"(ít nhất {TEAM_MIN_ROLES} vai, có người kiểm)")
+            # Ngoài web: fallback 3 vai (có kiểm) đủ chạy; cảnh báo chứ không chặn duyệt brief.
+            out["notes"].append(
+                f"đơn {DOMAIN_LABEL.get(domain, domain)} thiếu đề xuất sau phỏng vấn; "
+                f"dùng fallback có kiểm. Thêm --hire nếu cần nghề khác.")
         return out
 
     claimed = str(proposal.get("size") or "").strip().lower()

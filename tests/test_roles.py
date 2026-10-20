@@ -130,7 +130,8 @@ class RolePoolTest(unittest.TestCase):
         plain = settle("tóm tắt tài liệu công khai", None)
         self.assertTrue(plain["fallback"])
         self.assertEqual(plain.get("domain"), "research")
-        self.assertTrue(any("phỏng vấn" in e or "người kiểm" in e for e in plain["errors"]))
+        self.assertEqual(plain["errors"], [])
+        self.assertTrue(any("phỏng vấn" in n or "kiểm" in n for n in plain["notes"]))
 
     def test_duoi_4_vai_va_thieu_vai_kiem_bi_chan(self):
         st = settle(ORDER_A, LAZY)
