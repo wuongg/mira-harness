@@ -22,6 +22,8 @@ SLOT = {"manage": "planner", "make": "worker", "review": "verifier", "handoff": 
 READ_ONLY = ("read_file", "list_dir", "grep", "glob")
 WEB_MIN_ROLES = 4
 FALLBACK_ROLES = ("planner", "worker", "verifier")
+# Vai ngoài danh mục intake được phép sinh; code cắt bớt nếu vượt.
+EXTRA_CAP = 4
 
 VERDICT_PROTOCOL = (
     "Trả đúng một object JSON, không chữ nào khác, với các khóa verdict, reasons, evidence, "
@@ -260,8 +262,18 @@ def _extra_spec(item: dict) -> RoleSpec | None:
     if not _NAME.match(name) or kind not in KINDS or not task or name in POOL:
         return None
     title = str(item.get("title") or name.replace("_", " ")).strip()[:60]
-    body = f"Việc của bạn: {task}. Làm như người làm nghề {title} thật, nêu giả định và chỗ thiếu."
-    return _spec(name, "Ngoài danh mục", kind, title, task, body)
+    duty = task[:120]
+    body = (
+        f"Bạn được tuyển vì đơn này cần chuyên môn không có sẵn trong danh mục cố định. "
+        f"Việc cụ thể: {task}. "
+        f"Làm đúng nghề {title}: nêu giả định, đầu ra cụ thể, và chỗ còn thiếu để vai sau làm tiếp. "
+        f"Không tự cấp quyền ghi file; không bỏ qua bước kiểm."
+    )
+    if kind == "review":
+        body += " Kết thúc bằng phán quyết JSON theo protocol bên dưới."
+    elif kind == "make":
+        body += " Nếu tạo file trang/web, dùng khối code có đường dẫn tương đối."
+    return _spec(name, "Ngoài danh mục", kind, title, duty, body)
 
 
 def spec_of(staffing: dict | None, role: str) -> RoleSpec | None:
@@ -335,9 +347,17 @@ def settle(order: str, proposal, *, hire=(), drop=()) -> dict:
                 considered[name or "?"] = {"role": name or "?", "origin": "code",
                                            "reason": "không có trong danh mục và thiếu loại hoặc việc"}
                 continue
-            row = _row(spec, task=str(item.get("task") or ""), reason=str(item.get("reason") or ""),
+            extras_so_far = sum(1 for r in hired.values() if r.get("origin_kind") == "extra")
+            if extras_so_far >= EXTRA_CAP:
+                considered[name] = {"role": name, "origin": "code",
+                                    "reason": f"đã đủ {EXTRA_CAP} vai ngoài danh mục — bỏ bớt"}
+                notes.append(f"cắt vai ngoài danh mục {name}: quá {EXTRA_CAP}")
+                continue
+            row = _row(spec, task=str(item.get("task") or ""),
+                       reason=str(item.get("reason") or "").strip() or "intake tự sinh",
                        origin="intake")
             row["origin_kind"] = "extra"
+            row["title"] = spec.title
             hired[name] = row
             continue
         hired[name] = _row(spec, task=str(item.get("task") or ""),
@@ -455,10 +475,17 @@ def run_order(st: dict) -> list[str]:
 
 def staffing_prompt() -> str:
     """Phần nhúng vào intake của frog team: danh mục vai, luật cỡ đơn, khuôn trả về."""
-    lines = ["DANH MỤC VAI (tuyển từ đây; cần vai ngoài danh mục thì ghi kind và task):"]
+    lines = ["DANH MỤC VAI (ưu tiên tuyển từ đây):"]
     for spec in POOL.values():
         lines.append(f"- {spec.name} ({spec.group}, {KIND_LABEL[spec.kind]}): {spec.duty}")
     lines += [
+        "TỰ SINH VAI (khi đơn cần chuyên môn không có trong danh mục):",
+        f"- Được thêm tối đa {EXTRA_CAP} vai ngoài danh mục. Mỗi vai phải có role (snake_case), "
+        "kind (manage|make|review|handoff), task (việc cụ thể), title (tên nghề ngắn), reason.",
+        "- Ví dụ đơn cần SEO / video / pháp lý / dịch thuật: sinh seo_specialist, "
+        "video_script_writer, legal_reviewer, translator — kind phù hợp (làm = make, kiểm = review).",
+        "- Không trùng tên danh mục. Không bịa quyền tool. Vai kiểm vẫn trả JSON verdict.",
+        "- Vẫn phải đủ khung web: thiết kế, làm, kiểm, bàn giao; tự sinh chỉ để bổ sung chuyên môn.",
         "LUẬT TUYỂN THEO CỠ ĐƠN (tham khảo):",
         "- nho: trang tĩnh ít trang, không lưu dữ liệu người dùng; khoảng 5-7 vai; cân nhắc "
         "content_writer, security_reviewer (form gửi dữ liệu đi đâu?), devops_engineer.",
@@ -470,7 +497,8 @@ def staffing_prompt() -> str:
         "người giao.",
         "Thêm khóa staffing vào object JSON: {\"size\": \"nho|vua|lon\", \"web\": true|false, "
         "\"backend\": {\"needed\": true|false, \"reason\": \"...\", \"roles\": [\"...\"]}, "
-        "\"hired\": [{\"role\": \"...\", \"task\": \"việc cụ thể trong đơn này\", \"reason\": \"...\"}], "
+        "\"hired\": [{\"role\": \"...\", \"kind\": \"make\", \"title\": \"...\", "
+        "\"task\": \"việc cụ thể\", \"reason\": \"...\"}], "
         "\"considered\": [{\"role\": \"...\", \"reason\": \"vì sao không tuyển\"}]}.",
         "Không ghi quyền tool, làn, cổng hay trần: code quyết những thứ đó.",
         "Đơn thiếu đối tượng xem, ngôn ngữ, thiết bị hay nội dung chính thì hỏi trong questions.",

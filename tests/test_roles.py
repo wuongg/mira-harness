@@ -45,6 +45,8 @@ class SuggestFixTest(unittest.TestCase):
         self.assertTrue(any("team" in line for line in suggest_fix(["teem", "x"])))
         self.assertTrue(any("--provider" in line
                             for line in suggest_fix(["team", "--provder", "9router"])))
+
+
 LAZY = {"size": "nho", "web": True,
         "backend": {"needed": False, "reason": "trang tĩnh", "roles": []},
         "hired": [{"role": "product_manager", "task": "chốt phạm vi", "reason": "giữ phạm vi"},

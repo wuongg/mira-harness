@@ -94,6 +94,22 @@ NINE_ROUTER_ROLE_MODEL = {
     "intake": "cu/gpt-5.6-sol-high",
 }
 
+# Failover: tối đa số lần thử (gồm lần đầu). Tắt bằng FROG_NO_FAILOVER=1.
+FAILOVER_MAX = 3
+FAILOVER_PROVIDERS = ("9router", "anthropic", "openai", "openrouter", "xai")
+FAILOVER_MODELS = {
+    "anthropic": ["sonnet-5.5", "opus-5.5", "haiku-5.5"],
+    "openai": ["gpt-5.6-sol", "gpt-6-luna", "gpt-6-astra"],
+    "openrouter": [],
+    "xai": ["grok-4.7"],
+    "9router": [
+        "cu/gpt-5.6-sol-high",
+        "cu/default",
+        "cu/claude-4.5-sonnet",
+        "cu/claude-opus-5-thinking-high",
+    ],
+}
+
 LANE_MAX = 2   # chỉ có 3 làn. Sàn = 3 KHÔNG tạo làn mới; nó đẩy cổng người
                # lên tầng cao nhất + bắt buộc 2 người duyệt (xem human_gate).
 

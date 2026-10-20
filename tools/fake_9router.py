@@ -9,7 +9,8 @@ Biến môi trường:
   FAKE_DELAY="worker:8"     ngủ 8 giây khi gặp vai đó (thử hủy giữa chừng)
   FAKE_FAIL="qa_reviewer"   vai review đó trả FAIL
   FAKE_ASK="1"              intake hỏi một câu làm rõ ở lượt đầu
-  FAKE_STAFF="lazy|full|none|bad|gate"  intake tuyển thiếu, đủ, không tuyển, sơ đồ hỏng,
+  FAKE_STAFF="lazy|full|none|bad|gate|spawn"  intake tuyển thiếu, đủ, không tuyển, sơ đồ hỏng,
+                                              spawn = lazy + một vai ngoài danh mục,
                             hoặc chèn khóa đòi bỏ cổng và quyền ghi
   FAKE_EVIL="qa_reviewer"   vai đó trả một lệnh ghi file thay vì phán quyết
 """
@@ -81,6 +82,12 @@ def _staffing(order: str) -> dict:
             {"role": "handoff_editor", "task": "gói trang và hướng dẫn mở",
              "reason": "khách cần biết cách xem"},
         ]
+    if mode == "spawn" or "seo" in (order or "").lower() or "dịch" in (order or "").lower():
+        hired.append({
+            "role": "seo_copywriter", "kind": "make", "title": "SEO copywriter",
+            "task": "viết tiêu đề và mô tả meta, chỉnh thông điệp để tìm kiếm ra trang",
+            "reason": "đơn cần chuyên môn SEO không có trong danh mục",
+        })
     return {"size": "nho", "web": True,
             "backend": {"needed": False, "reason": "trang tĩnh, không lưu dữ liệu", "roles": []},
             "hired": hired, "considered": considered}

@@ -1107,7 +1107,8 @@ def execute_plan(plan: TeamPlan, *, provider_name: str | None = None,
 
     def _call(role: str, prior=None, shard: tuple[int, int] | None = None,
               model: str | None = None) -> dict:
-        """Một lần gọi model. An toàn khi chạy trong nhiều luồng."""
+        """Một lần gọi model. An toàn khi chạy trong nhiều luồng. Failover khi chết/hết hạn mức."""
+        from .failover import enabled as failover_on, failover_chain, is_failoverable
         spec = spec_of(staffing, role) if staffed else None
         if spec is not None:
             _user, policy = _staffed_user(role, spec)
@@ -1115,58 +1116,95 @@ def execute_plan(plan: TeamPlan, *, provider_name: str | None = None,
         else:
             _user, policy = _user_of(role, prior, shard)
             system = ROLE_SYSTEM[role]
-        model = model or _model_of(role)
-        prov = provider_for(model, provider_name, base_url=base_url,
-                            api_key=api_key, max_tokens=max_tokens)
-        subscription = getattr(prov, "billing", "") == "subscription"
-        if subscription:
-            rates, source = None, "subscription"
-        else:
-            rates, source = _rates(model)
-            if rates is None:
-                return {"role": role, "model": model, "shard": shard, "blocked": True,
-                        "error": f"model {model} chưa có giá", "context_policy": policy}
-        if not prov.available():
-            return {"role": role, "model": model, "shard": shard, "blocked": True,
-                    "error": missing_key_text(prov), "context_policy": policy}
-        with lock:
+        primary = model or _model_of(role)
+        chain = (failover_chain(primary, provider_name, role=role)
+                 if failover_on() and model is None else [(provider_name or "", primary)])
+        if not chain:
+            chain = [(provider_name or "", primary)]
+        trail: list[dict] = []
+        last_err = None
+        last_model = primary
+        last_prov_name = provider_name or ""
+        for idx, (pname, mname) in enumerate(chain):
+            last_model, last_prov_name = mname, pname
+            prov = provider_for(mname, pname or None, base_url=base_url,
+                                api_key=api_key, max_tokens=max_tokens)
+            subscription = getattr(prov, "billing", "") == "subscription"
             if subscription:
-                hold = 0.0
-                if ledger.subscription_calls() >= C.SUBSCRIPTION_CALL_CAP:
-                    return {"role": role, "model": model, "shard": shard, "blocked": True,
-                            "budget": True, "context_policy": policy,
-                            "error": f"chạm trần {C.SUBSCRIPTION_CALL_CAP} lượt gọi gói thuê bao"}
-                rid = ledger.begin_request(role, model, 0.0, billing="subscription")
+                rates, source = None, "subscription"
             else:
-                hold = estimate_hold(rates, system, _user, max_tokens)
-                if spec is not None and hold > spec.cap_usd + 1e-9:
-                    return {"role": role, "model": model, "shard": shard, "blocked": True,
-                            "budget": True, "context_policy": policy,
-                            "error": f"vai {role} cần giữ ${hold:.4f}, vượt trần vai ${spec.cap_usd:.2f}"}
-                if plan.cap_usd and ledger.committed() + hold > plan.cap_usd + 1e-9:
-                    return {"role": role, "model": model, "shard": shard, "blocked": True,
-                            "budget": True, "error": "không đủ ngân sách để giữ chỗ",
-                            "context_policy": policy}
-                rid = ledger.begin_request(role, model, hold)
-        t0 = time.time()
-        try:
-            text, usage, usd, rid = ledger.tracked_call(
-                role, model, prov, system, _user, rates,
-                source=source, max_out=max_tokens, declared_by_user=source == "cli",
-                reserved_id=rid)
-        except ProviderError as e:
-            return {"role": role, "model": model, "shard": shard, "error": str(e),
-                    "request_id": rid, "uncertain": True,
-                    "usd": None if subscription else round(hold, 6),
-                    "attempt": getattr(prov, "attempts", 1), "context_policy": policy}
-        return {"role": role, "model": model, "shard": shard, "provider": prov.name,
-                "text": text, "usage": usage,
-                "usd": None if usd is None else round(usd, 6),
-                "billing": "subscription" if subscription else "metered",
-                "hold": round(hold, 6), "request_id": rid,
-                "seconds": round(time.time() - t0, 2),
-                "attempt": getattr(prov, "attempts", 1),
-                "context_policy": policy}
+                rates, source = _rates(mname)
+                if rates is None:
+                    last_err = f"model {mname} chưa có giá"
+                    trail.append({"provider": pname, "model": mname, "error": last_err})
+                    if failover_on() and idx + 1 < len(chain):
+                        continue
+                    return {"role": role, "model": mname, "shard": shard, "blocked": True,
+                            "error": last_err, "context_policy": policy, "failover": trail}
+            if not prov.available():
+                last_err = missing_key_text(prov)
+                trail.append({"provider": pname or prov.name, "model": mname, "error": last_err})
+                if failover_on() and idx + 1 < len(chain):
+                    continue
+                return {"role": role, "model": mname, "shard": shard, "blocked": True,
+                        "error": last_err, "context_policy": policy, "failover": trail}
+            with lock:
+                if subscription:
+                    hold = 0.0
+                    if ledger.subscription_calls() >= C.SUBSCRIPTION_CALL_CAP:
+                        last_err = (f"chạm trần {C.SUBSCRIPTION_CALL_CAP} lượt gọi gói thuê bao")
+                        trail.append({"provider": prov.name, "model": mname, "error": last_err})
+                        if failover_on() and is_failoverable(last_err) and idx + 1 < len(chain):
+                            continue
+                        return {"role": role, "model": mname, "shard": shard, "blocked": True,
+                                "budget": True, "context_policy": policy, "error": last_err,
+                                "failover": trail}
+                    rid = ledger.begin_request(role, mname, 0.0, billing="subscription")
+                else:
+                    hold = estimate_hold(rates, system, _user, max_tokens)
+                    if spec is not None and hold > spec.cap_usd + 1e-9:
+                        return {"role": role, "model": mname, "shard": shard, "blocked": True,
+                                "budget": True, "context_policy": policy,
+                                "error": f"vai {role} cần giữ ${hold:.4f}, vượt trần vai ${spec.cap_usd:.2f}"}
+                    if plan.cap_usd and ledger.committed() + hold > plan.cap_usd + 1e-9:
+                        return {"role": role, "model": mname, "shard": shard, "blocked": True,
+                                "budget": True, "error": "không đủ ngân sách để giữ chỗ",
+                                "context_policy": policy}
+                    rid = ledger.begin_request(role, mname, hold)
+            t0 = time.time()
+            try:
+                text, usage, usd, rid = ledger.tracked_call(
+                    role, mname, prov, system, _user, rates,
+                    source=source, max_out=max_tokens, declared_by_user=source == "cli",
+                    reserved_id=rid)
+            except ProviderError as e:
+                last_err = str(e)
+                trail.append({"provider": prov.name, "model": mname, "error": last_err,
+                              "attempt": getattr(prov, "attempts", 1)})
+                if failover_on() and is_failoverable(e) and idx + 1 < len(chain):
+                    continue
+                out = {"role": role, "model": mname, "shard": shard, "error": last_err,
+                       "request_id": rid, "uncertain": True,
+                       "usd": None if subscription else round(hold, 6),
+                       "attempt": getattr(prov, "attempts", 1), "context_policy": policy}
+                if trail:
+                    out["failover"] = trail
+                return out
+            out = {"role": role, "model": mname, "shard": shard, "provider": prov.name,
+                   "text": text, "usage": usage,
+                   "usd": None if usd is None else round(usd, 6),
+                   "billing": "subscription" if subscription else "metered",
+                   "hold": round(hold, 6), "request_id": rid,
+                   "seconds": round(time.time() - t0, 2),
+                   "attempt": getattr(prov, "attempts", 1),
+                   "context_policy": policy}
+            if trail:
+                out["failover"] = trail
+                out["failover_from"] = f"{trail[0].get('provider')}/{trail[0].get('model')}"
+            return out
+        return {"role": role, "model": last_model, "shard": shard,
+                "error": last_err or "hết chuỗi failover", "uncertain": True,
+                "context_policy": policy, "failover": trail}
 
     def _fanout(items: list[tuple[str, str, tuple[int, int] | None]]) -> list[dict]:
         """Chạy nhiều lần gọi SONG SONG; trả về ĐÚNG THỨ TỰ chỉ số."""
@@ -1203,8 +1241,9 @@ def execute_plan(plan: TeamPlan, *, provider_name: str | None = None,
                 money = SUBSCRIPTION_NOTE
             else:
                 money = UNKNOWN_USAGE_NOTE
+            via = f"  ← failover từ {st['failover_from']}" if st.get("failover_from") else ""
             log(f"{tag:<12} {st['model']:<16} {tok}  {money}  {float(st.get('seconds') or 0):5.1f}s"
-                + (f"  {st['request_id']}" if st.get("request_id") else ""))
+                + (f"  {st['request_id']}" if st.get("request_id") else "") + via)
 
     def _emit_called(st: dict) -> None:
         """Ghi bước. Dòng bỏ qua vì hết trần không in từng cái."""
